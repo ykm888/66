@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
 
 env:
-  # 核心物理对齐：锁定您的专属仓库源
+  # 物理校准：锁定您的专属仓库源
   REPO_URL: https://github.com/ykm99999/66
   REPO_BRANCH: openwrt-24.10-6.6
   FEEDS_CONF: feeds.conf.default
@@ -45,10 +45,10 @@ jobs:
 
     - name: Run Unified Patch Script
       run: |
-        # 物理审计：cd 到源码目录后执行相对路径脚本，解决 cp 报错
-        chmod +x scripts/sl3000-patch.sh
+        # 物理审计：使用绝对路径变量锁定脚本执行，终结 127 报错
+        chmod +x ${{ github.workspace }}/scripts/sl3000-patch.sh
         cd openwrt
-        ../scripts/sl3000-patch.sh
+        ${{ github.workspace }}/scripts/sl3000-patch.sh
 
     - name: Update feeds
       run: cd openwrt && ./scripts/feeds update -a
@@ -59,7 +59,8 @@ jobs:
     - name: Load custom configuration
       run: |
         [ -e files ] && mv files openwrt/files
-        [ -e $CONFIG_FILE ] && cp -f $CONFIG_FILE openwrt/.config
+        # 物理审计：使用物理绝对路径拷贝核心 config
+        [ -e ${{ github.workspace }}/${{ env.CONFIG_FILE }} ] && cp -f ${{ github.workspace }}/${{ env.CONFIG_FILE }} openwrt/.config
 
     - name: Download package
       id: package
