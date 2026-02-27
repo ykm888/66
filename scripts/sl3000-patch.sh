@@ -1,29 +1,36 @@
 #!/bin/bash
 # File: scripts/sl3000-patch.sh
 
-echo "正在执行终极整合修复逻辑..."
+echo "执行物理级错误删除与架构锁定..."
 
-# 1. 物理粉碎残留索引 (根除 whitespace 警告)
+# 1. 物理粉碎
 rm -rf tmp
 rm -f .config .config.old
 
-# 2. 三件套路径物理同步
+# 2. 三件套同步
 DTS_DEST="target/linux/mediatek/dts"
 MK_DEST="target/linux/mediatek/image/filogic.mk"
 mkdir -p "$DTS_DEST"
 
-# 物理同步：从根目录的 custom-config 同步至源码对应位置
 [ -f "../custom-config/mt7981b-3000-emmc.dts" ] && cp -f "../custom-config/mt7981b-3000-emmc.dts" "$DTS_DEST/mt7981b-3000-emmc.dts"
 [ -f "../custom-config/filogic.mk" ] && cp -f "../custom-config/filogic.mk" "$MK_DEST"
 [ -f "../custom-config/sl3000.config" ] && cp -f "../custom-config/sl3000.config" ".config"
 
-# 3. 物理屏蔽：彻底抹除 ASR3000 硬件段防止干扰
+# 3. 【核心物理删除】强制抹除源码中所有 ASR3000 块
+# 这一步如果不彻底，系统就会因为 ID 冲突跳转到 x86
 sed -i '/Device\/abt_asr3000/,/endef/d' target/linux/mediatek/image/filogic.mk
 
-# 4. 物理修改 IP 地址 (192.168.6.1)
-sed -i 's/192.168.1.1/192.168.6.1/g' package/base-files/files/bin/config_generate
+# 4. 物理清理：删除 .config 中任何可能残留的 x86 定义
+sed -i '/CONFIG_TARGET_x86/d' .config
 
-# 5. 强制物理重扫：确保内核 6.6 的 U-Boot 救砖驱动生效
+# 5. 生成配置并执行 Whitespace 物理大清洗
+make defconfig
+if [ -d "tmp" ]; then
+    echo "正在物理清洗生成文件中的空格错误..."
+    find tmp/ -name "*.in" -exec sed -i 's/^[[:space:]]*//' {} +
+fi
+
+# 6. 二次锁定写入
 make defconfig
 
-echo "整合脚本执行完毕。"
+echo "物理锁定完毕，SL-3000 环境已就绪。"
