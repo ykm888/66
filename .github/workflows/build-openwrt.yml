@@ -74,7 +74,6 @@ jobs:
       id: package
       run: |
         cd openwrt
-        # 物理修复：在下载前执行 defconfig，确保配置物理一致性
         make defconfig
         make download -j8
         find dl -size -1024c -exec ls -l {} \;
@@ -85,7 +84,6 @@ jobs:
       run: |
         cd openwrt
         echo -e "$(nproc) thread compile"
-        # 物理修复核心：注入 TERM 变量并强制使用非交互模式，防止 unknown terminal 报错
         TERM=xterm make -j$(nproc) FORCE_UNSAFE_CONFIGURE=1 || TERM=xterm make -j1 V=s FORCE_UNSAFE_CONFIGURE=1
         echo "status=success" >> $GITHUB_OUTPUT
         grep "CONFIG_TARGET" .config > DEVICE_DETAILS
@@ -100,7 +98,8 @@ jobs:
 
     - name: Upload bin directory
       uses: actions/upload-artifact@main
-      if: steps.compile.outputs.status == 'success' && env:UPLOAD_BIN_DIR == 'true'
+      # 物理修复：由 env:UPLOAD_BIN_DIR 修正为 env.UPLOAD_BIN_DIR
+      if: steps.compile.outputs.status == 'success' && env.UPLOAD_BIN_DIR == 'true'
       with:
         name: OpenWrt_bin${{ env.DEVICE_NAME }}${{ env.FILE_DATE }}
         path: openwrt/bin
