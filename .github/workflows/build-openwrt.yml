@@ -9,8 +9,6 @@ env:
   REPO_BRANCH: master
   FEEDS_CONF: feeds.conf.default
   CONFIG_FILE: custom-config/sl3000.config
-  DIY_P1_SH: diy-part1.sh
-  DIY_P2_SH: diy-part2.sh
   UPLOAD_BIN_DIR: false
   UPLOAD_FIRMWARE: true
   UPLOAD_RELEASE: true
@@ -44,12 +42,16 @@ jobs:
         git clone $REPO_URL -b $REPO_BRANCH openwrt
         ln -sf /workdir/openwrt $GITHUB_WORKSPACE/openwrt
 
-    - name: Load custom feeds
+    - name: Run Unified Patch Script
       run: |
-        [ -e $FEEDS_CONF ] && cp -f $FEEDS_CONF openwrt/feeds.conf.default
-        chmod +x $DIY_P1_SH
-        cd openwrt
-        $GITHUB_WORKSPACE/$DIY_P1_SH
+        # 物理合并调用：一个脚本完成所有 DIY 和物理补丁
+        if [ -f "scripts/sl3000-patch.sh" ]; then
+          chmod +x scripts/sl3000-patch.sh
+          ./scripts/sl3000-patch.sh
+        else
+          echo "致命错误：未找到合并后的脚本 scripts/sl3000-patch.sh"
+          exit 1
+        fi
 
     - name: Update feeds
       run: cd openwrt && ./scripts/feeds update -a
@@ -61,14 +63,6 @@ jobs:
       run: |
         [ -e files ] && mv files openwrt/files
         [ -e $CONFIG_FILE ] && cp -f $CONFIG_FILE openwrt/.config
-        chmod +x $DIY_P2_SH
-        cd openwrt
-        $GITHUB_WORKSPACE/$DIY_P2_SH
-
-    - name: Run sl3000-patch script
-      run: |
-        chmod +x scripts/sl3000-patch.sh
-        ./scripts/sl3000-patch.sh
 
     - name: Download package
       id: package
@@ -84,6 +78,7 @@ jobs:
       run: |
         cd openwrt
         echo -e "$(nproc) thread compile"
+        # 物理修复核心：注入 TERM 变量并强制使用非交互模式
         TERM=xterm make -j$(nproc) FORCE_UNSAFE_CONFIGURE=1 || TERM=xterm make -j1 V=s FORCE_UNSAFE_CONFIGURE=1
         echo "status=success" >> $GITHUB_OUTPUT
         grep "CONFIG_TARGET" .config > DEVICE_DETAILS
