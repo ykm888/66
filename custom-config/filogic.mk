@@ -14,42 +14,48 @@ define Build/mt7981-bl31-uboot
 	cat $(STAGING_DIR_IMAGE)/mt7981_$1-u-boot.fip >> $@
 endef
 
+define Build/mt7986-bl2
+	cat $(STAGING_DIR_IMAGE)/mt7986-$1-bl2.img >> $@
+endef
+
+define Build/mt7986-bl31-uboot
+	cat $(STAGING_DIR_IMAGE)/mt7986_$1-u-boot.fip >> $@
+endef
+
+define Build/mt7988-bl2
+	cat $(STAGING_DIR_IMAGE)/mt7988-$1-bl2.img >> $@
+endef
+
+define Build/mt7988-bl31-uboot
+	cat $(STAGING_DIR_IMAGE)/mt7988_$1-u-boot.fip >> $@
+endef
+
 define Build/mt798x-gpt
 	cp $@ $@.tmp 2>/dev/null || true
 	ptgen -g -o $@.tmp -a 1 -l 1024 \
-		$(if $(findstring sdmmc,$1), \
-			-H \
-			-t 0x83	-N bl2		-r	-p 4079k@17k \
-		) \
-			-t 0x83	-N ubootenv	-r	-p 512k@4M \
-			-t 0x83	-N factory	-r	-p 2M@4608k \
-			-t 0xef	-N fip		-r	-p 4M@6656k \
-				-N recovery	-r	-p 32M@12M \
-		$(if $(findstring sdmmc,$1), \
-				-N install	-r	-p 20M@44M \
-			-t 0x2e -N production		-p $(CONFIG_TARGET_ROOTFS_PARTSIZE)M@64M \
-		) \
-		$(if $(findstring emmc,$1), \
-			-t 0x2e -N production		-p $(CONFIG_TARGET_ROOTFS_PARTSIZE)M@64M \
-		)
+		$(if $(findstring spim-nand,$1), -p 512k@256k:env -p 1024k@768k:factory -p 2048k@1792k:fip) \
+		$(if $(findstring emmc,$1), -p 32M@2M:fip)
 	cat $@.tmp >> $@
 	rm $@.tmp
 endef
 
-define Device/sl_3000-emmc
-  DEVICE_VENDOR := SL
-  DEVICE_MODEL := 3000 eMMC
-  DEVICE_DTS := mt7981b-sl-3000-emmc
+define Device/abt_sl3000
+  DEVICE_VENDOR := ABT
+  DEVICE_MODEL := SL3000
+  DEVICE_VARIANT := (eMMC)
+  DEVICE_DTS := mt7981b-3000-emmc
   DEVICE_DTS_DIR := ../dts
-  DEVICE_PACKAGES := kmod-mt7915e kmod-mt7981-firmware mt7981-wo-firmware automount coremark blkid blockdev fdisk f2fsck mkf2fs kmod-mmc
-  KERNEL := kernel-bin | lzma | fit lzma $$(KDIR)/image-$$(firstword $$(DEVICE_DTS)).dtb
+  SUPPORTED_DEVICES := abt,sl3000
+  DEVICE_PACKAGES := kmod-mt7981-firmware mt7981-wo-firmware kmod-usb3 kmod-mt7915e
+  KERNEL := kernel-bin | lzma
   KERNEL_INITRAMFS := kernel-bin | lzma | \
-	fit lzma $$(KDIR)/image-$$(firstword $$(DEVICE_DTS)).dtb with-initrd | pad-to 64k
-  IMAGE/sysupgrade.bin := sysupgrade-tar | append-metadata
-  # [物理修复] 针对 U-Boot 固件生成的物理定义
-  ARTIFACTS := emmc-gpt.bin emmc-preloader.bin emmc-bl31-uboot.fip
-  ARTIFACT/emmc-gpt.bin := mt798x-gpt emmc
-  ARTIFACT/emmc-preloader.bin := mt7981-bl2 emmc-comb
-  ARTIFACT/emmc-bl31-uboot.fip := mt7981-bl31-uboot sl_3000-emmc
+        fit lzma $$(KDIR)/image-$$(firstword $$(DEVICE_DTS)).dtb
+  IMAGE_SIZE := 102400k
+  IMAGES := sysupgrade.itb
+  IMAGE/sysupgrade.itb := append-kernel | append-rootfs | \
+        monitor-fip mt7981-emmc-abt_sl3000 | pad-to 128k | append-metadata
+  ARTIFACTS := preloader.bin u-boot.fip
+  ARTIFACT/preloader.bin := mt7981-bl2 emmc-ddr3
+  ARTIFACT/u-boot.fip := mt7981-bl31-uboot abt_sl3000
 endef
-TARGET_DEVICES += sl_3000-emmc
+TARGET_DEVICES += abt_sl3000
