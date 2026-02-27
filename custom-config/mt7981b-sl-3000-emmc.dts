@@ -25,8 +25,7 @@
 	};
 
 	memory@40000000 {
-		/* 物理修复：原文 0x20000000 修改为 0x40000000 以实现 1GB 内存锁定 */
-		reg = <0 0x40000000 0 0x40000000>;
+		reg = <0 0x40000000 0 0x20000000>;
 	};
 
 	gpio-keys {
@@ -49,19 +48,19 @@
 	gpio-leds {
 		compatible = "gpio-leds";
 
-                status_red_led: led-0 {
-                        label = "red:status";
-                        gpios = <&pio 10 GPIO_ACTIVE_LOW>;
-                };
+		status_red_led: led-0 {
+			label = "red:status";
+			gpios = <&pio 10 GPIO_ACTIVE_LOW>;
+		};
 
-                status_green_led: led-1 {
-                        label = "green:status";
-                        gpios = <&pio 11 GPIO_ACTIVE_LOW>;
-                };
+		status_green_led: led-1 {
+			label = "green:status";
+			gpios = <&pio 11 GPIO_ACTIVE_LOW>;
+		};
 
-                status_blue_led: led-2 {
-                        label = "blue:status";
-                        gpios = <&pio 12 GPIO_ACTIVE_LOW>;
+		status_blue_led: led-2 {
+			label = "blue:status";
+			gpios = <&pio 12 GPIO_ACTIVE_LOW>;
 		};
 	};
 };
@@ -80,7 +79,7 @@
 			pause;
 		};
 	};
-	
+
 	gmac1: mac@1 {
 		compatible = "mediatek,eth-mac";
 		reg = <1>;
@@ -93,12 +92,9 @@
 		};
 	};
 
-
-
 	mdio: mdio-bus {
 		#address-cells = <1>;
 		#size-cells = <0>;
-
 
 		switch@0 {
 			compatible = "mediatek,mt7531";
@@ -128,7 +124,7 @@
 					reg = <3>;
 					label = "wan";
 				};
-				
+
 				port@6 {
 					reg = <6>;
 					label = "cpu";
