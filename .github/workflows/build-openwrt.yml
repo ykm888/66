@@ -5,8 +5,9 @@ on:
   workflow_dispatch:
 
 env:
-  REPO_URL: https://github.com/coolsnowwolf/lede
-  REPO_BRANCH: master
+  # 核心物理对齐：锁定您的专属仓库源
+  REPO_URL: https://github.com/ykm99999/66
+  REPO_BRANCH: openwrt-24.10-6.6
   FEEDS_CONF: feeds.conf.default
   CONFIG_FILE: custom-config/sl3000.config
   UPLOAD_BIN_DIR: false
@@ -44,7 +45,7 @@ jobs:
 
     - name: Run Unified Patch Script
       run: |
-        # 物理审计：物理切换至源码目录执行脚本，确保路径对齐
+        # 物理审计：cd 到源码目录后执行相对路径脚本，解决 cp 报错
         chmod +x scripts/sl3000-patch.sh
         cd openwrt
         ../scripts/sl3000-patch.sh
@@ -74,6 +75,7 @@ jobs:
       run: |
         cd openwrt
         echo -e "$(nproc) thread compile"
+        # 物理环境补丁：锁定 TERM 变量解决编译交互报错
         TERM=xterm make -j$(nproc) FORCE_UNSAFE_CONFIGURE=1 || TERM=xterm make -j1 V=s FORCE_UNSAFE_CONFIGURE=1
         echo "status=success" >> $GITHUB_OUTPUT
         grep "CONFIG_TARGET" .config > DEVICE_DETAILS
