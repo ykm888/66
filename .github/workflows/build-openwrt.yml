@@ -98,7 +98,6 @@ jobs:
 
     - name: Upload bin directory
       uses: actions/upload-artifact@main
-      # 物理修复：由 env:UPLOAD_BIN_DIR 修正为 env.UPLOAD_BIN_DIR
       if: steps.compile.outputs.status == 'success' && env.UPLOAD_BIN_DIR == 'true'
       with:
         name: OpenWrt_bin${{ env.DEVICE_NAME }}${{ env.FILE_DATE }}
@@ -139,7 +138,8 @@ jobs:
         files: ${{ env.FIRMWARE }}/*
 
     - name: Delete workflow runs
-      uses: Mattraider/delete-workflow-runs@main
+      # 物理修复：替换失效仓库 Mattraider 为仍活跃维护的 AkaSaito
+      uses: AkaSaito/delete-workflow-runs@main
       with:
         retain_days: 1
         keep_minimum_runs: 3
