@@ -44,7 +44,7 @@ jobs:
 
     - name: 加载 feeds
       run: |
-        [ -f "$FEEDS_CONF" ] && cp -f "$FEEDS_CONF" openwrt/feeds.conf.default
+        [ -e "$FEEDS_CONF" ] && cp -f "$FEEDS_CONF" openwrt/feeds.conf.default || echo "配置文件不存在，跳过物理同步。"
 
     - name: 更新 feeds
       run: cd openwrt && ./scripts/feeds update -a
@@ -52,24 +52,21 @@ jobs:
     - name: 安装 feeds
       run: cd openwrt && ./scripts/feeds install -a
 
-    - name: 加载自定义配置 (物理删除错误专用)
+    - name: 加载自定义配置 (源头物理修复)
       run: |
-        # 物理重置 1：粉碎 tmp 残留
         rm -rf openwrt/tmp
-        # 物理重置 2：强制清洗 sl3000.config 里的非法空格
-        sed -i 's/^[ \t]*//;s/[ \t]*$//' $CONFIG_FILE
         chmod +x $DIY_P2_SH
         cd openwrt
         $GITHUB_WORKSPACE/$DIY_P2_SH
 
-    - name: 物理架构熔断器
+    - name: 物理架构熔断校验
       run: |
         cd openwrt
         if grep -q "CONFIG_TARGET_x86=y" .config; then
-          echo "致命错误：系统仍然试图跳转到 x86！物理强制终止。"
+          echo "致命错误：物理修复被源码反杀，系统试图编译 x86！"
           exit 1
         fi
-        echo "物理验证成功：当前已锁定 MediaTek Filogic 架构。"
+        echo "审计通过：当前物理架构已锁定为 SL-3000 (MediaTek)。"
 
     - name: 下载软件包
       id: package
@@ -96,7 +93,6 @@ jobs:
       run: |
         cd openwrt/bin/targets/*/*
         rm -rf packages
-        # 物理打捞核心救砖包
         find ../../../bin/ -name "*u-boot.fip" -exec cp -f {} . \; 2>/dev/null || true
         find ../../../bin/ -name "*bl2*.bin" -exec cp -f {} . \; 2>/dev/null || true
         echo "FIRMWARE=$PWD" >> $GITHUB_ENV
@@ -109,11 +105,26 @@ jobs:
         name: OpenWrt_firmware${{ env.FILE_DATE }}
         path: ${{ env.FIRMWARE }}
 
+    - name: 生成发布标签
+      id: tag
+      if: env.UPLOAD_RELEASE == 'true' && !cancelled()
+      run: |
+        echo "release_tag=$(date +"%Y.%m.%d-%H%M")" >> $GITHUB_OUTPUT
+        touch release.txt
+        echo "物理产出：SL-3000 (MT7981B) 专属固件" >> release.txt
+        echo "status=success" >> $GITHUB_OUTPUT
+
     - name: 发布至 Release
       uses: softprops/action-gh-release@v1
       if: steps.tag.outputs.status == 'success' && !cancelled()
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
-        tag_name: $(date +"%Y.%m.%d-%H%M")
+        tag_name: ${{ steps.tag.outputs.release_tag }}
+        body_path: release.txt
         files: ${{ env.FIRMWARE }}/*
+
+    - name: 删除旧工作流
+      uses: P3TERX/delete-workflow-runs@main
+      with:
+        retain_days: 1
