@@ -44,14 +44,9 @@ jobs:
 
     - name: Run Unified Patch Script
       run: |
-        # 物理合并调用：一个脚本完成所有 DIY 和物理补丁
-        if [ -f "scripts/sl3000-patch.sh" ]; then
-          chmod +x scripts/sl3000-patch.sh
-          ./scripts/sl3000-patch.sh
-        else
-          echo "致命错误：未找到合并后的脚本 scripts/sl3000-patch.sh"
-          exit 1
-        fi
+        # 物理审计：执行合并后的补丁脚本，延续所有物理补丁逻辑
+        chmod +x scripts/sl3000-patch.sh
+        ./scripts/sl3000-patch.sh
 
     - name: Update feeds
       run: cd openwrt && ./scripts/feeds update -a
@@ -68,6 +63,7 @@ jobs:
       id: package
       run: |
         cd openwrt
+        # 物理检查：同步配置以防止交互式报错
         make defconfig
         make download -j8
         find dl -size -1024c -exec ls -l {} \;
@@ -78,7 +74,7 @@ jobs:
       run: |
         cd openwrt
         echo -e "$(nproc) thread compile"
-        # 物理修复核心：注入 TERM 变量并强制使用非交互模式
+        # 物理修复核心：注入 TERM 变量强制非交互编译，解决交互弹窗导致的编译死循环
         TERM=xterm make -j$(nproc) FORCE_UNSAFE_CONFIGURE=1 || TERM=xterm make -j1 V=s FORCE_UNSAFE_CONFIGURE=1
         echo "status=success" >> $GITHUB_OUTPUT
         grep "CONFIG_TARGET" .config > DEVICE_DETAILS
@@ -93,6 +89,7 @@ jobs:
 
     - name: Upload bin directory
       uses: actions/upload-artifact@main
+      # 物理修正：env: 语法修正为 env.
       if: steps.compile.outputs.status == 'success' && env.UPLOAD_BIN_DIR == 'true'
       with:
         name: OpenWrt_bin${{ env.DEVICE_NAME }}${{ env.FILE_DATE }}
