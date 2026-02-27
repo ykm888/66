@@ -17,7 +17,7 @@ define U-Boot/Default
   HIDDEN:=1
 endef
 
-# 物理死锁：仅保留 SL-3000 EMMC 救砖固件定义
+# 物理死锁：SL-3000 EMMC 唯一救砖定义
 define U-Boot/mt7981_sl_3000-emmc
   NAME:=SL 3000 (eMMC)
   BUILD_SUBTARGET:=filogic
@@ -30,7 +30,7 @@ define U-Boot/mt7981_sl_3000-emmc
   DEPENDS:=+trusted-firmware-a-mt7981-emmc-ddr3
 endef
 
-# 物理清单：仅允许编译 SL-3000
+# 物理物理清单：彻底删除 ASR3000 等无关设备
 UBOOT_TARGETS := \
 	mt7981_sl_3000-emmc
 
@@ -45,7 +45,7 @@ ifdef CONFIG_TARGET_mediatek
 UBOOT_MAKE_FLAGS += $(UBOOT_IMAGE:.fip=.bin)
 endif
 
-# 物理合成：FIP 救砖镜像生成逻辑
+# 物理合成：FIP 镜像核心驱动逻辑
 define Build/fip-image
 	$(STAGING_DIR_HOST)/bin/fiptool create \
 		--soc-fw $(STAGING_DIR_IMAGE)/mt7981-emmc-ddr3-bl31.bin \
@@ -65,7 +65,6 @@ ifeq ($(UBOOT_IMAGE),u-boot.fip)
 endif
 endef
 
-# 物理隔离：不安装到系统 bin，由 ImageBuilder 处理
 ifdef CONFIG_TARGET_mediatek
 define Package/u-boot/install
 endef
