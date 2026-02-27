@@ -44,7 +44,7 @@ jobs:
 
     - name: 加载 feeds
       run: |
-        [ -e "$FEEDS_CONF" ] && cp -f "$FEEDS_CONF" openwrt/feeds.conf.default || echo "Feeds 配置文件不存在，跳过物理同步。"
+        [ -e "$FEEDS_CONF" ] && cp -f "$FEEDS_CONF" openwrt/feeds.conf.default || echo "跳过 Feeds 同步。"
 
     - name: 更新 feeds
       run: cd openwrt && ./scripts/feeds update -a
@@ -55,7 +55,6 @@ jobs:
     - name: 加载自定义配置 (源头物理修复)
       run: |
         rm -rf openwrt/tmp
-        # 物理清洗配置文件的空格，防止索引污染
         sed -i 's/^[[:space:]]*//;s/[[:space:]]*$//' $CONFIG_FILE
         chmod +x $DIY_P2_SH
         cd openwrt
@@ -64,10 +63,8 @@ jobs:
     - name: 物理架构熔断校验
       run: |
         cd openwrt
-        # 物理审计：如果发现 .config 里有 x86 激活，说明物理修复被反杀，立即报错
         if grep -q "CONFIG_TARGET_x86=y" .config; then
-          echo "致命错误：物理修复被反杀！当前架构状态："
-          grep "CONFIG_TARGET" .config
+          echo "致命错误：物理修复被反杀！"
           exit 1
         fi
         echo "审计通过：当前物理架构已锁定为 SL-3000。"
@@ -97,7 +94,6 @@ jobs:
       run: |
         cd openwrt/bin/targets/*/*
         rm -rf packages
-        # 物理强制搜索并拷贝 U-Boot 和 BL2
         find ../../../bin/ -name "*u-boot.fip" -exec cp -f {} . \; 2>/dev/null || true
         find ../../../bin/ -name "*bl2*.bin" -exec cp -f {} . \; 2>/dev/null || true
         echo "FIRMWARE=$PWD" >> $GITHUB_ENV
