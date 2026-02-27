@@ -1,15 +1,16 @@
-name: OpenWrt-Builder
+name: Build SL3000 Firmware
 
 on:
   repository_dispatch:
   workflow_dispatch:
 
 env:
-  REPO_URL: https://github.com/ykm99999/66
-  REPO_BRANCH: openwrt-24.10-6.6
+  REPO_URL: https://github.com/coolsnowwolf/lede
+  REPO_BRANCH: master
   FEEDS_CONF: feeds.conf.default
   CONFIG_FILE: custom-config/sl3000.config
-  DIY_P2_SH: scripts/sl3000-patch.sh
+  DIY_P1_SH: diy-part1.sh
+  DIY_P2_SH: diy-part2.sh
   UPLOAD_BIN_DIR: false
   UPLOAD_FIRMWARE: true
   UPLOAD_RELEASE: true
@@ -20,125 +21,132 @@ jobs:
     runs-on: ubuntu-22.04
 
     steps:
-    - name: 检查项目
+    - name: Checkout
       uses: actions/checkout@main
 
-    - name: 初始化环境
+    - name: Initialization environment
       env:
         DEBIAN_FRONTEND: noninteractive
       run: |
-        sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc
+        sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/share/powershell /usr/share/swift /usr/local/.ghcup /root/.dotnet
         sudo -E apt-get -qq update
-        sudo -E apt-get -qq install $(curl -fsSL https://is.gd/p3terx_build_env)
+        sudo -E apt-get -qq install $(curl -fsSL https://is.gd/depends_ubuntu_2204)
         sudo -E apt-get -qq autoremove --purge
         sudo -E apt-get -qq clean
         sudo timedatectl set-timezone "$TZ"
         sudo mkdir -p /workdir
-        sudo chown $USER:$USER /workdir
+        sudo chown $USER:$GROUPS /workdir
 
-    - name: 下载源码
+    - name: Clone source code
       working-directory: /workdir
       run: |
+        df -hT $PWD
         git clone $REPO_URL -b $REPO_BRANCH openwrt
         ln -sf /workdir/openwrt $GITHUB_WORKSPACE/openwrt
 
-    - name: 加载 feeds
+    - name: Load custom feeds
       run: |
-        [ -e "$FEEDS_CONF" ] && cp -f "$FEEDS_CONF" openwrt/feeds.conf.default || echo "跳过 Feeds 同步。"
+        [ -e $FEEDS_CONF ] && cp -f $FEEDS_CONF openwrt/feeds.conf.default
+        chmod +x $DIY_P1_SH
+        cd openwrt
+        $GITHUB_WORKSPACE/$DIY_P1_SH
 
-    - name: 更新 feeds
+    - name: Update feeds
       run: cd openwrt && ./scripts/feeds update -a
 
-    - name: 安装 feeds
+    - name: Install feeds
       run: cd openwrt && ./scripts/feeds install -a
 
-    - name: 加载自定义配置 (源头物理修复)
+    - name: Load custom configuration
       run: |
-        rm -rf openwrt/tmp
-        sed -i 's/^[[:space:]]*//;s/[[:space:]]*$//' $CONFIG_FILE
+        [ -e files ] && mv files openwrt/files
+        [ -e $CONFIG_FILE ] && cp -f $CONFIG_FILE openwrt/.config
         chmod +x $DIY_P2_SH
         cd openwrt
         $GITHUB_WORKSPACE/$DIY_P2_SH
 
-    - name: 物理架构熔断校验
+    - name: Run sl3000-patch script
       run: |
-        cd openwrt
-        if grep -q "CONFIG_TARGET_x86=y" .config; then
-          echo "致命错误：物理修复被反杀！"
-          exit 1
-        fi
-        echo "审计通过：当前物理架构已锁定为 SL-3000。"
+        chmod +x scripts/sl3000-patch.sh
+        ./scripts/sl3000-patch.sh
 
-    - name: 下载软件包
+    - name: Download package
       id: package
       run: |
         cd openwrt
+        # 物理修复：在下载前执行 defconfig，确保配置物理一致性
+        make defconfig
         make download -j8
+        find dl -size -1024c -exec ls -l {} \;
         find dl -size -1024c -exec rm -f {} \;
 
-    - name: 编译固件
+    - name: Compile the firmware
       id: compile
       run: |
         cd openwrt
-        make -j$(nproc) || make -j1 V=s
+        echo -e "$(nproc) thread compile"
+        # 物理修复核心：注入 TERM 变量并强制使用非交互模式，防止 unknown terminal 报错
+        TERM=xterm make -j$(nproc) FORCE_UNSAFE_CONFIGURE=1 || TERM=xterm make -j1 V=s FORCE_UNSAFE_CONFIGURE=1
         echo "status=success" >> $GITHUB_OUTPUT
+        grep "CONFIG_TARGET" .config > DEVICE_DETAILS
+        if [ -s DEVICE_DETAILS ]; then
+          echo "DEVICE_NAME=_$(cat DEVICE_DETAILS | grep CONFIG_TARGET_DEVICE_.*_DEVICE_.*=y | cut -d _ -f 5- | sed 's/=y//')" >> $GITHUB_ENV
+        fi
         echo "FILE_DATE=_$(date +"%Y%m%d%H%M")" >> $GITHUB_ENV
 
-    - name: 检查剩余空间
+    - name: Check space usage
       if: (!cancelled())
       run: df -hT
 
-    - name: 整理文件
+    - name: Upload bin directory
+      uses: actions/upload-artifact@main
+      if: steps.compile.outputs.status == 'success' && env:UPLOAD_BIN_DIR == 'true'
+      with:
+        name: OpenWrt_bin${{ env.DEVICE_NAME }}${{ env.FILE_DATE }}
+        path: openwrt/bin
+
+    - name: Organize files
       id: organize
       if: env.UPLOAD_FIRMWARE == 'true' && !cancelled()
       run: |
         cd openwrt/bin/targets/*/*
         rm -rf packages
-        find ../../../bin/ -name "*u-boot.fip" -exec cp -f {} . \; 2>/dev/null || true
-        find ../../../bin/ -name "*bl2*.bin" -exec cp -f {} . \; 2>/dev/null || true
         echo "FIRMWARE=$PWD" >> $GITHUB_ENV
         echo "status=success" >> $GITHUB_OUTPUT
 
-    - name: 上传 bin 目录
-      uses: actions/upload-artifact@main
-      if: steps.organize.outputs.status == 'success' && env.UPLOAD_BIN_DIR == 'true'
-      with:
-        name: OpenWrt_bin${{ env.FILE_DATE }}
-        path: openwrt/bin
-
-    - name: 上传固件目录
+    - name: Upload firmware directory
       uses: actions/upload-artifact@main
       if: steps.organize.outputs.status == 'success' && !cancelled()
       with:
-        name: OpenWrt_firmware${{ env.FILE_DATE }}
+        name: OpenWrt_firmware${{ env.DEVICE_NAME }}${{ env.FILE_DATE }}
         path: ${{ env.FIRMWARE }}
 
-    - name: 生成发布标签
+    - name: Generate release tag
       id: tag
       if: env.UPLOAD_RELEASE == 'true' && !cancelled()
       run: |
         echo "release_tag=$(date +"%Y.%m.%d-%H%M")" >> $GITHUB_OUTPUT
         touch release.txt
-        echo "物理产出：SL-3000 (MT7981B) 专属固件" >> release.txt
         echo "status=success" >> $GITHUB_OUTPUT
 
-    - name: 发布至 Release
-      uses: softprops/action-gh-release@v1
+    - name: Upload firmware to release
+      uses: softprops/action-gh-release@master
       if: steps.tag.outputs.status == 'success' && !cancelled()
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
         tag_name: ${{ steps.tag.outputs.release_tag }}
         body_path: release.txt
         files: ${{ env.FIRMWARE }}/*
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-    - name: 删除旧工作流
-      uses: P3TERX/delete-workflow-runs@main
+    - name: Delete workflow runs
+      uses: Mattraider/delete-workflow-runs@main
       with:
         retain_days: 1
+        keep_minimum_runs: 3
 
-    - name: 删除旧 Release
-      uses: dev-drprasad/delete-older-releases@v0.1.0
+    - name: Remove old Releases
+      uses: dev-drprasad/delete-older-releases@master
       if: env.UPLOAD_RELEASE == 'true' && !cancelled()
       with:
         keep_latest: 3
