@@ -55,11 +55,10 @@ jobs:
 
     - name: 加载 feeds
       run: |
-        # 物理防御：只有当文件真的存在时才执行拷贝，否则跳过
         if [ -f "$GITHUB_WORKSPACE/$FEEDS_CONF" ]; then
           cp -f "$GITHUB_WORKSPACE/$FEEDS_CONF" openwrt/feeds.conf.default
         else
-          echo "Warning: $FEEDS_CONF 不存在，跳过物理拷贝。"
+          echo "FEEDS_CONF 不存在，跳过物理拷贝。"
         fi
 
     - name: 更新 feeds
@@ -68,11 +67,12 @@ jobs:
     - name: 安装 feeds
       run: cd openwrt && ./scripts/feeds install -a
 
-    - name: 加载自定义配置 (终极整合修复版)
+    - name: 加载自定义配置 (终极物理整合成品)
       run: |
+        # 物理粉碎：在进入目录前先行炸毁残留缓存
+        rm -rf openwrt/tmp
         chmod +x $DIY_P2_SH
         cd openwrt
-        # 物理整合：粉碎残留缓存 -> 同步三件套 -> 锁定SL3000
         $GITHUB_WORKSPACE/$DIY_P2_SH
 
     - name: 下载软件包
@@ -104,7 +104,7 @@ jobs:
       run: |
         cd openwrt/bin/targets/*/*
         rm -rf packages
-        # 物理打捞指令：强制寻找并拷贝救砖用的 u-boot.fip 和 bl2 文件
+        # 物理打捞：搜寻救砖固件包 (u-boot.fip, bl2)
         find ../../../bin/ -name "*u-boot.fip" -exec cp -f {} . \; 2>/dev/null || true
         find ../../../bin/ -name "*bl2*.bin" -exec cp -f {} . \; 2>/dev/null || true
         echo "FIRMWARE=$PWD" >> $GITHUB_ENV
@@ -130,8 +130,8 @@ jobs:
       run: |
         echo "release_tag=$(date +"%Y.%m.%d-%H%M")" >> $GITHUB_OUTPUT
         touch release.txt
-        echo "彻底修复版：物理粉碎 ASR3000 定义与 whitespace 警告" >> release.txt
-        echo "彻底修复版：物理锁定 SL-3000 单机固件并产出 U-Boot 救砖包" >> release.txt
+        echo "新仓库物理初始化：已彻底粉碎 ASR3000 定义与空白符污染" >> release.txt
+        echo "物理产出：SL-3000 单机固件 + U-Boot 救砖包" >> release.txt
         echo "status=success" >> $GITHUB_OUTPUT
 
     - name: 发布至 Release
@@ -157,4 +157,4 @@ jobs:
         keep_latest: 3
         delete_tags: true
       env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
