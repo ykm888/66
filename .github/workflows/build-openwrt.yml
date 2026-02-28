@@ -46,12 +46,11 @@ jobs:
         ./scripts/feeds update -a
         ./scripts/feeds install -a
 
-    - name: Run Unified Patch Script (Targeted Fix)
+    - name: Run Unified Patch Script (Initial Configuration)
       run: |
         [ -e $CONFIG_FILE ] && cp -f $CONFIG_FILE openwrt/.config
         chmod +x $GITHUB_WORKSPACE/$PATCH_SH
         cd openwrt
-        # 物理注入：1024M内存 + 内核修复 + 三件套覆盖
         $GITHUB_WORKSPACE/$PATCH_SH
         ./scripts/feeds update -a
         ./scripts/feeds install -a
@@ -62,16 +61,24 @@ jobs:
         make defconfig
         make download -j8
 
+    - name: Prepare Kernel Source & Patch Symbols
+      run: |
+        cd openwrt
+        # 物理准备：解压内核源码，以便脚本修改 mtk_eth_soc.c
+        make target/linux/prepare -j$(nproc)
+        # 执行物理修复：注入缺失符号
+        $GITHUB_WORKSPACE/$PATCH_SH
+
     - name: Compile the firmware
       id: compile
       run: |
         cd openwrt
-        # 物理熔断策略：若多线程报错，自动切换单线程 V=s 获取详细路径
+        # 物理编译：多线程执行，若失败切换单线程 V=s 确保通过
         make -j$(nproc) || make -j1 V=s
         echo "status=success" >> $GITHUB_OUTPUT
         echo "FILE_DATE=_$(date +"%Y%m%d%H%M")" >> $GITHUB_ENV
 
-    - name: Organize files (Rescue Set)
+    - name: Organize files (Rescue Package)
       id: organize
       if: steps.compile.outputs.status == 'success' && !cancelled()
       run: |
