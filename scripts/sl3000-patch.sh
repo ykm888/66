@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# 1. 存储与内存定义物理锁定 (保持 1024M 物理属性)
+# 1. 存储与内存定义物理锁定
 IMAGE_DIR="target/linux/mediatek/image/"
 if [ -d "$IMAGE_DIR" ]; then
     grep -rl "DRAM_SIZE_" "$IMAGE_DIR" | xargs sed -i 's/DRAM_SIZE_256M=y/DRAM_SIZE_1024M=y/g' 2>/dev/null
@@ -26,6 +26,10 @@ if [ -n "$ETH_SOC_HDR" ]; then
 
 #ifndef HIT_BIND_FORCE_TO_CPU
 #define HIT_BIND_FORCE_TO_CPU 1
+#endif
+
+#ifndef MTK_WIFI_RESET_DONE
+#define MTK_WIFI_RESET_DONE 0x16
 #endif
 /* --- Patch End --- */
 EOF
