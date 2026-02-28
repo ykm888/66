@@ -46,14 +46,15 @@ jobs:
         ./scripts/feeds update -a
         ./scripts/feeds install -a
 
-    - name: Run Unified Patch Script (Targeted Fix)
+    - name: Run Unified Patch Script (Absolute Path Fix)
       run: |
         # 物理注入配置
         [ -e $CONFIG_FILE ] && cp -f $CONFIG_FILE openwrt/.config
-        chmod +x $PATCH_SH
-        # 进入 openwrt 目录执行，确保相对路径 config-6.6 可读
+        # 赋予脚本权限（使用绝对路径）
+        chmod +x $GITHUB_WORKSPACE/$PATCH_SH
+        # 进入 openwrt 目录执行，并传入绝对路径执行脚本
         cd openwrt
-        ../$PATCH_SH
+        $GITHUB_WORKSPACE/$PATCH_SH
         ./scripts/feeds update -a
         ./scripts/feeds install -a
 
