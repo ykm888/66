@@ -64,12 +64,16 @@ define Device/sl_3000-emmc
   KERNEL := kernel-bin | lzma | fit lzma $$(KDIR)/image-$$(firstword $$(DEVICE_DTS)).dtb
   KERNEL_INITRAMFS := kernel-bin | lzma | fit lzma $$(KDIR)/image-$$(firstword $$(DEVICE_DTS)).dtb with-initrd | pad-to 64k
   KERNEL_INITRAMFS_SUFFIX := -recovery.itb
-  IMAGES := sysupgrade.bin sdcard.img.gz
+  IMAGES := sysupgrade.bin sdcard.img.gz factory.img.gz
   IMAGE/sysupgrade.bin := sysupgrade-tar | append-metadata
   ARTIFACTS := emmc-gpt.bin emmc-preloader.bin emmc-bl31-uboot.fip
   ARTIFACT/emmc-gpt.bin := mt798x-gpt emmc
   ARTIFACT/emmc-preloader.bin := mt7981-bl2 emmc-ddr3
   ARTIFACT/emmc-bl31-uboot.fip := mt7981-bl31-uboot sl_3000-emmc
+  IMAGE/factory.img.gz := mt798x-gpt emmc |\
+	pad-to 17k | mt7981-bl2 emmc-ddr3 |\
+	pad-to 6656k | mt7981-bl31-uboot sl_3000-emmc |\
+	pad-to 64M | append-image squashfs-sysupgrade.itb | gzip
   ARTIFACT/sdcard.img.gz := mt798x-gpt sdmmc |\
 	pad-to 17k | mt7981-bl2 sdmmc-ddr3 |\
 	pad-to 6656k | mt7981-bl31-uboot sl_3000-emmc |\
