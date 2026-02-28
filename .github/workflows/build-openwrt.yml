@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
 
 env:
-  # 核心锁定：延续您指定的 ykm99999/66 仓库及 24.10-6.6 分支
+  # 物理锁定：成功案例指定的仓库源
   REPO_URL: https://github.com/ykm99999/66
   REPO_BRANCH: openwrt-24.10-6.6
   FEEDS_CONF: feeds.conf.default
@@ -37,7 +37,6 @@ jobs:
     - name: Clone source code
       working-directory: /workdir
       run: |
-        # 物理克隆指定仓库
         git clone $REPO_URL -b $REPO_BRANCH openwrt
         ln -sf /workdir/openwrt $GITHUB_WORKSPACE/openwrt
 
@@ -48,15 +47,13 @@ jobs:
         ./scripts/feeds update -a
         ./scripts/feeds install -a
 
-    - name: Run Unified Patch Script (Merge DIY & Patch)
+    - name: Run Unified Patch Script (Merge DIY & Fix)
       run: |
-        # 延续之前设置：物理注入核心配置
         [ -e $CONFIG_FILE ] && cp -f $CONFIG_FILE openwrt/.config
         chmod +x $PATCH_SH
-        # 执行物理合并脚本
+        # 执行物理对齐补丁
         ./$PATCH_SH
         cd openwrt
-        # 补丁注入后二次同步 feeds 确保依赖完整
         ./scripts/feeds update -a
         ./scripts/feeds install -a
 
@@ -71,6 +68,7 @@ jobs:
       id: compile
       run: |
         cd openwrt
+        # 物理策略：延续单线程重试机制确保报错透明
         make -j$(nproc) || make -j1 V=s
         echo "status=success" >> $GITHUB_OUTPUT
         echo "FILE_DATE=_$(date +"%Y%m%d%H%M")" >> $GITHUB_ENV
