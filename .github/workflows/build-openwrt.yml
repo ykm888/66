@@ -1,3 +1,4 @@
+# 核心结构已锁定，严禁修改步骤名称和顺序
 name: Build SL-3000 Rescue Firmware
 
 on:
@@ -51,9 +52,8 @@ jobs:
         [ -e $GITHUB_WORKSPACE/$CONFIG_FILE ] && cp -f $GITHUB_WORKSPACE/$CONFIG_FILE openwrt/.config
         chmod +x $GITHUB_WORKSPACE/$PATCH_SH
         cd openwrt
-        # 物理执行配置审计
         make defconfig
-        # 物理锁死 U-Boot 变体名，防止回弹
+        # 物理死锁：强制覆盖 U-Boot 配置
         sed -i 's/CONFIG_UBOOT_VARIANT_mt7981_emmc=y/# CONFIG_UBOOT_VARIANT_mt7981_emmc is not set/g' .config
         echo "CONFIG_UBOOT_VARIANT_mt7981_sl_3000-emmc=y" >> .config
 
@@ -65,7 +65,7 @@ jobs:
     - name: Prepare Source & Physical Patch
       run: |
         cd openwrt
-        # 预编译内核源码以触发脚本补丁路径
+        # 必须先 prepare 内核源码
         make target/linux/prepare -j$(nproc)
         $GITHUB_WORKSPACE/$PATCH_SH
 
@@ -83,7 +83,6 @@ jobs:
       run: |
         cd openwrt/bin/targets/mediatek/filogic/
         mkdir -p $GITHUB_WORKSPACE/firmware_output
-        # 物理抓取：锁定带 sl_3000 字样的所有产物
         cp -f *sl_3000-emmc* $GITHUB_WORKSPACE/firmware_output/ || true
         echo "FIRMWARE=$GITHUB_WORKSPACE/firmware_output" >> $GITHUB_ENV
         echo "status=success" >> $GITHUB_OUTPUT
