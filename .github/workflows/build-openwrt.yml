@@ -5,12 +5,12 @@ on:
   workflow_dispatch:
 
 env:
-  REPO_URL: https://github.com/coolsnowwolf/lede
-  REPO_BRANCH: master
+  # 核心锁定：延续您指定的 ykm99999/66 仓库及 24.10-6.6 分支
+  REPO_URL: https://github.com/ykm99999/66
+  REPO_BRANCH: openwrt-24.10-6.6
   FEEDS_CONF: feeds.conf.default
   CONFIG_FILE: custom-config/sl3000.config
   PATCH_SH: scripts/sl3000-patch.sh
-  UPLOAD_BIN_DIR: false
   UPLOAD_FIRMWARE: true
   UPLOAD_RELEASE: true
   TZ: Asia/Shanghai
@@ -24,8 +24,6 @@ jobs:
       uses: actions/checkout@v4
 
     - name: Initialization environment
-      env:
-        DEBIAN_FRONTEND: noninteractive
       run: |
         sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/share/boost /usr/lib/jvm
         sudo -E apt-get -qq update
@@ -39,6 +37,7 @@ jobs:
     - name: Clone source code
       working-directory: /workdir
       run: |
+        # 物理克隆指定仓库
         git clone $REPO_URL -b $REPO_BRANCH openwrt
         ln -sf /workdir/openwrt $GITHUB_WORKSPACE/openwrt
 
@@ -51,12 +50,13 @@ jobs:
 
     - name: Run Unified Patch Script (Merge DIY & Patch)
       run: |
+        # 延续之前设置：物理注入核心配置
+        [ -e $CONFIG_FILE ] && cp -f $CONFIG_FILE openwrt/.config
         chmod +x $PATCH_SH
-        # 将配置文件物理搬运到 openwrt 目录
-        cp -f $CONFIG_FILE openwrt/.config
+        # 执行物理合并脚本
         ./$PATCH_SH
         cd openwrt
-        # 二次刷新 feeds 以确保合并逻辑生效
+        # 补丁注入后二次同步 feeds 确保依赖完整
         ./scripts/feeds update -a
         ./scripts/feeds install -a
 
