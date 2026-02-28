@@ -61,19 +61,18 @@ jobs:
         make defconfig
         make download -j8
 
-    - name: Prepare Kernel Source & Patch Symbols
+    - name: Prepare Kernel Source & Patch Symbols (Core Fix)
       run: |
         cd openwrt
-        # 物理准备：解压内核源码，以便脚本修改 mtk_eth_soc.c
+        # 物理预备阶段：强制解压内核源码
         make target/linux/prepare -j$(nproc)
-        # 执行物理修复：注入缺失符号
+        # 物理注入：彻底修复 mtk_eth_soc.c 符号冲突
         $GITHUB_WORKSPACE/$PATCH_SH
 
     - name: Compile the firmware
       id: compile
       run: |
         cd openwrt
-        # 物理编译：多线程执行，若失败切换单线程 V=s 确保通过
         make -j$(nproc) || make -j1 V=s
         echo "status=success" >> $GITHUB_OUTPUT
         echo "FILE_DATE=_$(date +"%Y%m%d%H%M")" >> $GITHUB_ENV
