@@ -55,7 +55,7 @@ endef
 define Device/sl_3000-emmc
   DEVICE_VENDOR := SL
   DEVICE_MODEL := 3000 eMMC
-  DEVICE_DTS := mt7981-sl-3000-emmc
+  DEVICE_DTS := mt7981b-sl-3000-emmc
   DEVICE_DTS_DIR := $(DTS_DIR)/mediatek
   SUPPORTED_DEVICES := sl,3000-emmc
   DEVICE_DRAM_SIZE := 1024M
