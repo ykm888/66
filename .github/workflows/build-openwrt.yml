@@ -46,14 +46,14 @@ jobs:
         ./scripts/feeds update -a
         ./scripts/feeds install -a
 
-    - name: Configuration Audit (物理路径锁定)
+    - name: Configuration Audit
       run: |
         [ -e $GITHUB_WORKSPACE/$CONFIG_FILE ] && cp -f $GITHUB_WORKSPACE/$CONFIG_FILE openwrt/.config
         chmod +x $GITHUB_WORKSPACE/$PATCH_SH
         cd openwrt
-        # 执行基础配置
+        # 物理执行配置审计
         make defconfig
-        # 物理修正：防止回弹，强行将 U-Boot 变体锁定在 sl_3000-emmc
+        # 物理锁死 U-Boot 变体名，防止回弹
         sed -i 's/CONFIG_UBOOT_VARIANT_mt7981_emmc=y/# CONFIG_UBOOT_VARIANT_mt7981_emmc is not set/g' .config
         echo "CONFIG_UBOOT_VARIANT_mt7981_sl_3000-emmc=y" >> .config
 
@@ -65,28 +65,25 @@ jobs:
     - name: Prepare Source & Physical Patch
       run: |
         cd openwrt
-        # 产生内核源码物理目录
+        # 预编译内核源码以触发脚本补丁路径
         make target/linux/prepare -j$(nproc)
-        # 执行物理修复脚本
         $GITHUB_WORKSPACE/$PATCH_SH
 
     - name: Compile the firmware
       id: compile
       run: |
         cd openwrt
-        # 开始全流程构建
         make -j$(nproc) || make -j1 V=s
         echo "status=success" >> $GITHUB_OUTPUT
         echo "FILE_DATE=_$(date +"%Y%m%d%H%M")" >> $GITHUB_ENV
 
-    - name: Organize files (Rescue Package)
+    - name: Organize files
       id: organize
       if: steps.compile.outputs.status == 'success' && !cancelled()
       run: |
-        # 物理对齐产物目录
         cd openwrt/bin/targets/mediatek/filogic/
         mkdir -p $GITHUB_WORKSPACE/firmware_output
-        # 物理搬运：抓取所有 sl_3000-emmc 相关的镜像
+        # 物理抓取：锁定带 sl_3000 字样的所有产物
         cp -f *sl_3000-emmc* $GITHUB_WORKSPACE/firmware_output/ || true
         echo "FIRMWARE=$GITHUB_WORKSPACE/firmware_output" >> $GITHUB_ENV
         echo "status=success" >> $GITHUB_OUTPUT
