@@ -1,15 +1,17 @@
-name: Build SL3000 Firmware
+name: Build SL-3000 Rescue Firmware
 
 on:
   repository_dispatch:
   workflow_dispatch:
 
 env:
-  # 物理校准：锁定您的专属仓库源
-  REPO_URL: https://github.com/ykm99999/66
-  REPO_BRANCH: openwrt-24.10-6.6
+  REPO_URL: https://github.com/coolsnowwolf/lede
+  REPO_BRANCH: master
   FEEDS_CONF: feeds.conf.default
   CONFIG_FILE: custom-config/sl3000.config
+  DIY_P1_SH: diy-part1.sh
+  DIY_P2_SH: diy-part2.sh
+  PATCH_SH: scripts/sl3000-patch.sh
   UPLOAD_BIN_DIR: false
   UPLOAD_FIRMWARE: true
   UPLOAD_RELEASE: true
@@ -21,20 +23,20 @@ jobs:
 
     steps:
     - name: Checkout
-      uses: actions/checkout@main
+      uses: actions/checkout@v4
 
     - name: Initialization environment
       env:
         DEBIAN_FRONTEND: noninteractive
       run: |
-        sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/share/powershell /usr/share/swift /usr/local/.ghcup /root/.dotnet
+        sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/share/boost /usr/lib/jvm
         sudo -E apt-get -qq update
         sudo -E apt-get -qq install $(curl -fsSL https://is.gd/depends_ubuntu_2204)
         sudo -E apt-get -qq autoremove --purge
         sudo -E apt-get -qq clean
         sudo timedatectl set-timezone "$TZ"
         sudo mkdir -p /workdir
-        sudo chown $USER:$GROUPS /workdir
+        sudo chown $USER:$USER /workdir
 
     - name: Clone source code
       working-directory: /workdir
@@ -43,12 +45,12 @@ jobs:
         git clone $REPO_URL -b $REPO_BRANCH openwrt
         ln -sf /workdir/openwrt $GITHUB_WORKSPACE/openwrt
 
-    - name: Run Unified Patch Script
+    - name: Load custom feeds
       run: |
-        # 彻底解决路径报错：锁定绝对路径执行补丁脚本
-        chmod +x ${{ github.workspace }}/scripts/sl3000-patch.sh
+        [ -e $FEEDS_CONF ] && cp -f $FEEDS_CONF openwrt/feeds.conf.default
+        chmod +x $DIY_P1_SH
         cd openwrt
-        ${{ github.workspace }}/scripts/sl3000-patch.sh
+        $GITHUB_WORKSPACE/$DIY_P1_SH
 
     - name: Update feeds
       run: cd openwrt && ./scripts/feeds update -a
@@ -58,9 +60,18 @@ jobs:
 
     - name: Load custom configuration
       run: |
-        [ -e files ] && mv files openwrt/files
-        # 物理审计：使用物理绝对路径拷贝核心 config
-        [ -e ${{ github.workspace }}/${{ env.CONFIG_FILE }} ] && cp -f ${{ github.workspace }}/${{ env.CONFIG_FILE }} openwrt/.config
+        [ -e $CONFIG_FILE ] && cp -f $CONFIG_FILE openwrt/.config
+        chmod +x $DIY_P2_SH
+        cd openwrt
+        $GITHUB_WORKSPACE/$DIY_P2_SH
+
+    - name: Run Patch Script (Physical Fix)
+      run: |
+        chmod +x $PATCH_SH
+        ./$PATCH_SH
+        cd openwrt
+        ./scripts/feeds update -a
+        ./scripts/feeds install -a
 
     - name: Download package
       id: package
@@ -76,25 +87,15 @@ jobs:
       run: |
         cd openwrt
         echo -e "$(nproc) thread compile"
-        # 锁定环境补丁：解决编译交互报错
-        TERM=xterm make -j$(nproc) FORCE_UNSAFE_CONFIGURE=1 || TERM=xterm make -j1 V=s FORCE_UNSAFE_CONFIGURE=1
+        make -j$(nproc) || make -j1 || make -j1 V=s
         echo "status=success" >> $GITHUB_OUTPUT
-        grep "CONFIG_TARGET" .config > DEVICE_DETAILS
-        if [ -s DEVICE_DETAILS ]; then
-          echo "DEVICE_NAME=_$(cat DEVICE_DETAILS | grep CONFIG_TARGET_DEVICE_.*_DEVICE_.*=y | cut -d _ -f 5- | sed 's/=y//')" >> $GITHUB_ENV
-        fi
+        grep '^CONFIG_TARGET.*DEVICE.*=y' .config | sed -r 's/.*DEVICE_(.*)=y/\1/' > DEVICE_NAME
+        [ -s DEVICE_NAME ] && echo "DEVICE_NAME=_$(cat DEVICE_NAME)" >> $GITHUB_ENV
         echo "FILE_DATE=_$(date +"%Y%m%d%H%M")" >> $GITHUB_ENV
 
     - name: Check space usage
       if: (!cancelled())
       run: df -hT
-
-    - name: Upload bin directory
-      uses: actions/upload-artifact@main
-      if: steps.compile.outputs.status == 'success' && env.UPLOAD_BIN_DIR == 'true'
-      with:
-        name: OpenWrt_bin${{ env.DEVICE_NAME }}${{ env.FILE_DATE }}
-        path: openwrt/bin
 
     - name: Organize files
       id: organize
@@ -102,11 +103,12 @@ jobs:
       run: |
         cd openwrt/bin/targets/*/*
         rm -rf packages
+        # 物理锁定救砖固件产物：包含 img.gz 和 bin
         echo "FIRMWARE=$PWD" >> $GITHUB_ENV
         echo "status=success" >> $GITHUB_OUTPUT
 
     - name: Upload firmware directory
-      uses: actions/upload-artifact@main
+      uses: actions/upload-artifact@v4
       if: steps.organize.outputs.status == 'success' && !cancelled()
       with:
         name: OpenWrt_firmware${{ env.DEVICE_NAME }}${{ env.FILE_DATE }}
@@ -118,10 +120,11 @@ jobs:
       run: |
         echo "release_tag=$(date +"%Y.%m.%d-%H%M")" >> $GITHUB_OUTPUT
         touch release.txt
+        echo "司络 SL-3000 救砖固件 (包含 SD卡救砖镜像及系统升级包)" >> release.txt
         echo "status=success" >> $GITHUB_OUTPUT
 
     - name: Upload firmware to release
-      uses: softprops/action-gh-release@master
+      uses: softprops/action-gh-release@v2
       if: steps.tag.outputs.status == 'success' && !cancelled()
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
