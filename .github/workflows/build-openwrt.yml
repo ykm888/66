@@ -5,7 +5,6 @@ on:
   workflow_dispatch:
 
 env:
-  # 物理锁定：成功案例指定的仓库源
   REPO_URL: https://github.com/ykm99999/66
   REPO_BRANCH: openwrt-24.10-6.6
   FEEDS_CONF: feeds.conf.default
@@ -47,13 +46,14 @@ jobs:
         ./scripts/feeds update -a
         ./scripts/feeds install -a
 
-    - name: Run Unified Patch Script (Merge DIY & Fix)
+    - name: Run Unified Patch Script (Targeted Fix)
       run: |
+        # 物理注入配置
         [ -e $CONFIG_FILE ] && cp -f $CONFIG_FILE openwrt/.config
         chmod +x $PATCH_SH
-        # 执行物理对齐补丁
-        ./$PATCH_SH
+        # 进入 openwrt 目录执行，确保相对路径 config-6.6 可读
         cd openwrt
+        ../$PATCH_SH
         ./scripts/feeds update -a
         ./scripts/feeds install -a
 
@@ -68,7 +68,6 @@ jobs:
       id: compile
       run: |
         cd openwrt
-        # 物理策略：延续单线程重试机制确保报错透明
         make -j$(nproc) || make -j1 V=s
         echo "status=success" >> $GITHUB_OUTPUT
         echo "FILE_DATE=_$(date +"%Y%m%d%H%M")" >> $GITHUB_ENV
