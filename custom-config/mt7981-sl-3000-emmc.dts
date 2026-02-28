@@ -8,8 +8,8 @@
 #include "mt7981.dtsi"
 
 / {
-	model = "WEIHUA SL3000 (eMMC)";
-	compatible = "weihua,sl3000", "mediatek,mt7981";
+	model = "SL 3000 eMMC";
+	compatible = "sl,3000-emmc", "mediatek,mt7981";
 
 	aliases {
 		serial0 = &uart0;
