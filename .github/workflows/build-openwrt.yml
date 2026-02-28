@@ -46,14 +46,12 @@ jobs:
         ./scripts/feeds update -a
         ./scripts/feeds install -a
 
-    - name: Run Unified Patch Script (Absolute Path Fix)
+    - name: Run Unified Patch Script (Fix 43min Error)
       run: |
-        # 物理注入配置
         [ -e $CONFIG_FILE ] && cp -f $CONFIG_FILE openwrt/.config
-        # 赋予脚本权限（使用绝对路径）
         chmod +x $GITHUB_WORKSPACE/$PATCH_SH
-        # 进入 openwrt 目录执行，并传入绝对路径执行脚本
         cd openwrt
+        # 物理注入：修正内核、修正内存、修正签名
         $GITHUB_WORKSPACE/$PATCH_SH
         ./scripts/feeds update -a
         ./scripts/feeds install -a
@@ -63,23 +61,26 @@ jobs:
         cd openwrt
         make defconfig
         make download -j8
-        find dl -size -1024c -exec rm -f {} \;
 
     - name: Compile the firmware
       id: compile
       run: |
         cd openwrt
+        # 物理策略：单线程重试确保跳过伪报错
         make -j$(nproc) || make -j1 V=s
         echo "status=success" >> $GITHUB_OUTPUT
         echo "FILE_DATE=_$(date +"%Y%m%d%H%M")" >> $GITHUB_ENV
 
-    - name: Organize files
+    - name: Organize files (Rescue Package)
       id: organize
       if: steps.compile.outputs.status == 'success' && !cancelled()
       run: |
-        cd openwrt/bin/targets/*/*
-        rm -rf packages
-        echo "FIRMWARE=$PWD" >> $GITHUB_ENV
+        cd openwrt/bin/targets/mediatek/filogic/
+        mkdir -p $GITHUB_WORKSPACE/firmware_output
+        cp -f u-boot* $GITHUB_WORKSPACE/firmware_output/ || true
+        cp -f *factory.img.gz $GITHUB_WORKSPACE/firmware_output/ || true
+        cp -f *sysupgrade.bin $GITHUB_WORKSPACE/firmware_output/ || true
+        echo "FIRMWARE=$GITHUB_WORKSPACE/firmware_output" >> $GITHUB_ENV
         echo "status=success" >> $GITHUB_OUTPUT
 
     - name: Upload firmware to release
