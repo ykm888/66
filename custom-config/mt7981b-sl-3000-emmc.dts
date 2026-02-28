@@ -8,8 +8,8 @@
 #include "mt7981.dtsi"
 
 / {
-	model = "SL-3000 eMMC bootstrap versions";
-	compatible = "sl,3000-emmc", "mediatek,mt7981";
+	model = "WEIHUA SL3000 (eMMC)";
+	compatible = "weihua,sl3000", "mediatek,mt7981";
 
 	aliases {
 		serial0 = &uart0;
@@ -20,12 +20,21 @@
 	};
 
 	chosen {
-		bootargs = "root=PARTLABEL=rootfs rootwait";
+		bootargs = "root=PARTLABEL=production rootwait";
 		stdout-path = "serial0:115200n8";
 	};
 
 	memory@40000000 {
 		reg = <0 0x40000000 0 0x20000000>;
+	};
+
+	reg_3p3v: regulator-3p3v {
+		compatible = "regulator-fixed";
+		regulator-name = "fixed-3.3V";
+		regulator-min-microvolt = <3300000;
+		regulator-max-microvolt = <3300000;
+		regulator-boot-on;
+		regulator-always-on;
 	};
 
 	gpio-keys {
@@ -79,7 +88,7 @@
 			pause;
 		};
 	};
-
+	
 	gmac1: mac@1 {
 		compatible = "mediatek,eth-mac";
 		reg = <1>;
@@ -124,7 +133,7 @@
 					reg = <3>;
 					label = "wan";
 				};
-
+				
 				port@6 {
 					reg = <6>;
 					label = "cpu";
@@ -181,6 +190,10 @@
 							#nvmem-cell-cells = <1>;
 						};
 					};
+				};
+
+				block-partition-production {
+					partname = "production";
 				};
 			};
 		};
