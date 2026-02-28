@@ -41,38 +41,41 @@ jobs:
 
     - name: Update & Install feeds
       run: |
-        [ -e $FEEDS_CONF ] && cp -f $FEEDS_CONF openwrt/feeds.conf.default
         cd openwrt
+        [ -e $GITHUB_WORKSPACE/$FEEDS_CONF ] && cp -f $GITHUB_WORKSPACE/$FEEDS_CONF feeds.conf.default
         ./scripts/feeds update -a
         ./scripts/feeds install -a
 
-    - name: Run Unified Patch Script (Pre-Config)
+    - name: Run Unified Patch Script (Initial)
       run: |
-        [ -e $CONFIG_FILE ] && cp -f $CONFIG_FILE openwrt/.config
+        # 物理注入配置文件
+        [ -e $GITHUB_WORKSPACE/$CONFIG_FILE ] && cp -f $GITHUB_WORKSPACE/$CONFIG_FILE openwrt/.config
         chmod +x $GITHUB_WORKSPACE/$PATCH_SH
         cd openwrt
+        # 第一次执行：确保 feeds 和初始配置对齐
         $GITHUB_WORKSPACE/$PATCH_SH
-        ./scripts/feeds update -a
-        ./scripts/feeds install -a
 
     - name: Download package
       run: |
         cd openwrt
+        # 物理审计：执行完 defconfig 后，必须立即补一次补丁，防止变量回弹
         make defconfig
+        $GITHUB_WORKSPACE/$PATCH_SH
         make download -j8
 
     - name: Prepare Source & Fix U-Boot/Kernel
       run: |
         cd openwrt
-        # 物理预备：产生源码目录
+        # 物理预备：产生内核源码目录（修复 build_dir/linux-... 不存在的报错）
         make target/linux/prepare -j$(nproc)
-        # 执行物理修复：1. 注入内核符号 2. 修正 U-Boot 变体为 emmc 标准版
+        # 第二次执行：物理注入内核符号定义 + U-Boot 源码修正
         $GITHUB_WORKSPACE/$PATCH_SH
 
     - name: Compile the firmware
       id: compile
       run: |
         cd openwrt
+        # 开始全流程物理构建
         make -j$(nproc) || make -j1 V=s
         echo "status=success" >> $GITHUB_OUTPUT
         echo "FILE_DATE=_$(date +"%Y%m%d%H%M")" >> $GITHUB_ENV
@@ -81,8 +84,10 @@ jobs:
       id: organize
       if: steps.compile.outputs.status == 'success' && !cancelled()
       run: |
+        # 物理对齐产物目录
         cd openwrt/bin/targets/mediatek/filogic/
         mkdir -p $GITHUB_WORKSPACE/firmware_output
+        # 物理搬运：寻找 u-boot、factory 镜像和 sysupgrade
         cp -f u-boot* $GITHUB_WORKSPACE/firmware_output/ || true
         cp -f *factory.img.gz $GITHUB_WORKSPACE/firmware_output/ || true
         cp -f *sysupgrade.bin $GITHUB_WORKSPACE/firmware_output/ || true
