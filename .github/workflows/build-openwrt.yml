@@ -46,7 +46,7 @@ jobs:
         ./scripts/feeds update -a
         ./scripts/feeds install -a
 
-    - name: Run Unified Patch Script (Initial Configuration)
+    - name: Run Unified Patch Script (Pre-Config)
       run: |
         [ -e $CONFIG_FILE ] && cp -f $CONFIG_FILE openwrt/.config
         chmod +x $GITHUB_WORKSPACE/$PATCH_SH
@@ -61,12 +61,12 @@ jobs:
         make defconfig
         make download -j8
 
-    - name: Prepare Kernel Source & Patch Symbols (Core Fix)
+    - name: Prepare Source & Fix U-Boot/Kernel
       run: |
         cd openwrt
-        # 物理预备阶段：强制解压内核源码
+        # 物理预备：产生源码目录
         make target/linux/prepare -j$(nproc)
-        # 物理注入：彻底修复 mtk_eth_soc.c 符号冲突
+        # 执行物理修复：1. 注入内核符号 2. 修正 U-Boot 变体为 emmc 标准版
         $GITHUB_WORKSPACE/$PATCH_SH
 
     - name: Compile the firmware
