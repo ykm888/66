@@ -9,10 +9,12 @@
 
 / {
 	model = "SL-3000 eMMC (1024M RAM Edition)";
+	# 原文照抄
 	compatible = "sl,3000-emmc", "mediatek,mt7981";
 
 	aliases {
 		serial0 = &uart0;
+		# 原文照抄 LED 定义
 		led-boot = &status_red_led;
 		led-failsafe = &status_red_led;
 		led-running = &status_green_led;
@@ -20,17 +22,19 @@
 	};
 
 	chosen {
+		# 原文照抄 bootargs，锁定 rootwait
 		bootargs = "root=PARTLABEL=rootfs rootwait";
 		stdout-path = "serial0:115200n8";
 	};
 
 	memory@40000000 {
 		device_type = "memory";
-		// 物理审计确认：起始地址 0x40000000，长度 1024MB (0x40000000)
+		# 物理锁定 1024MB DRAM (0x40000000)
 		reg = <0 0x40000000 0 0x40000000>;
 	};
 
 	gpio-keys {
+		# 原文照抄 Mesh/Reset 按键
 		compatible = "gpio-keys";
 
 		button-mesh {
@@ -48,6 +52,7 @@
 	};
 
 	gpio-leds {
+		# 原文照抄 Red/Green/Blue LED
 		compatible = "gpio-leds";
 
 		status_red_led: led-0 {
@@ -68,6 +73,7 @@
 };
 
 &eth {
+	# 原文照抄网络配置
 	status = "okay";
 
 	gmac0: mac@0 {
@@ -99,6 +105,7 @@
 		#size-cells = <0>;
 
 		switch@0 {
+			# 原文照抄 MT7531 交换机定义
 			compatible = "mediatek,mt7531";
 			reg = <31>;
 			reset-gpios = <&pio 39 0>;
@@ -145,6 +152,7 @@
 };
 
 &mmc0 {
+	# 物理修复：锁定 MT7981 8-bit EMMC 特性 (bus-width=8)
 	bus-width = <8>;
 	cap-mmc-highspeed;
 	max-frequency = <52000000>;
@@ -152,6 +160,7 @@
 	no-sdio;
 	non-removable;
 	pinctrl-names = "default", "state_uhs";
+	# 物理修复：锁定正确的 EMMC 引脚复用组 (mmc0_pins_default)
 	pinctrl-0 = <&mmc0_pins_default>;
 	pinctrl-1 = <&mmc0_pins_uhs>;
 	vmmc-supply = <&reg_3p3v>;
@@ -165,6 +174,7 @@
 			compatible = "block-device";
 
 			partitions {
+				# 原文照抄你的 factory 分区定义
 				block-partition-factory {
 					partname = "factory";
 
@@ -184,36 +194,46 @@
 						};
 					};
 				};
+
+				# 🛠️ 【致命修复】物理补全 rootfs 分区表 (确保 2.24 内核挂载成功)
+				# 编译系统和内核启动必须找到名为 rootfs 的 PARTLABEL
+				block-partition-rootfs {
+					partname = "rootfs";
+				};
 			};
 		};
 	};
 };
 
 &pio {
+	# 原文照抄 Pio 节点，但锁定 EMMC 引脚组
 	mmc0_pins_default: mmc0-pins-default {
 		mux {
 			function = "flash";
-			groups = "emmc_45";
+			groups = "emmc_51"; # 🛠️ 【物理修复】锁定标准 8-bit EMMC 引脚组
 		};
 	};
 
 	mmc0_pins_uhs: mmc0-pins-uhs {
 		mux {
 			function = "flash";
-			groups = "emmc_45";
+			groups = "emmc_51"; # 🛠️ 【物理修复】锁定标准 8-bit UHS 引脚组
 		};
 	};
 };
 
 &uart0 {
+	# 原文照抄串口
 	status = "okay";
 };
 
 &watchdog {
+	# 原文照抄看门狗
 	status = "okay";
 };
 
 &wifi {
+	# 原文照抄 WiFi 节点与 factory 校验
 	nvmem-cells = <&eeprom_factory_0>;
 	nvmem-cell-names = "eeprom";
 	status = "okay";
@@ -226,9 +246,11 @@
 };
 
 &usb_phy {
+	# 原文照抄 USB
 	status = "okay";
 };
 
 &xhci {
+	# 原文照抄 XHCI
 	status = "okay";
 };
