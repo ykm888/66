@@ -8,8 +8,8 @@ if [ -d "$IMAGE_DIR" ]; then
 fi
 
 # 2. 物理注入手术：直接补齐缺失的 defconfig (彻底解决 No such file 报错)
-# 物理定位：在 build_dir 中寻找已解压的 U-Boot 目录
-UBOOT_PATH=$(find build_dir/ -name "u-boot-*" | grep "u-boot-mt7981_sl_3000-emmc" | head -n 1)
+# 物理定位：兼容多种目录命名格式，确保在编译前命中所解压的源码
+UBOOT_PATH=$(find build_dir/ -name "u-boot-*" | grep -E "sl_3000|mt7981" | head -n 1)
 
 if [ -n "$UBOOT_PATH" ]; then
     echo "Found U-Boot physical path: $UBOOT_PATH"
@@ -18,12 +18,13 @@ if [ -n "$UBOOT_PATH" ]; then
     # 物理抓取：从你的专用仓库分支抓取物理文件并强行写入
     curl -fsSL https://raw.githubusercontent.com/ykm99999/66/sl3000-uboot-base/configs/mt7981_sl_3000-emmc_defconfig -o "$UBOOT_PATH/configs/mt7981_sl_3000-emmc_defconfig"
     
-    # 双重保险：同时物理覆盖官方默认名，防止编译脚本逻辑回退
+    # 三重保险：同时覆盖多个可能被 Makefile 调用的名称，物理熔断报错
     cp -f "$UBOOT_PATH/configs/mt7981_sl_3000-emmc_defconfig" "$UBOOT_PATH/configs/mt7981_emmc_defconfig"
+    cp -f "$UBOOT_PATH/configs/mt7981_sl_3000-emmc_defconfig" "$UBOOT_PATH/configs/mt7981_mt7981_emmc_defconfig" 2>/dev/null || true
     
-    echo "Physical Injection Success: mt7981_sl_3000-emmc_defconfig is now present in $UBOOT_PATH"
+    echo "Physical Injection Success: mt7981_sl_3000-emmc_defconfig injected into $UBOOT_PATH"
 else
-    echo "WARNING: U-Boot build directory not found. Ensuring path exists for next stage."
+    echo "WARNING: U-Boot directory not yet extracted. Script will retry in next phase."
 fi
 
 # 3. 彻底解决内核符号断点：物理注入内核头文件，熔断 undeclared 报错
