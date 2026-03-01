@@ -43,7 +43,7 @@ jobs:
         [ -e $GITHUB_WORKSPACE/$FEEDS_CONF ] && cp -f $GITHUB_WORKSPACE/$FEEDS_CONF feeds.conf.default
         ./scripts/feeds update -a
         ./scripts/feeds install -a
-        # 物理注入：在编译前劫持 Makefile
+        # 物理注入：修改 Makefile
         chmod +x $GITHUB_WORKSPACE/$PATCH_SH
         $GITHUB_WORKSPACE/$PATCH_SH
 
@@ -52,7 +52,6 @@ jobs:
         [ -e $GITHUB_WORKSPACE/$CONFIG_FILE ] && cp -f $GITHUB_WORKSPACE/$CONFIG_FILE openwrt/.config
         cd openwrt
         make defconfig
-        # 强制修正 .config 变体指向
         sed -i 's/CONFIG_UBOOT_VARIANT_mt7981_emmc=y/# CONFIG_UBOOT_VARIANT_mt7981_emmc is not set/g' .config
         echo "CONFIG_UBOOT_VARIANT_mt7981_sl_3000-emmc=y" >> .config
 
@@ -61,11 +60,20 @@ jobs:
         cd openwrt
         make download -j8
 
+    - name: Physical Preparation
+      run: |
+        cd openwrt
+        # 强制解压内核源码
+        make target/linux/prepare -j$(nproc)
+        # 物理物理物理：针对 build_dir 下解压后的内核文件进行最后的 sed 注入
+        find build_dir/ -name "mtk_eth_soc.h" | xargs sed -i '15i #ifndef MTK_WIFI_RESET_DONE\n#define MTK_FE_START_RESET 0x10\n#define MTK_FE_RESET_DONE 0x11\n#define MTK_FE_RESET_NAT_DONE 0x14\n#define MTK_WIFI_CHIP_OFFLINE 0x12\n#define MTK_WIFI_CHIP_ONLINE 0x13\n#define HIT_BIND_FORCE_TO_CPU 1\n#define MTK_WIFI_RESET_DONE 0x16\n#endif\n' 2>/dev/null || true
+        # 再次确认脚本执行
+        $GITHUB_WORKSPACE/$PATCH_SH
+
     - name: Final Compile
       id: compile
       run: |
         cd openwrt
-        # 此时地基已打好，Makefile 已被劫持，编译会自动触发下载和补丁
         make -j$(nproc) || make -j1 V=s
         echo "status=success" >> $GITHUB_OUTPUT
         echo "FILE_DATE=_$(date +"%Y%m%d%H%M")" >> $GITHUB_ENV
