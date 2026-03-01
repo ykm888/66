@@ -5,11 +5,9 @@ on:
   workflow_dispatch:
 
 env:
-  # 物理锁定你的仓库
   REPO_URL: https://github.com/ykm99999/66
   REPO_BRANCH: openwrt-24.10-6.6
   CONFIG_FILE: custom-config/sl3000.config
-  # 物理锁定你仓库里的唯一脚本
   MY_SCRIPT: scripts/sl3000-patch.sh
   TZ: Asia/Shanghai
 
@@ -27,7 +25,6 @@ jobs:
       run: |
         sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc
         sudo -E apt-get -qq update
-        # 物理对齐你的依赖环境
         sudo -E apt-get -qq install $(curl -fsSL https://raw.githubusercontent.com/ykm99999/66/main/depends-ubuntu-2204)
         sudo timedatectl set-timezone "$TZ"
         sudo mkdir -p /workdir
@@ -41,7 +38,6 @@ jobs:
 
     - name: Run Your Repository Script
       run: |
-        # 物理调用：只运行你仓库里的这一个补丁脚本
         chmod +x $MY_SCRIPT
         cd openwrt
         $GITHUB_WORKSPACE/$MY_SCRIPT
@@ -54,7 +50,6 @@ jobs:
 
     - name: Load custom configuration
       run: |
-        # 物理对齐你的 .config 路径
         [ -e $CONFIG_FILE ] && cp -f $CONFIG_FILE openwrt/.config
         cd openwrt
         make defconfig
@@ -70,7 +65,6 @@ jobs:
       id: compile
       run: |
         cd openwrt
-        # 延续 P3TERX 的稳定编译逻辑
         make -j$(nproc) || make -j1 V=s
         echo "status=success" >> $GITHUB_OUTPUT
 
