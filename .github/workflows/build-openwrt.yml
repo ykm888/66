@@ -24,7 +24,7 @@ jobs:
 
     - name: Initialization environment
       run: |
-        sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/share/boost /usr/lib/jvm
+        sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/share/boost /usr/local/share/boost /usr/lib/jvm
         sudo -E apt-get -qq update
         sudo -E apt-get -qq install $(curl -fsSL https://is.gd/depends_ubuntu_2204)
         sudo -E apt-get -qq autoremove --purge
@@ -51,6 +51,12 @@ jobs:
         [ -e $GITHUB_WORKSPACE/$CONFIG_FILE ] && cp -f $GITHUB_WORKSPACE/$CONFIG_FILE openwrt/.config
         chmod +x $GITHUB_WORKSPACE/$PATCH_SH
         cd openwrt
+        
+        # 物理物理物理补充：修复 U-Boot 变体配置缺失断点
+        UBOOT_CONF_DIR="package/boot/uboot-mediatek/config"
+        mkdir -p $UBOOT_CONF_DIR
+        cp -f $UBOOT_CONF_DIR/mt7981_emmc_defconfig $UBOOT_CONF_DIR/mt7981_sl_3000-emmc_defconfig || true
+        
         make defconfig
         # 物理锁死 U-Boot 变体名
         sed -i 's/CONFIG_UBOOT_VARIANT_mt7981_emmc=y/# CONFIG_UBOOT_VARIANT_mt7981_emmc is not set/g' .config
@@ -64,7 +70,7 @@ jobs:
     - name: Prepare Source & Physical Patch
       run: |
         cd openwrt
-        # 核心步骤：预解压内核，生成头文件，供脚本精准注入
+        # 预解压内核以触发宏注入
         make target/linux/prepare -j$(nproc)
         $GITHUB_WORKSPACE/$PATCH_SH
 
