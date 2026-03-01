@@ -52,13 +52,11 @@ jobs:
         chmod +x $GITHUB_WORKSPACE/$PATCH_SH
         cd openwrt
         
-        # 物理物理物理补充：修复 U-Boot 变体配置缺失断点
-        UBOOT_CONF_DIR="package/boot/uboot-mediatek/config"
-        mkdir -p $UBOOT_CONF_DIR
-        cp -f $UBOOT_CONF_DIR/mt7981_emmc_defconfig $UBOOT_CONF_DIR/mt7981_sl_3000-emmc_defconfig || true
+        # 物理修正：不再本地 cp 配置文件，改为调用脚本执行源码云端重定向
+        $GITHUB_WORKSPACE/$PATCH_SH
         
         make defconfig
-        # 物理锁死 U-Boot 变体名
+        # 物理锁死 U-Boot 变体名，对应你 ykm99999/66 仓中的新文件名
         sed -i 's/CONFIG_UBOOT_VARIANT_mt7981_emmc=y/# CONFIG_UBOOT_VARIANT_mt7981_emmc is not set/g' .config
         echo "CONFIG_UBOOT_VARIANT_mt7981_sl_3000-emmc=y" >> .config
 
