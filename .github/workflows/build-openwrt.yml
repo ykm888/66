@@ -1,12 +1,7 @@
 name: Build SL-3000 eMMC Firmware
 
 on:
-  repository_dispatch:
   workflow_dispatch:
-  push:
-    paths:
-      - 'custom-config/**'
-      - 'scripts/**'
 
 env:
   REPO_URL: https://github.com/coolsnowwolf/lede
@@ -15,6 +10,8 @@ env:
   CONFIG_FILE: custom-config/sl3000.config
   DIY_P1_SH: scripts/sl3000-patch.sh
   TZ: Asia/Shanghai
+  UPLOAD_FIRMWARE: true
+  UPLOAD_BIN_DIR: false
 
 jobs:
   build:
@@ -53,15 +50,10 @@ jobs:
 
     - name: Load custom configuration & Run Patch
       run: |
-        # 1. 物理检查脚本是否存在
         [ -e "$DIY_P1_SH" ] || { echo "Error: Patch script not found!"; exit 1; }
         chmod +x "$DIY_P1_SH"
-        
-        # 2. 执行物理补丁（搬运 DTS, 劫持 U-Boot, 修复内核符号）
         cd openwrt
         $GITHUB_WORKSPACE/$DIY_P1_SH
-        
-        # 3. 注入 .config 文件
         cd $GITHUB_WORKSPACE
         [ -e "$CONFIG_FILE" ] && cp -f "$CONFIG_FILE" openwrt/.config
 
@@ -79,7 +71,6 @@ jobs:
       run: |
         cd openwrt
         echo -e "$(nproc) thread compile"
-        # 第一次编译建议使用单线程或多线程但忽略错误，以便物理观察报错点
         make -j$(nproc) || make -j1 || make -j1 V=s
         echo "status=success" >> $GITHUB_OUTPUT
 
@@ -87,16 +78,9 @@ jobs:
       if: (!cancelled())
       run: df -hT
 
-    - name: Upload bin directory
-      uses: actions/upload-artifact@v4
-      if: steps.compile.outputs.status == 'success' && env.UPLOAD_BIN_DIR == 'true'
-      with:
-        name: OpenWrt_bin${{ env.DEVICE_NAME }}${{ env.FILE_DATE }}
-        path: openwrt/bin
-
     - name: Organize files
       id: organize
-      if: env.UPLOAD_FIRMWARE == 'true' && !cancelled()
+      if: steps.compile.outputs.status == 'success' && !cancelled()
       run: |
         cd openwrt/bin/targets/*/*
         rm -rf packages
@@ -107,5 +91,5 @@ jobs:
       uses: actions/upload-artifact@v4
       if: steps.organize.outputs.status == 'success' && !cancelled()
       with:
-        name: OpenWrt_firmware${{ env.DEVICE_NAME }}${{ env.FILE_DATE }}
+        name: OpenWrt_firmware_SL3000
         path: ${{ env.FIRMWARE }}
