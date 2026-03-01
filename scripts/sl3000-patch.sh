@@ -1,13 +1,20 @@
 #!/bin/bash
 
-# 1. 存储与内存定义物理锁定
+# 1. 存储与内存定义物理锁定 (保持 1024M 物理属性)
 IMAGE_DIR="target/linux/mediatek/image/"
 if [ -d "$IMAGE_DIR" ]; then
     grep -rl "DRAM_SIZE_" "$IMAGE_DIR" | xargs sed -i 's/DRAM_SIZE_256M=y/DRAM_SIZE_1024M=y/g' 2>/dev/null
     grep -rl "DRAM_SIZE_" "$IMAGE_DIR" | xargs sed -i 's/DRAM_SIZE_512M=y/DRAM_SIZE_1024M=y/g' 2>/dev/null
 fi
 
-# 2. 彻底解决内核符号断点：直接在驱动核心头文件末尾追加，100% 物理熔断所有 undeclared 报错
+# 2. U-Boot 配置变体物理补齐 (彻底解决 No such file 报错)
+UBOOT_CONF_DIR="package/boot/uboot-mediatek/config"
+if [ -d "$UBOOT_CONF_DIR" ]; then
+    # 物理同步：将官方 emmc 配置作为 sl_3000 变体的物理模板
+    cp -f "$UBOOT_CONF_DIR/mt7981_emmc_defconfig" "$UBOOT_CONF_DIR/mt7981_sl_3000-emmc_defconfig"
+fi
+
+# 3. 彻底解决内核符号断点：直接在驱动核心头文件末尾追加，100% 物理熔断所有 undeclared 报错
 ETH_SOC_HDR=$(find build_dir/ -name "mtk_eth_soc.h" | grep "linux-mediatek_filogic" | head -n 1)
 if [ -n "$ETH_SOC_HDR" ]; then
     cat << 'EOF' >> "$ETH_SOC_HDR"
