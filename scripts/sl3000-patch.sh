@@ -1,26 +1,35 @@
 #!/bin/bash
 
-# 1. 物理粉碎元数据缓存 (解决 ASR3000 阴魂不散的终极手段)
+# 1. 物理粉碎元数据缓存 (解决 ASR3000 阴魂不散、强制重新扫描 MK)
 rm -rf tmp/
 rm -f .config*
 rm -f .target-userconf
 
-# 2. 物理清除 ASR3000 (最高级别彻底删除)
-# 在源码的所有路径中，强制切除 ASR3000 的痕迹
+# 2. 物理清除 ASR3000 残余 (最高级别彻底删除)
 find target/linux/mediatek/ -name "*asr3000*" -exec rm -rf {} +
 
-# 3. 强制路径映射 (锁定你的源路径)
-# 源路径: target/linux/mediatek/dts/mt7981b-sl-3000-emmc.dts
-# 目标路径: 内核 6.6 核心搜索位
+# 3. 物理路径锁定与同步 (锁定你提供的确切路径)
+# 源路径：GitHub 工作区的确切位置
+# 目标路径：内核 6.6 编译时的核心搜索位
+DTS_NAME="mt7981b-sl-3000-emmc.dts"
+DTS_SRC="$GITHUB_WORKSPACE/target/linux/mediatek/dts/$DTS_NAME"
 DTS_DEST="target/linux/mediatek/files-6.6/arch/arm64/boot/dts/mediatek"
+
 mkdir -p "$DTS_DEST"
 
-if [ -f "target/linux/mediatek/dts/mt7981b-sl-3000-emmc.dts" ]; then
-    cp -f "target/linux/mediatek/dts/mt7981b-sl-3000-emmc.dts" "$DTS_DEST/mt7981b-sl-3000-emmc.dts"
-    echo "DTS Physical Lock: SUCCESS"
+if [ -f "$DTS_SRC" ]; then
+    cp -f "$DTS_SRC" "$DTS_DEST/$DTS_NAME"
+    echo "DTS Physical Found and Locked: $DTS_SRC -> SUCCESS"
 else
-    echo "ERROR: Source DTS not found at target/linux/mediatek/dts/"
-    exit 1
+    echo "CRITICAL ERROR: DTS NOT FOUND at $DTS_SRC"
+    # 物理挽救：全盘深挖
+    SEARCH_PATH=$(find $GITHUB_WORKSPACE -name "$DTS_NAME" | head -n 1)
+    if [ -n "$SEARCH_PATH" ]; then
+        cp -f "$SEARCH_PATH" "$DTS_DEST/$DTS_NAME"
+        echo "DTS Physical Rescue from $SEARCH_PATH: SUCCESS"
+    else
+        exit 1
+    fi
 fi
 
 # 4. U-Boot 物理劫持 (eMMC 引导链路锁定)
@@ -34,7 +43,7 @@ if [ -f "$UBOOT_MAKEFILE" ]; then
 \techo "CONFIG_SYSCON=y" >> $(PKG_BUILD_DIR)/configs/mt7981_emmc_defconfig;' "$UBOOT_MAKEFILE"
 fi
 
-# 5. 内存 1024M 物理强制锁定
+# 5. 内存 1024M 物理硬锁定
 grep -rl "DRAM_SIZE_" target/linux/mediatek/image/ | xargs sed -i 's/DRAM_SIZE_256M=y/DRAM_SIZE_1024M=y/g' 2>/dev/null
 grep -rl "DRAM_SIZE_" target/linux/mediatek/image/ | xargs sed -i 's/DRAM_SIZE_512M=y/DRAM_SIZE_1024M=y/g' 2>/dev/null
 
