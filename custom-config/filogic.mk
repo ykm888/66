@@ -1,6 +1,4 @@
-# 针对内核 6.6 的物理路径重定向
-# 强制让编译系统在查找 DTS 时进入嵌套的 mediatek 目录
-DTS_DIR := $(DTS_DIR)/mediatek
+# 物理审计修复：删除全局 DTS_DIR 叠加，防止路径双重嵌套导致 No such file or directory
 
 define Image/Prepare
 	# For UBI we want only one extra block
@@ -16,7 +14,7 @@ define Build/mt7981-bl31-uboot
 	cat $(STAGING_DIR_IMAGE)/mt7981_$1-u-boot.fip >> $@
 endef
 
-# ... (省略中间重复的 mt7986/mt7988 定义，保持原样) ...
+# ... (此处省略中间重复的 mt7986/mt7988 定义，请保持你原文内容) ...
 
 define Build/mt798x-gpt
 	cp $@ $@.tmp 2>/dev/null || true
@@ -43,9 +41,8 @@ endef
 define Device/sl_3000-emmc
   DEVICE_VENDOR := SL
   DEVICE_MODEL := 3000 eMMC
-  # 物理锁定：必须与你重命名后的 custom-config/mt7981b-sl-3000-emmc.dts 一致
   DEVICE_DTS := mt7981b-sl-3000-emmc
-  # 路径锁定：强制指向嵌套目录
+  # 物理路径锁定：仅在此处保留单层嵌套，指向 arch/arm64/boot/dts/mediatek/
   DEVICE_DTS_DIR := $(DTS_DIR)/mediatek
   SUPPORTED_DEVICES := sl,3000-emmc
   DEVICE_DRAM_SIZE := 1024M
@@ -60,7 +57,6 @@ define Device/sl_3000-emmc
   ARTIFACTS := emmc-gpt.bin emmc-preloader.bin emmc-bl31-uboot.fip
   ARTIFACT/emmc-gpt.bin := mt798x-gpt emmc
   ARTIFACT/emmc-preloader.bin := mt7981-bl2 emmc-ddr3
-  # 对应 U-Boot 劫持生成的 FIP 文件名
   ARTIFACT/emmc-bl31-uboot.fip := mt7981-bl31-uboot sl_3000-emmc
   IMAGE/factory.img.gz := mt798x-gpt emmc |\
 	pad-to 17k | mt7981-bl2 emmc-ddr3 |\
