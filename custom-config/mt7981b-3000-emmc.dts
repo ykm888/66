@@ -26,7 +26,7 @@
 
 	memory@40000000 {
 		device_type = "memory";
-		// 物理审计确认：起始地址 0x40000000，长度 1024MB (0x40000000)
+		// Physical audit: Start 0x40000000, Length 1024MB
 		reg = <0 0x40000000 0 0x40000000>;
 	};
 
