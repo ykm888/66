@@ -43,13 +43,16 @@ jobs:
         [ -e $GITHUB_WORKSPACE/$FEEDS_CONF ] && cp -f $GITHUB_WORKSPACE/$FEEDS_CONF feeds.conf.default
         ./scripts/feeds update -a
         ./scripts/feeds install -a
+        # 物理注入：在编译前劫持 Makefile
+        chmod +x $GITHUB_WORKSPACE/$PATCH_SH
+        $GITHUB_WORKSPACE/$PATCH_SH
 
     - name: Configuration Audit
       run: |
         [ -e $GITHUB_WORKSPACE/$CONFIG_FILE ] && cp -f $GITHUB_WORKSPACE/$CONFIG_FILE openwrt/.config
-        chmod +x $GITHUB_WORKSPACE/$PATCH_SH
         cd openwrt
         make defconfig
+        # 强制修正 .config 变体指向
         sed -i 's/CONFIG_UBOOT_VARIANT_mt7981_emmc=y/# CONFIG_UBOOT_VARIANT_mt7981_emmc is not set/g' .config
         echo "CONFIG_UBOOT_VARIANT_mt7981_sl_3000-emmc=y" >> .config
 
@@ -58,31 +61,11 @@ jobs:
         cd openwrt
         make download -j8
 
-    - name: Physical Preparation
-      run: |
-        cd openwrt
-        # 仅物理准备内核环境，不触发任何 package 编译
-        make target/linux/prepare -j$(nproc)
-        # 第一次注入：锁定内核头文件符号
-        $GITHUB_WORKSPACE/$PATCH_SH
-
     - name: Final Compile
       id: compile
       run: |
         cd openwrt
-        # 物理哨兵模式：后台每10秒检查一次 U-Boot 源码是否解压，一旦发现立即注入
-        (
-          while true; do
-            if find build_dir/ -name "u-boot-*" | grep -qE "sl_3000|mt7981"; then
-               echo "Physical Sentry: Source detected, firing injection script..."
-               $GITHUB_WORKSPACE/$PATCH_SH
-               break
-            fi
-            sleep 10
-          done
-        ) &
-        
-        # 正式开始全局编译，工具链会自动按序构建
+        # 此时地基已打好，Makefile 已被劫持，编译会自动触发下载和补丁
         make -j$(nproc) || make -j1 V=s
         echo "status=success" >> $GITHUB_OUTPUT
         echo "FILE_DATE=_$(date +"%Y%m%d%H%M")" >> $GITHUB_ENV
