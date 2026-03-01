@@ -1,15 +1,14 @@
 #!/bin/bash
 
-# 1. 物理粉碎元数据缓存 (解决 ASR3000 阴魂不散、强制重新扫描 MK)
+# 1. 物理粉碎元数据缓存 (解决 ASR3000 缓存残留)
 rm -rf tmp/
 rm -f .config*
 rm -f .target-userconf
 
 # 2. 物理清除 ASR3000 残余 (最高级别彻底删除)
-# 强制删除源码中所有可能干扰的设备树文件
 find target/linux/mediatek/ -name "*asr3000*" -exec rm -rf {} +
 
-# 3. U-Boot 物理劫持 (锁定 SL-3000 eMMC 引导)
+# 3. U-Boot 物理劫持 (锁定 SL-3000 eMMC 引导链路)
 UBOOT_MAKEFILE="package/boot/uboot-mediatek/Makefile"
 if [ -f "$UBOOT_MAKEFILE" ]; then
     sed -i '/curl -fsSL.*sl_3000/d' "$UBOOT_MAKEFILE"
