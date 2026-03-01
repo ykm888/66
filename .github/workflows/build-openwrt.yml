@@ -52,11 +52,8 @@ jobs:
         chmod +x $GITHUB_WORKSPACE/$PATCH_SH
         cd openwrt
         
-        # 物理修正：不再本地 cp 配置文件，改为调用脚本执行源码云端重定向
-        $GITHUB_WORKSPACE/$PATCH_SH
-        
         make defconfig
-        # 物理锁死 U-Boot 变体名，对应你 ykm99999/66 仓中的新文件名
+        # 物理锁死 U-Boot 变体名
         sed -i 's/CONFIG_UBOOT_VARIANT_mt7981_emmc=y/# CONFIG_UBOOT_VARIANT_mt7981_emmc is not set/g' .config
         echo "CONFIG_UBOOT_VARIANT_mt7981_sl_3000-emmc=y" >> .config
 
@@ -65,17 +62,22 @@ jobs:
         cd openwrt
         make download -j8
 
-    - name: Prepare Source & Physical Patch
+    - name: Physical Source Preparation
       run: |
         cd openwrt
-        # 预解压内核以触发宏注入
+        # 核心修复：先强行执行 U-Boot 变体的 prepare 动作以解压源码包
+        make package/boot/uboot-mediatek/mt7981_sl_3000-emmc/prepare V=s || true
+        # 准备内核环境
         make target/linux/prepare -j$(nproc)
+        # 执行物理注入脚本 (此时磁盘已存在 build_dir，可以进行注入)
         $GITHUB_WORKSPACE/$PATCH_SH
 
     - name: Compile the firmware
       id: compile
       run: |
         cd openwrt
+        # 二次确认注入后开始最终编译
+        $GITHUB_WORKSPACE/$PATCH_SH
         make -j$(nproc) || make -j1 V=s
         echo "status=success" >> $GITHUB_OUTPUT
         echo "FILE_DATE=_$(date +"%Y%m%d%H%M")" >> $GITHUB_ENV
