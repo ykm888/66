@@ -11,7 +11,6 @@ env:
   DIY_P1_SH: scripts/sl3000-patch.sh
   TZ: Asia/Shanghai
   UPLOAD_FIRMWARE: true
-  UPLOAD_BIN_DIR: false
 
 jobs:
   build:
@@ -22,14 +21,10 @@ jobs:
       uses: actions/checkout@v4
 
     - name: Initialization environment
-      env:
-        DEBIAN_FRONTEND: noninteractive
       run: |
         sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc
         sudo -E apt-get -qq update
         sudo -E apt-get -qq install $(curl -fsSL https://raw.githubusercontent.com/ykm99999/66/main/depends-ubuntu-2204)
-        sudo -E apt-get -qq autoremove --purge
-        sudo -E apt-get -qq clean
         sudo timedatectl set-timezone "$TZ"
         sudo mkdir -p /workdir
         sudo chown $USER:$USER /workdir
@@ -37,59 +32,67 @@ jobs:
     - name: Clone source code
       working-directory: /workdir
       run: |
-        df -hT $PWD
         git clone $REPO_URL -b $REPO_BRANCH openwrt
         ln -sf /workdir/openwrt $GITHUB_WORKSPACE/openwrt
 
-    - name: Load custom feeds
+    - name: Update & Install feeds
       run: |
-        [ -e $FEEDS_CONF ] && cp -f $FEEDS_CONF openwrt/feeds.conf.default
         cd openwrt
         ./scripts/feeds update -a
         ./scripts/feeds install -a
 
-    - name: Load custom configuration & Run Patch
+    - name: Physical Configuration Inject
       run: |
-        [ -e "$DIY_P1_SH" ] || { echo "Error: Patch script not found!"; exit 1; }
         chmod +x "$DIY_P1_SH"
+        
+        # 1. 物理清理残留配置
+        rm -f openwrt/.config*
+        
+        # 2. 执行补丁脚本 (仅保留 U-Boot 劫持和内核符号修复)
         cd openwrt
         $GITHUB_WORKSPACE/$DIY_P1_SH
+        
+        # 3. 注入你的 .config
         cd $GITHUB_WORKSPACE
-        [ -e "$CONFIG_FILE" ] && cp -f "$CONFIG_FILE" openwrt/.config
-
-    - name: Download package
-      id: package
-      run: |
+        cp -f "$CONFIG_FILE" openwrt/.config
+        
+        # 4. 核心熔断检查：强制执行 defconfig 并验证设备
         cd openwrt
         make defconfig
+        if ! grep -q "CONFIG_TARGET_mediatek_filogic_DEVICE_sl_3000-emmc=y" .config; then
+            echo "CRITICAL ERROR: Device sl_3000-emmc NOT SELECTED!"
+            echo "The current config has defaulted to another device."
+            grep "CONFIG_TARGET_mediatek_filogic_DEVICE_" .config
+            exit 1
+        fi
+
+    - name: Download package
+      run: |
+        cd openwrt
         make download -j8
-        find dl -size -1024c -exec ls -l {} \;
-        find dl -size -1024c -exec rm -f {} \;
 
     - name: Compile the firmware
       id: compile
       run: |
         cd openwrt
-        echo -e "$(nproc) thread compile"
-        make -j$(nproc) || make -j1 || make -j1 V=s
+        make -j$(nproc) || make -j1 V=s
         echo "status=success" >> $GITHUB_OUTPUT
-
-    - name: Check space usage
-      if: (!cancelled())
-      run: df -hT
 
     - name: Organize files
       id: organize
-      if: steps.compile.outputs.status == 'success' && !cancelled()
+      if: steps.compile.outputs.status == 'success'
       run: |
-        cd openwrt/bin/targets/*/*
+        cd openwrt/bin/targets/mediatek/filogic
         rm -rf packages
+        # 物理检查：只保留包含 sl_3000 命名的固件产物
+        ls -la *sl_3000*
         echo "FIRMWARE=$PWD" >> $GITHUB_ENV
         echo "status=success" >> $GITHUB_OUTPUT
 
     - name: Upload firmware directory
       uses: actions/upload-artifact@v4
-      if: steps.organize.outputs.status == 'success' && !cancelled()
+      if: steps.organize.outputs.status == 'success'
       with:
-        name: OpenWrt_firmware_SL3000
-        path: ${{ env.FIRMWARE }}
+        name: SL3000_Firmware_Final
+        # 物理锁定：仅上传 SL-3000 相关文件
+        path: ${{ env.FIRMWARE }}/*sl_3000*
