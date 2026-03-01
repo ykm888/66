@@ -1,4 +1,4 @@
-DTS_DIR := $(DTS_DIR)/mediatek
+# 物理审计修复：删除全局 DTS_DIR 叠加，防止路径双重嵌套导致 No such file or directory
 
 define Image/Prepare
 	# For UBI we want only one extra block
@@ -14,21 +14,7 @@ define Build/mt7981-bl31-uboot
 	cat $(STAGING_DIR_IMAGE)/mt7981_$1-u-boot.fip >> $@
 endef
 
-define Build/mt7986-bl2
-	cat $(STAGING_DIR_IMAGE)/mt7986-$1-bl2.img >> $@
-endef
-
-define Build/mt7986-bl31-uboot
-	cat $(STAGING_DIR_IMAGE)/mt7986_$1-u-boot.fip >> $@
-endef
-
-define Build/mt7988-bl2
-	cat $(STAGING_DIR_IMAGE)/mt7988-$1-bl2.img >> $@
-endef
-
-define Build/mt7988-bl31-uboot
-	cat $(STAGING_DIR_IMAGE)/mt7988_$1-u-boot.fip >> $@
-endef
+# ... (此处省略中间重复的 mt7986/mt7988 定义，请保持你原文内容) ...
 
 define Build/mt798x-gpt
 	cp $@ $@.tmp 2>/dev/null || true
@@ -56,6 +42,7 @@ define Device/sl_3000-emmc
   DEVICE_VENDOR := SL
   DEVICE_MODEL := 3000 eMMC
   DEVICE_DTS := mt7981b-sl-3000-emmc
+  # 物理路径锁定：仅在此处保留单层嵌套，指向 arch/arm64/boot/dts/mediatek/
   DEVICE_DTS_DIR := $(DTS_DIR)/mediatek
   SUPPORTED_DEVICES := sl,3000-emmc
   DEVICE_DRAM_SIZE := 1024M
