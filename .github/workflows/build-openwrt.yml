@@ -10,8 +10,6 @@ env:
   FEEDS_CONF: feeds.conf.default
   CONFIG_FILE: custom-config/sl3000.config
   PATCH_SH: scripts/sl3000-patch.sh
-  UPLOAD_FIRMWARE: true
-  UPLOAD_RELEASE: true
   TZ: Asia/Shanghai
 
 jobs:
@@ -24,7 +22,7 @@ jobs:
 
     - name: Initialization environment
       run: |
-        sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/share/boost /usr/local/share/boost /usr/lib/jvm
+        sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/share/boost /usr/lib/jvm
         sudo -E apt-get -qq update
         sudo -E apt-get -qq install $(curl -fsSL https://is.gd/depends_ubuntu_2204)
         sudo -E apt-get -qq autoremove --purge
@@ -51,9 +49,7 @@ jobs:
         [ -e $GITHUB_WORKSPACE/$CONFIG_FILE ] && cp -f $GITHUB_WORKSPACE/$CONFIG_FILE openwrt/.config
         chmod +x $GITHUB_WORKSPACE/$PATCH_SH
         cd openwrt
-        
         make defconfig
-        # 物理锁死 U-Boot 变体名
         sed -i 's/CONFIG_UBOOT_VARIANT_mt7981_emmc=y/# CONFIG_UBOOT_VARIANT_mt7981_emmc is not set/g' .config
         echo "CONFIG_UBOOT_VARIANT_mt7981_sl_3000-emmc=y" >> .config
 
@@ -62,23 +58,31 @@ jobs:
         cd openwrt
         make download -j8
 
-    - name: Physical Source Preparation
+    - name: Physical Preparation
       run: |
         cd openwrt
-        # 物理物理物理：先解压内核环境
+        # 仅物理准备内核环境，不触发任何 package 编译
         make target/linux/prepare -j$(nproc)
-        # 执行脚本，此时主要针对内核头文件进行物理补丁
+        # 第一次注入：锁定内核头文件符号
         $GITHUB_WORKSPACE/$PATCH_SH
-        # 触发 U-Boot 编译预研（此步会完成源码包解压）
-        make package/boot/uboot-mediatek/compile -j1 V=s || echo "Wait for final physical injection"
 
-    - name: Compile the firmware
+    - name: Final Compile
       id: compile
       run: |
         cd openwrt
-        # 核心物理动作：在正式大面积编译前，确保注入脚本再次运行
-        # 此时 U-Boot 源码包已被上一环节解压，find 必能命中
-        $GITHUB_WORKSPACE/$PATCH_SH
+        # 物理哨兵模式：后台每10秒检查一次 U-Boot 源码是否解压，一旦发现立即注入
+        (
+          while true; do
+            if find build_dir/ -name "u-boot-*" | grep -qE "sl_3000|mt7981"; then
+               echo "Physical Sentry: Source detected, firing injection script..."
+               $GITHUB_WORKSPACE/$PATCH_SH
+               break
+            fi
+            sleep 10
+          done
+        ) &
+        
+        # 正式开始全局编译，工具链会自动按序构建
         make -j$(nproc) || make -j1 V=s
         echo "status=success" >> $GITHUB_OUTPUT
         echo "FILE_DATE=_$(date +"%Y%m%d%H%M")" >> $GITHUB_ENV
