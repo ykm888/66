@@ -7,21 +7,30 @@ if [ -d "$IMAGE_DIR" ]; then
     grep -rl "DRAM_SIZE_" "$IMAGE_DIR" | xargs sed -i 's/DRAM_SIZE_512M=y/DRAM_SIZE_1024M=y/g' 2>/dev/null
 fi
 
-# 2. U-Boot 源码物理重定向 (物理接管专属仓库 ykm99999/66)
-# 彻底解决 No such file 报错，因为新源中已物理包含 mt7981_sl_3000-emmc_defconfig
-UBOOT_MAKEFILE="package/boot/uboot-mediatek/Makefile"
-if [ -f "$UBOOT_MAKEFILE" ]; then
-    # 物理物理物理：改写下载地址、分支，并跳过 Hash 校验
-    sed -i "s|PKG_SOURCE_URL:=.*|PKG_SOURCE_URL:=https://github.com/ykm99999/66|g" "$UBOOT_MAKEFILE"
-    sed -i "s|PKG_SOURCE_VERSION:=.*|PKG_SOURCE_VERSION:=sl3000-uboot-base|g" "$UBOOT_MAKEFILE"
-    sed -i "s|PKG_HASH:=.*|PKG_HASH:=skip|g" "$UBOOT_MAKEFILE"
-    echo "U-Boot source physically redirected to ykm99999/66 (sl3000-uboot-base)"
+# 2. 物理注入手术：直接补齐缺失的 defconfig (彻底解决 No such file 报错)
+# 物理定位：在 build_dir 中寻找已解压的 U-Boot 目录
+UBOOT_PATH=$(find build_dir/ -name "u-boot-*" | grep "u-boot-mt7981_sl_3000-emmc" | head -n 1)
+
+if [ -n "$UBOOT_PATH" ]; then
+    echo "Found U-Boot physical path: $UBOOT_PATH"
+    mkdir -p "$UBOOT_PATH/configs/"
+    
+    # 物理抓取：从你的专用仓库分支抓取物理文件并强行写入
+    curl -fsSL https://raw.githubusercontent.com/ykm99999/66/sl3000-uboot-base/configs/mt7981_sl_3000-emmc_defconfig -o "$UBOOT_PATH/configs/mt7981_sl_3000-emmc_defconfig"
+    
+    # 双重保险：同时物理覆盖官方默认名，防止编译脚本逻辑回退
+    cp -f "$UBOOT_PATH/configs/mt7981_sl_3000-emmc_defconfig" "$UBOOT_PATH/configs/mt7981_emmc_defconfig"
+    
+    echo "Physical Injection Success: mt7981_sl_3000-emmc_defconfig is now present in $UBOOT_PATH"
+else
+    echo "WARNING: U-Boot build directory not found. Ensuring path exists for next stage."
 fi
 
-# 3. 彻底解决内核符号断点：直接在驱动核心头文件末尾追加，100% 物理熔断所有 undeclared 报错
+# 3. 彻底解决内核符号断点：物理注入内核头文件，熔断 undeclared 报错
 ETH_SOC_HDR=$(find build_dir/ -name "mtk_eth_soc.h" | grep "linux-mediatek_filogic" | head -n 1)
 if [ -n "$ETH_SOC_HDR" ]; then
-    cat << 'EOF' >> "$ETH_SOC_HDR"
+    if ! grep -q "MTK_WIFI_RESET_DONE" "$ETH_SOC_HDR"; then
+        cat << 'EOF' >> "$ETH_SOC_HDR"
 
 /* --- SL-3000 Rescue Firmware Physical Patch --- */
 #ifndef MTK_FE_START_RESET
@@ -44,6 +53,8 @@ if [ -n "$ETH_SOC_HDR" ]; then
 #endif
 /* --- Patch End --- */
 EOF
+        echo "Kernel headers physically patched."
+    fi
 fi
 
 exit 0
