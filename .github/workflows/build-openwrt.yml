@@ -1,15 +1,19 @@
-name: Build SL-3000 Rescue Firmware
+name: Build SL-3000 eMMC Firmware
 
 on:
   repository_dispatch:
   workflow_dispatch:
+  push:
+    paths:
+      - 'custom-config/**'
+      - 'scripts/**'
 
 env:
-  REPO_URL: https://github.com/ykm99999/66
-  REPO_BRANCH: openwrt-24.10-6.6
+  REPO_URL: https://github.com/coolsnowwolf/lede
+  REPO_BRANCH: master
   FEEDS_CONF: feeds.conf.default
   CONFIG_FILE: custom-config/sl3000.config
-  PATCH_SH: scripts/sl3000-patch.sh
+  DIY_P1_SH: scripts/sl3000-patch.sh
   TZ: Asia/Shanghai
 
 jobs:
@@ -21,10 +25,12 @@ jobs:
       uses: actions/checkout@v4
 
     - name: Initialization environment
+      env:
+        DEBIAN_FRONTEND: noninteractive
       run: |
-        sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/share/boost /usr/lib/jvm
+        sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc
         sudo -E apt-get -qq update
-        sudo -E apt-get -qq install $(curl -fsSL https://is.gd/depends_ubuntu_2204)
+        sudo -E apt-get -qq install $(curl -fsSL https://raw.githubusercontent.com/ykm99999/66/main/depends-ubuntu-2204)
         sudo -E apt-get -qq autoremove --purge
         sudo -E apt-get -qq clean
         sudo timedatectl set-timezone "$TZ"
@@ -34,65 +40,72 @@ jobs:
     - name: Clone source code
       working-directory: /workdir
       run: |
+        df -hT $PWD
         git clone $REPO_URL -b $REPO_BRANCH openwrt
         ln -sf /workdir/openwrt $GITHUB_WORKSPACE/openwrt
 
-    - name: Update & Install feeds
+    - name: Load custom feeds
       run: |
+        [ -e $FEEDS_CONF ] && cp -f $FEEDS_CONF openwrt/feeds.conf.default
         cd openwrt
-        [ -e $GITHUB_WORKSPACE/$FEEDS_CONF ] && cp -f $GITHUB_WORKSPACE/$FEEDS_CONF feeds.conf.default
         ./scripts/feeds update -a
         ./scripts/feeds install -a
-        # 物理注入：修改 Makefile
-        chmod +x $GITHUB_WORKSPACE/$PATCH_SH
-        $GITHUB_WORKSPACE/$PATCH_SH
 
-    - name: Configuration Audit
+    - name: Load custom configuration & Run Patch
       run: |
-        [ -e $GITHUB_WORKSPACE/$CONFIG_FILE ] && cp -f $GITHUB_WORKSPACE/$CONFIG_FILE openwrt/.config
+        # 1. 物理检查脚本是否存在
+        [ -e "$DIY_P1_SH" ] || { echo "Error: Patch script not found!"; exit 1; }
+        chmod +x "$DIY_P1_SH"
+        
+        # 2. 执行物理补丁（搬运 DTS, 劫持 U-Boot, 修复内核符号）
         cd openwrt
-        make defconfig
-        sed -i 's/CONFIG_UBOOT_VARIANT_mt7981_emmc=y/# CONFIG_UBOOT_VARIANT_mt7981_emmc is not set/g' .config
-        echo "CONFIG_UBOOT_VARIANT_mt7981_sl_3000-emmc=y" >> .config
+        $GITHUB_WORKSPACE/$DIY_P1_SH
+        
+        # 3. 注入 .config 文件
+        cd $GITHUB_WORKSPACE
+        [ -e "$CONFIG_FILE" ] && cp -f "$CONFIG_FILE" openwrt/.config
 
     - name: Download package
+      id: package
       run: |
         cd openwrt
+        make defconfig
         make download -j8
+        find dl -size -1024c -exec ls -l {} \;
+        find dl -size -1024c -exec rm -f {} \;
 
-    - name: Physical Preparation
-      run: |
-        cd openwrt
-        # 强制解压内核源码
-        make target/linux/prepare -j$(nproc)
-        # 物理物理物理：针对 build_dir 下解压后的内核文件进行最后的 sed 注入
-        find build_dir/ -name "mtk_eth_soc.h" | xargs sed -i '15i #ifndef MTK_WIFI_RESET_DONE\n#define MTK_FE_START_RESET 0x10\n#define MTK_FE_RESET_DONE 0x11\n#define MTK_FE_RESET_NAT_DONE 0x14\n#define MTK_WIFI_CHIP_OFFLINE 0x12\n#define MTK_WIFI_CHIP_ONLINE 0x13\n#define HIT_BIND_FORCE_TO_CPU 1\n#define MTK_WIFI_RESET_DONE 0x16\n#endif\n' 2>/dev/null || true
-        # 再次确认脚本执行
-        $GITHUB_WORKSPACE/$PATCH_SH
-
-    - name: Final Compile
+    - name: Compile the firmware
       id: compile
       run: |
         cd openwrt
-        make -j$(nproc) || make -j1 V=s
+        echo -e "$(nproc) thread compile"
+        # 第一次编译建议使用单线程或多线程但忽略错误，以便物理观察报错点
+        make -j$(nproc) || make -j1 || make -j1 V=s
         echo "status=success" >> $GITHUB_OUTPUT
-        echo "FILE_DATE=_$(date +"%Y%m%d%H%M")" >> $GITHUB_ENV
+
+    - name: Check space usage
+      if: (!cancelled())
+      run: df -hT
+
+    - name: Upload bin directory
+      uses: actions/upload-artifact@v4
+      if: steps.compile.outputs.status == 'success' && env.UPLOAD_BIN_DIR == 'true'
+      with:
+        name: OpenWrt_bin${{ env.DEVICE_NAME }}${{ env.FILE_DATE }}
+        path: openwrt/bin
 
     - name: Organize files
       id: organize
-      if: steps.compile.outputs.status == 'success' && !cancelled()
+      if: env.UPLOAD_FIRMWARE == 'true' && !cancelled()
       run: |
-        cd openwrt/bin/targets/mediatek/filogic/
-        mkdir -p $GITHUB_WORKSPACE/firmware_output
-        cp -f *sl_3000-emmc* $GITHUB_WORKSPACE/firmware_output/ || true
-        echo "FIRMWARE=$GITHUB_WORKSPACE/firmware_output" >> $GITHUB_ENV
+        cd openwrt/bin/targets/*/*
+        rm -rf packages
+        echo "FIRMWARE=$PWD" >> $GITHUB_ENV
         echo "status=success" >> $GITHUB_OUTPUT
 
-    - name: Upload firmware to release
-      uses: softprops/action-gh-release@v2
+    - name: Upload firmware directory
+      uses: actions/upload-artifact@v4
       if: steps.organize.outputs.status == 'success' && !cancelled()
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
-        tag_name: SL3000-Rescue-${{ env.FILE_DATE }}
-        files: ${{ env.FIRMWARE }}/*
+        name: OpenWrt_firmware${{ env.DEVICE_NAME }}${{ env.FILE_DATE }}
+        path: ${{ env.FIRMWARE }}
