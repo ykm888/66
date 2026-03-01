@@ -16,10 +16,10 @@ jobs:
     runs-on: ubuntu-22.04
 
     steps:
-    - name: Checkout
+    - name: Checkout Repository
       uses: actions/checkout@v4
 
-    - name: Initialization environment
+    - name: Initialization Environment
       run: |
         sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc
         sudo -E apt-get -qq update
@@ -28,69 +28,69 @@ jobs:
         sudo mkdir -p /workdir
         sudo chown $USER:$USER /workdir
 
-    - name: Clone source code
+    - name: Clone Source Code
       working-directory: /workdir
       run: |
         git clone $REPO_URL -b $REPO_BRANCH openwrt
         ln -sf /workdir/openwrt $GITHUB_WORKSPACE/openwrt
 
-    - name: Update & Install feeds
+    - name: Update & Install Feeds
       run: |
         cd openwrt
         ./scripts/feeds update -a
         ./scripts/feeds install -a
 
-    - name: Physical Configuration Guard
+    - name: Physical Configuration & Audit
       run: |
         chmod +x "$DIY_P1_SH"
-        
-        # 1. 物理清理：防止上一次构建的配置残留
-        rm -f openwrt/.config*
-        
-        # 2. 执行补丁脚本 (处理 U-Boot 和内存锁定)
         cd openwrt
+        
+        # 1. 物理注入 (清理缓存、重置路径、劫持 U-Boot)
         $GITHUB_WORKSPACE/$DIY_P1_SH
         
-        # 3. 注入你的 .config 文件
-        cd $GITHUB_WORKSPACE
-        cp -f "$CONFIG_FILE" openwrt/.config
+        # 2. 物理探针：检查 ASR3000 是否真的消失了
+        if [ -f "target/linux/mediatek/dts/mt7981b-abt-asr3000.dts" ]; then
+            echo "WARNING: ASR3000 DTS found, performing physical removal..."
+            rm -f target/linux/mediatek/dts/mt7981b-abt-asr3000.dts
+        fi
         
-        # 4. 熔断审计：强制刷新并验证是否成功选中 sl_3000
-        cd openwrt
+        # 3. 注入你的 .config 并强制刷新
+        cp -f $GITHUB_WORKSPACE/$CONFIG_FILE .config
         make defconfig
+        
+        # 4. 物理熔断：检查 SL-3000 是否由于唯一性而激活
         if ! grep -q "CONFIG_TARGET_mediatek_filogic_DEVICE_sl_3000-emmc=y" .config; then
-            echo "CRITICAL ERROR: Configuration failed to select SL-3000!"
-            echo "Current selected device is:"
+            echo "CRITICAL ERROR: SL-3000 NOT SELECTED! Current .config state:"
             grep "CONFIG_TARGET_mediatek_filogic_DEVICE_" .config
             exit 1
         fi
 
-    - name: Download package
+    - name: Download Packages
       run: |
         cd openwrt
         make download -j8
 
-    - name: Compile the firmware
+    - name: Compile Firmware
       id: compile
       run: |
         cd openwrt
         make -j$(nproc) || make -j1 V=s
         echo "status=success" >> $GITHUB_OUTPUT
 
-    - name: Organize files
+    - name: Organize Files
       id: organize
       if: steps.compile.outputs.status == 'success'
       run: |
-        # 物理路径锁定：仅匹配包含 sl_3000 的产物
         cd openwrt/bin/targets/mediatek/filogic
         rm -rf packages
+        # 物理审计：只列出包含 sl_3000 的文件
         ls -la *sl_3000*
         echo "FIRMWARE=$PWD" >> $GITHUB_ENV
         echo "status=success" >> $GITHUB_OUTPUT
 
-    - name: Upload firmware directory
+    - name: Upload Firmware
       uses: actions/upload-artifact@v4
       if: steps.organize.outputs.status == 'success'
       with:
-        name: SL3000_Firmware_Final
+        name: SL3000_eMMC_Firmware
         path: ${{ env.FIRMWARE }}/*sl_3000*
