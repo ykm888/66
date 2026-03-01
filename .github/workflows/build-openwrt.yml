@@ -28,8 +28,6 @@ jobs:
     - name: Clone Source Code
       run: |
         git clone $REPO_URL -b $REPO_BRANCH openwrt
-        # 将你仓库里的 target 目录物理放入编译环境根目录，供脚本审计使用
-        cp -rf $GITHUB_WORKSPACE/target openwrt/sl3000_source_target
 
     - name: Update & Install Feeds
       run: |
@@ -37,25 +35,24 @@ jobs:
         ./scripts/feeds update -a
         ./scripts/feeds install -a
 
-    - name: Physical Purge & Audit
+    - name: Physical Purge & Mapping Audit
       run: |
         chmod +x "$DIY_P1_SH"
         cd openwrt
         
-        # 1. 运行补丁：物理对齐你指定的路径、粉碎缓存、清除 ASR3000
+        # 1. 运行补丁：脚本会自动跨过 66/66 层级寻找 DTS 并物理对齐
         $GITHUB_WORKSPACE/$DIY_P1_SH
         
-        # 2. 物理审计：验证 DTS 是否已由脚本同步到内核核心位
+        # 2. 物理审计：确认 DTS 是否成功进入核心位
         ls -l target/linux/mediatek/files-6.6/arch/arm64/boot/dts/mediatek/mt7981b-sl-3000-emmc.dts
         
-        # 3. 注入你的 .config 并强制刷新
+        # 3. 注入你的 .config 并执行强制刷新
         cp -f $GITHUB_WORKSPACE/$CONFIG_FILE .config
         make defconfig
         
-        # 4. 物理熔断：检查 SL-3000 唯一性，若 ASR3000 还在则报错自毁
+        # 4. 物理熔断：检查 SL-3000 唯一性
         if grep -q "CONFIG_TARGET_mediatek_filogic_DEVICE_abt_asr3000=y" .config; then
             echo "CRITICAL ERROR: ASR3000 survived the purge!"
-            grep "CONFIG_TARGET_mediatek_filogic_DEVICE_" .config
             exit 1
         fi
         grep "CONFIG_TARGET_mediatek_filogic_DEVICE_sl_3000-emmc=y" .config || exit 1
@@ -70,7 +67,6 @@ jobs:
       run: |
         mkdir -p $GITHUB_WORKSPACE/output
         cd openwrt/bin/targets/mediatek/filogic
-        # 只提取 SL-3000 产物
         cp *sl_3000* $GITHUB_WORKSPACE/output/ 2>/dev/null || true
 
     - name: Upload Firmware
