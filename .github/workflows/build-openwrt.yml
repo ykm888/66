@@ -15,10 +15,8 @@ jobs:
     runs-on: ubuntu-22.04
 
     steps:
-    - name: Checkout Current Repository
+    - name: Checkout
       uses: actions/checkout@v4
-      with:
-        ref: openwrt-24.10-6.6  # 物理锁定你的核心修改分支
 
     - name: Initialization Environment
       run: |
@@ -30,19 +28,6 @@ jobs:
     - name: Clone Source Code
       run: |
         git clone $REPO_URL -b $REPO_BRANCH openwrt
-
-    - name: Physical Inject & Overwrite (Point-to-Point)
-      run: |
-        # 1. 物理强推 DTS：完全匹配你链接中的 6 层深度路径
-        # 目标路径物理创建
-        mkdir -p openwrt/target/linux/mediatek/files-6.6/arch/arm64/boot/dts/mediatek
-        
-        # 绝对物理拷贝 (从你仓库的深层路径搬运)
-        cp -v target/linux/mediatek/files-6.6/arch/arm64/boot/dts/mediatek/mt7981b-sl-3000-emmc.dts \
-              openwrt/target/linux/mediatek/files-6.6/arch/arm64/boot/dts/mediatek/
-              
-        # 2. 物理强推 MK：确保源码中的 filogic.mk 只有 SL-3000
-        cp -v custom-config/filogic.mk openwrt/target/linux/mediatek/image/filogic.mk
 
     - name: Update & Install Feeds
       run: |
@@ -57,16 +42,16 @@ jobs:
         # 运行补丁：物理粉碎 ASR3000 缓存
         $GITHUB_WORKSPACE/$DIY_P1_SH
         
-        # 注入你的 .config 并强制刷新
+        # 注入 .config
         cp -f $GITHUB_WORKSPACE/$CONFIG_FILE .config
         make defconfig
         
-        # 物理熔断：检查 SL-3000 唯一性
+        # 物理熔断审计：确保 SL-3000 锁定且 ASR3000 物理剔除
+        grep "CONFIG_TARGET_mediatek_filogic_DEVICE_sl_3000-emmc=y" .config || exit 1
         if grep -q "CONFIG_TARGET_mediatek_filogic_DEVICE_abt_asr3000=y" .config; then
-            echo "CRITICAL ERROR: ASR3000 metadata survived!"
+            echo "ASR3000 survived, physical failure."
             exit 1
         fi
-        grep "CONFIG_TARGET_mediatek_filogic_DEVICE_sl_3000-emmc=y" .config || exit 1
 
     - name: Download & Compile
       run: |
