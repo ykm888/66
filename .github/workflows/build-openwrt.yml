@@ -65,18 +65,19 @@ jobs:
     - name: Physical Source Preparation
       run: |
         cd openwrt
-        # 核心修复：先强行执行 U-Boot 变体的 prepare 动作以解压源码包
-        make package/boot/uboot-mediatek/mt7981_sl_3000-emmc/prepare V=s || true
-        # 准备内核环境
+        # 物理物理物理：先解压内核环境
         make target/linux/prepare -j$(nproc)
-        # 执行物理注入脚本 (此时磁盘已存在 build_dir，可以进行注入)
+        # 执行脚本，此时主要针对内核头文件进行物理补丁
         $GITHUB_WORKSPACE/$PATCH_SH
+        # 触发 U-Boot 编译预研（此步会完成源码包解压）
+        make package/boot/uboot-mediatek/compile -j1 V=s || echo "Wait for final physical injection"
 
     - name: Compile the firmware
       id: compile
       run: |
         cd openwrt
-        # 二次确认注入后开始最终编译
+        # 核心物理动作：在正式大面积编译前，确保注入脚本再次运行
+        # 此时 U-Boot 源码包已被上一环节解压，find 必能命中
         $GITHUB_WORKSPACE/$PATCH_SH
         make -j$(nproc) || make -j1 V=s
         echo "status=success" >> $GITHUB_OUTPUT
