@@ -1,66 +1,107 @@
-name: Build SL3000 Factory Recovery Firmware
+name: 司洛SL-3000 EMMC 救砖构建 (魔改源物理对齐)
 
 on:
-  push:
-    branches:
-      - openwrt-24.10-6.6
   workflow_dispatch:
+  repository_dispatch:
 
 env:
-  REPO_URL: https://github.com/ykm888/66
-  REPO_BRANCH: openwrt-24.10-6.6
-  CONFIG_FILE: custom-config/sl3000.config
-  DIY_SH: scripts/sl3000-patch.sh
+  # 物理锁定魔改仓库源
+  REPO_URL: https://github.com/ykm99999/66
+  REPO_BRANCH: sl3000-uboot-base
+  # 物理锁定资源路径
+  CONFIG_URL: https://raw.githubusercontent.com/ykm888/66/main/custom-config/sl3000.config
+  SCRIPT_URL: https://raw.githubusercontent.com/ykm888/66/main/scripts/sl3000-patch.sh
+  TZ: Asia/Shanghai
 
 jobs:
   build:
     runs-on: ubuntu-22.04
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ env.REPO_BRANCH }}
+    - name: Checkout
+      uses: actions/checkout@v4
 
-      - name: Initialization environment
-        run: |
-          sudo -E apt-get -qq update
-          sudo -E apt-get -qq install $(curl -fsSL https://raw.githubusercontent.com/ant0ny-0/openwrt-scripts/master/depends-ubuntu-2204)
-          sudo timedatectl set-timezone "Asia/Shanghai"
+    - name: Initialization environment
+      run: |
+        sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+        sudo -E apt-get -qq update
+        # 物理补充编译必需依赖
+        sudo -E apt-get -qq install $(curl -fsSL https://raw.githubusercontent.com/ant0ny-0/openwrt-scripts/master/depends-ubuntu-2204)
+        sudo timedatectl set-timezone "$TZ"
 
-      - name: Update & Install feeds
-        run: |
-          ./scripts/feeds update -a
-          ./scripts/feeds install -a
+    - name: Clone source code
+      run: |
+        # 物理精准拉取 sl3000-uboot-base
+        git clone --depth 1 $REPO_URL -b $REPO_BRANCH openwrt
 
-      - name: Apply Local Config & Pre-patch
-        run: |
-          [ -e $CONFIG_FILE ] && cp $CONFIG_FILE .config
-          chmod +x $DIY_SH
-          ./$DIY_SH
+    - name: Update & Install feeds
+      run: |
+        cd openwrt
+        ./scripts/feeds update -a
+        ./scripts/feeds install -a
 
-      - name: Download package
-        run: |
-          make defconfig
-          make download -j8
+    - name: Fetch Remote Assets & Initial Patch
+      run: |
+        cd openwrt
+        # 物理抓取配置与脚本，严禁 EOF
+        curl -fsSL $CONFIG_URL > .config
+        curl -fsSL $SCRIPT_URL > sl3000-patch.sh
+        chmod +x sl3000-patch.sh
+        # 第一次物理修复：环境对齐
+        ./sl3000-patch.sh
 
-      - name: Pre-compile Source Fix (Critical)
-        run: |
-          # 针对救砖包编译过程中涉及的内核源码进行二次修复
-          ./$DIY_SH
+    - name: Download package
+      run: |
+        cd openwrt
+        make defconfig
+        make download -j8
+        find dl -size -1024c -exec rm -f {} \;
 
-      - name: Compile the firmware
-        run: |
-          # 开始物理编译，目标包含 factory 镜像
-          make -j$(nproc) || make -j1 V=s
+    - name: Pre-compile Source Fix (Critical)
+      run: |
+        cd openwrt
+        # 第二次物理修复：针对解压后的内核源码切除 Error 1 病灶
+        ./sl3000-patch.sh
 
-      - name: Upload Recovery Artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: SL3000-Recovery-Bundle
-          path: |
-            bin/targets/mediatek/filogic/*factory.img.gz
-            bin/targets/mediatek/filogic/*emmc-gpt.bin
-            bin/targets/mediatek/filogic/*emmc-preloader.bin
-            bin/targets/mediatek/filogic/*emmc-bl31-uboot.fip
-            bin/targets/mediatek/filogic/*sysupgrade.bin
+    - name: Compile the firmware
+      id: compile
+      run: |
+        cd openwrt
+        # 构建 SL-3000 救砖包产物
+        make -j$(nproc) || make -j1 V=s
+        echo "status=success" >> $GITHUB_OUTPUT
+
+    - name: Organize Recovery Bundle
+      id: organize
+      if: steps.compile.outputs.status == 'success' && !cancelled()
+      run: |
+        cd openwrt/bin/targets/mediatek/filogic
+        mkdir -p /workdir/recovery_bundle
+        # 物理提取救砖四件套：GPT, Preloader, FIP, Factory
+        cp *factory.img.gz /workdir/recovery_bundle/ 2>/dev/null || true
+        cp *emmc-gpt.bin /workdir/recovery_bundle/ 2>/dev/null || true
+        cp *emmc-preloader.bin /workdir/recovery_bundle/ 2>/dev/null || true
+        cp *emmc-bl31-uboot.fip /workdir/recovery_bundle/ 2>/dev/null || true
+        cp *sysupgrade.bin /workdir/recovery_bundle/ 2>/dev/null || true
+        echo "FIRMWARE=/workdir/recovery_bundle" >> $GITHUB_ENV
+        echo "status=success" >> $GITHUB_OUTPUT
+
+    - name: Upload Recovery Bundle
+      uses: actions/upload-artifact@v4
+      if: steps.organize.outputs.status == 'success' && !cancelled()
+      with:
+        name: SL3000-Recovery-Bundle
+        path: ${{ env.FIRMWARE }}/*
+
+    - name: Release Recovery Firmware
+      uses: softprops/action-gh-release@v2
+      if: steps.organize.outputs.status == 'success' && !cancelled()
+      with:
+        tag_name: SL3000_RECOVERY_${{ github.run_id }}
+        files: ${{ env.FIRMWARE }}/*
+        body: |
+          SL-3000 eMMC 1024M 救砖专用包
+          基于魔改源: sl3000-uboot-base
+          - 包含全套 GPT/Preloader/U-Boot/Factory 镜像
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
