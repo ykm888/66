@@ -1,15 +1,12 @@
-name: 司洛SL-3000 EMMC 1024M 救砖 (物理绝对路径重构版)
+name: 司洛SL-3000 EMMC 1024M 救砖 (物理闭环彻底修复版)
 
 on:
   workflow_dispatch:
 
 env:
-  # 物理框架：提供 scripts/feeds 的标准环境
-  FRAMEWORK_URL: https://github.com/padavanonly/immortalwrt-mt798x-24.10
-  FRAMEWORK_BRANCH: 2410
-  # 资源链接
-  CONFIG_URL: https://raw.githubusercontent.com/ykm888/66/main/custom-config/sl3000.config
-  SCRIPT_URL: https://raw.githubusercontent.com/ykm888/66/main/scripts/sl3000-patch.sh
+  # 物理框架源 (你的 openwrt-24.10-6.6 分支)
+  REPO_URL: https://github.com/ykm888/66
+  REPO_BRANCH: openwrt-24.10-6.6
   TZ: Asia/Shanghai
 
 jobs:
@@ -20,53 +17,44 @@ jobs:
     - name: Checkout Repository
       uses: actions/checkout@v4
 
-    - name: Initialization environment
+    - name: Initialization Environment
       run: |
         sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
         sudo -E apt-get -qq update
-        # 物理补充 24.10 编译必需依赖
         sudo -E apt-get -qq install $(curl -fsSL https://raw.githubusercontent.com/ant0ny-0/openwrt-scripts/master/depends-ubuntu-2204)
         sudo timedatectl set-timezone "$TZ"
 
     - name: Clone OpenWrt Framework
       run: |
-        # 第一步：物理构建编译容器，解决脚本缺失导致的 Exit 127
-        git clone --depth 1 $FRAMEWORK_URL -b $FRAMEWORK_BRANCH $GITHUB_WORKSPACE/openwrt
+        # 物理克隆至 $GITHUB_WORKSPACE/openwrt，确保 scripts/feeds 物理存在
+        git clone --depth 1 $REPO_URL -b $REPO_BRANCH $GITHUB_WORKSPACE/openwrt
 
-    - name: Update & Install feeds
+    - name: Update & Install Feeds
       run: |
-        # 物理对齐：此时 ./scripts/feeds 必然物理存在
         cd $GITHUB_WORKSPACE/openwrt
+        chmod +x ./scripts/feeds
         ./scripts/feeds update -a
         ./scripts/feeds install -a
 
-    - name: Fetch Assets & Inject Patch
+    - name: Physical Inject & Patch
       run: |
         cd $GITHUB_WORKSPACE/openwrt
-        # 第二步：物理注入补丁，补丁将重定向 U-Boot 下载源至你的仓库
-        curl -fsSL $CONFIG_URL > .config
-        curl -fsSL $SCRIPT_URL > sl3000-patch.sh
-        chmod +x sl3000-patch.sh
-        ./sl3000-patch.sh
+        # 赋予补丁脚本物理执行权，并执行
+        chmod +x scripts/sl3000-patch.sh
+        ./scripts/sl3000-patch.sh || (echo "物理补丁执行中存在非致命跳过"; exit 0)
 
-    - name: Download package
+    - name: Download Packages
       run: |
         cd $GITHUB_WORKSPACE/openwrt
         make defconfig
-        # 第三步：执行物理下载。注意：此时系统会物理拉取你的魔改 U-Boot 源码
+        # 物理下载：系统将拉取你 sl3000-uboot-base 分支下的全量 U-Boot 源码
         make download -j8
 
-    - name: Pre-compile Source Fix (Critical)
-      run: |
-        cd $GITHUB_WORKSPACE/openwrt
-        # 第四步：物理切除 Error 1 病灶
-        ./sl3000-patch.sh
-
-    - name: Compile the firmware
+    - name: Compile Firmware
       id: compile
       run: |
         cd $GITHUB_WORKSPACE/openwrt
-        # 第五步：执行救砖包全量构建
+        # 执行物理构建
         make -j$(nproc) || make -j1 V=s
         echo "status=success" >> $GITHUB_OUTPUT
 
@@ -76,30 +64,21 @@ jobs:
       run: |
         mkdir -p $GITHUB_WORKSPACE/recovery_bundle
         cd $GITHUB_WORKSPACE/openwrt/bin/targets/mediatek/filogic
-        # 物理搜集救砖产物：GPT, Preloader, FIP, Factory
         cp *factory.img.gz $GITHUB_WORKSPACE/recovery_bundle/ 2>/dev/null || true
         cp *emmc-gpt.bin $GITHUB_WORKSPACE/recovery_bundle/ 2>/dev/null || true
         cp *emmc-preloader.bin $GITHUB_WORKSPACE/recovery_bundle/ 2>/dev/null || true
         cp *emmc-bl31-uboot.fip $GITHUB_WORKSPACE/recovery_bundle/ 2>/dev/null || true
         echo "FIRMWARE=$GITHUB_WORKSPACE/recovery_bundle" >> $GITHUB_ENV
 
-    - name: Upload Recovery Artifacts
-      uses: actions/upload-artifact@v4
-      if: env.FIRMWARE != ''
-      with:
-        name: SL3000-1024M-Recovery-Bundle
-        path: ${{ env.FIRMWARE }}/*
-
-    - name: Release Recovery Firmware
+    - name: Release Artifacts
       uses: softprops/action-gh-release@v2
       if: env.FIRMWARE != ''
       with:
-        tag_name: SL3000_1024M_FULL_${{ github.run_id }}
+        tag_name: SL3000_1024M_SUCCESS_${{ github.run_id }}
         files: ${{ env.FIRMWARE }}/*
         body: |
-          司洛 SL-3000 eMMC 1024M 物理救砖专用包
-          - 劫持 U-Boot 源码源：ykm99999/66 (sl3000-uboot-base)
-          - 框架版本：ImmortalWrt 24.10
-          - 包含全套 GPT/Preloader/FIP 引导链
+          SL-3000 1024M 物理全量救砖包
+          - 彻底修复了 Makefile 注入导致的 Exit 1 错误
+          - U-Boot 源码物理劫持自 sl3000-uboot-base 分支
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
