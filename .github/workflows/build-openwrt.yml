@@ -1,10 +1,9 @@
-name: 司洛SL-3000 1024M 救砖 (三分支全量修复版)
+name: 司洛SL-3000 1024M 救砖 (像素级对齐最终版)
 
 on:
   workflow_dispatch:
 
 env:
-  # 物理分支定义：严格遵循用户记忆中的仓库布局
   MY_REPO: ykm888/66
   FRAMEWORK_BRANCH: openwrt-24.10-6.6
   TZ: Asia/Shanghai
@@ -14,7 +13,7 @@ jobs:
     runs-on: ubuntu-22.04
 
     steps:
-    - name: Checkout Main (获取脚本与 8000行配置)
+    - name: Checkout Main (获取补丁脚本与 8000 行配置)
       uses: actions/checkout@v4
       with:
         ref: main
@@ -26,9 +25,8 @@ jobs:
         sudo -E apt-get -qq install $(curl -fsSL https://raw.githubusercontent.com/ant0ny-0/openwrt-scripts/master/depends-ubuntu-2204)
         sudo timedatectl set-timezone "$TZ"
 
-    - name: Clone Framework Branch (物理拉取 Shell 编译底座)
+    - name: Clone Framework (物理获取修改后的 Makefile 底座)
       run: |
-        # 将 openwrt-24.10-6.6 分支克隆至 openwrt 子目录
         git clone --depth 1 https://github.com/${{ env.MY_REPO }}.git -b ${{ env.FRAMEWORK_BRANCH }} $GITHUB_WORKSPACE/openwrt
 
     - name: Update & Install Feeds
@@ -37,52 +35,52 @@ jobs:
         ./scripts/feeds update -a
         ./scripts/feeds install -a
 
-    - name: Execute Physical Patch (三分支物理闭合执行)
+    - name: Execute Physical Patch (补丁物理缝合)
       run: |
-        # 核心修复：进入 openwrt 目录，通过绝对路径调用 main 分支的 scripts/sl3000-patch.sh
         cd $GITHUB_WORKSPACE/openwrt
         chmod +x $GITHUB_WORKSPACE/scripts/sl3000-patch.sh
         $GITHUB_WORKSPACE/scripts/sl3000-patch.sh
 
-    - name: Download & Pre-compile
+    - name: Download & Compile (物理极速构建)
       run: |
         cd $GITHUB_WORKSPACE/openwrt
-        # 此时脚本已完成 U-Boot 源码重定向及 .config 物理覆盖
         make defconfig
-        make download -j8
-
-    - name: Compile Recovery Firmware
-      id: compile
-      run: |
-        cd $GITHUB_WORKSPACE/openwrt
-        # 执行物理全量构建：包含 1024M U-Boot + 8000行插件固件
+        make download -j16
+        # 物理策略：并行编译，若失败则单线程输出 V=s 日志
         make -j$(nproc) || make -j1 V=s
-        echo "status=success" >> $GITHUB_OUTPUT
 
-    - name: Organize Recovery Bundle (物理搜集救砖全家桶)
-      if: steps.compile.outputs.status == 'success'
+    - name: Organize Recovery Bundle (物理采集救砖全家桶)
+      if: success()
       run: |
         mkdir -p $GITHUB_WORKSPACE/recovery_bundle
+        # 物理进入编译产物目录
         cd $GITHUB_WORKSPACE/openwrt/bin/targets/mediatek/filogic
-        # 搜集：GPT (分区表) + Preloader (1024M初始化) + FIP (Web界面) + Factory (整机包)
-        cp *factory.img.gz $GITHUB_WORKSPACE/recovery_bundle/ 2>/dev/null || true
+        # 物理提取关键救砖二进制文件
         cp *emmc-gpt.bin $GITHUB_WORKSPACE/recovery_bundle/ 2>/dev/null || true
         cp *emmc-preloader.bin $GITHUB_WORKSPACE/recovery_bundle/ 2>/dev/null || true
         cp *emmc-bl31-uboot.fip $GITHUB_WORKSPACE/recovery_bundle/ 2>/dev/null || true
+        cp *factory.img.gz $GITHUB_WORKSPACE/recovery_bundle/ 2>/dev/null || true
+        cp *sysupgrade.bin $GITHUB_WORKSPACE/recovery_bundle/ 2>/dev/null || true
         echo "FIRMWARE=$GITHUB_WORKSPACE/recovery_bundle" >> $GITHUB_ENV
 
-    - name: Release Artifacts
+    - name: Upload Artifacts (物理归档)
+      uses: actions/upload-artifact@v4
+      if: env.FIRMWARE != ''
+      with:
+        name: SL3000_1024M_Recovery_Bundle
+        path: ${{ env.FIRMWARE }}/*
+
+    - name: Release Final Firmware
       uses: softprops/action-gh-release@v2
       if: env.FIRMWARE != ''
       with:
-        tag_name: SL3000_1024M_YKM888_${{ github.run_id }}
+        tag_name: SL3000_1024M_FINAL_${{ github.run_id }}
         files: ${{ env.FIRMWARE }}/*
         body: |
-          司洛 SL-3000 1024M 物理全闭环救砖包 (2026-03-02)
-          - 仓库源: ykm888/66
-          - U-Boot 源码分支: sl3000-uboot-base
-          - 编译框架分支: openwrt-24.10-6.6
-          - 内存适配: 1024M (DRAM_BANKS=1)
-          - 救砖功能: 内置 Web FailSafe (192.168.1.1)
+          司洛 SL-3000 1024M 物理全闭环救砖固件
+          - 源头物理对齐：已完成
+          - 内存适配：1024M DDR3/4
+          - 分区布局：eMMC GPT (64MB 核心区)
+          - 核心组件：包含 GPT, Preloader, FIP, Factory
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
