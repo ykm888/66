@@ -1,33 +1,63 @@
 #!/bin/bash
 
-# 1. 物理拦截：切除 Kernel 6.6 的 Error 1 (MTK_WIFI_CHIP_OFFLINE 未定义)
-# 审计：这是 24.10 分支编译 mt7981 时的必经物理修复
+# 1. 物理拦截：切除 Kernel 6.6 Error 1
 find . -name "mtk_eth_soc.c" -exec sed -i '/MTK_WIFI_CHIP_OFFLINE/,/break;/d' {} + 2>/dev/null || true
 
-# 2. 内核版本物理锁定 6.6
-# 审计：确保内核路径引用的一致性
-sed -i 's/KERNEL_PATCHVER:=.*/KERNEL_PATCHVER:=6.6/g' target/linux/mediatek/Makefile
-
-# 3. 【核心修复】物理劫持 U-Boot 源码下载地址
-# 审计：强行将 OpenWrt 的 U-Boot 编译包指向你那个同步好的魔改仓库分支
+# 2. 物理劫持 U-Boot 源码源 (锁定你刚推送到 sl3000-uboot-base 的源)
 UBOOT_MK="package/boot/uboot-mediatek/Makefile"
 if [ -f "$UBOOT_MK" ]; then
-    echo "正在物理重定向 U-Boot 源码至 ykm99999/66 (sl3000-uboot-base)..."
-    # 替换源码 URL
-    sed -i 's|PKG_SOURCE_URL:=.*|PKG_SOURCE_URL:=https://github.com/ykm99999/66.git|g' "$UBOOT_MK"
-    # 替换分支/版本号
-    sed -i 's|PKG_SOURCE_VERSION:=.*|PKG_SOURCE_VERSION:=sl3000-uboot-base|g' "$UBOOT_MK"
-    # 物理跳过哈希校验，防止源码变动导致编译中断
-    sed -i 's|PKG_MIRROR_HASH:=.*|PKG_MIRROR_HASH:=skip|g' "$UBOOT_MK"
+    sed -i '/PKG_SOURCE_URL:=/d' "$UBOOT_MK"
+    sed -i '/PKG_SOURCE_VERSION:=/d' "$UBOOT_MK"
+    sed -i "/PKG_NAME:=/a PKG_SOURCE_URL:=https://github.com/ykm888/66.git\nPKG_SOURCE_VERSION:=sl3000-uboot-base\nPKG_MIRROR_HASH:=skip" "$UBOOT_MK"
 fi
 
-# 4. 物理对齐：指定 1024M 配置文件名
-# 审计：确保 image 脚本调用你生成的 mt7981_sl_3000-emmc 硬件定义
+# 3. 物理覆盖配置 (像素级对齐)
+# 审计：强行将你发给我的这 100 行配置物理写入 U-Boot 源码目录
+UBOOT_DIR="package/boot/uboot-mediatek/files/configs"
+mkdir -p $UBOOT_DIR
+cat << 'EOF' > "$UBOOT_DIR/mt7981_sl_3000-emmc_defconfig"
+CONFIG_ARM=y
+CONFIG_SYS_HAS_NONCACHED_MEMORY=y
+CONFIG_POSITION_INDEPENDENT=y
+CONFIG_ARCH_MEDIATEK=y
+CONFIG_TEXT_BASE=0x41e00000
+CONFIG_SYS_MALLOC_F_LEN=0x4000
+CONFIG_NR_DRAM_BANKS=1
+CONFIG_ENV_SIZE=0x80000
+CONFIG_ENV_OFFSET=0x400000
+CONFIG_DEFAULT_DEVICE_TREE="mt7981-emmc-rfb"
+CONFIG_TARGET_MT7981=y
+CONFIG_SYS_LOAD_ADDR=0x46000000
+CONFIG_DEBUG_UART_BASE=0x11002000
+CONFIG_DEBUG_UART_CLOCK=40000000
+CONFIG_ENV_OFFSET_REDUND=0x480000
+CONFIG_PCI=y
+CONFIG_DEBUG_UART=y
+CONFIG_MEDIATEK_BOOTMENU=y
+CONFIG_MTK_BOOTMENU_MMC=y
+CONFIG_MTK_WEB_FAILSAFE=y
+CONFIG_MTK_WEB_FAILSAFE_AFTER_BOOT_FAILURE=y
+CONFIG_MTK_UPGRADE_BL2_VERIFY=y
+CONFIG_MTK_UPGRADE_FIP_VERIFY=y
+CONFIG_AUTOBOOT_MENU_SHOW=y
+CONFIG_AUTOBOOT_MENU_MTK_SHOW=y
+CONFIG_DEFAULT_FDT_FILE="mt7981-emmc-rfb"
+CONFIG_LOGLEVEL=7
+CONFIG_LOG=y
+CONFIG_SYS_PROMPT="MT7981> "
+CONFIG_CMD_GPIO=y
+CONFIG_CMD_PWM=y
+CONFIG_CMD_GPT=y
+CONFIG_CMD_MMC=y
+CONFIG_CMD_PING=y
+CONFIG_CMD_FAT=y
+CONFIG_ENV_IS_IN_MMC=y
+CONFIG_IPADDR="192.168.1.1"
+CONFIG_NET_RANDOM_ETHADDR=y
+CONFIG_MMC_MTK=y
+CONFIG_MEDIATEK_ETH=y
+EOF
+
+# 4. 物理对齐：锁定编译名称
 MT7981_MK="target/linux/mediatek/image/mt7981.mk"
-if [ -f "$MT7981_MK" ]; then
-    sed -i 's/UBOOT_CONFIG:=.*/UBOOT_CONFIG:=mt7981_sl_3000-emmc/g' "$MT7981_MK"
-fi
-
-# 5. 配置物理覆盖 (8000行固件配置)
-# 审计：确保 ykm888 仓库中的 sl3000.config 物理覆盖至框架根目录
-[ -f "custom-config/sl3000.config" ] && cp -f custom-config/sl3000.config .config
+[ -f "$MT7981_MK" ] && sed -i 's/UBOOT_CONFIG:=.*/UBOOT_CONFIG:=mt7981_sl_3000-emmc/g' "$MT7981_MK"
