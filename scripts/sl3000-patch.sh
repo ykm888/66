@@ -8,18 +8,14 @@ find . -name "mtk_eth_soc.c" -exec sed -i '/MTK_WIFI_CHIP_OFFLINE/,/break;/d' {}
 UBOOT_MK="package/boot/uboot-mediatek/Makefile"
 if [ -f "$UBOOT_MK" ]; then
     echo "物理注入：重定向 U-Boot 源码至 sl3000-uboot-base..."
-    # 物理改写源码地址与版本，绕过官方默认源码，编译器将直接匹配你的 mt7981_emmc_defconfig
+    # 物理改写源码地址与版本，绕过官方默认源码
     sed -i 's|PKG_SOURCE_URL:=.*|PKG_SOURCE_URL:=https://github.com/ykm888/66.git|g' "$UBOOT_MK"
     sed -i 's|PKG_SOURCE_VERSION:=.*|PKG_SOURCE_VERSION:=sl3000-uboot-base|g' "$UBOOT_MK"
     sed -i 's|PKG_MIRROR_HASH:=.*|PKG_MIRROR_HASH:=skip|g' "$UBOOT_MK"
 fi
 
-# 3. 物理注入配置并执行【依赖性自动更新】
-# 审计：确保 1024M 内存定义在 .config 中生效，并通过 olddefconfig 物理对齐 Kconfig 依赖
+# 3. 物理覆盖配置
 if [ -f "$GITHUB_WORKSPACE/custom-config/sl3000.config" ]; then
     cp -f "$GITHUB_WORKSPACE/custom-config/sl3000.config" .config
-    echo "物理注入：已加载 sl3000.config，正在执行物理依赖检查 (olddefconfig)..."
-    make olddefconfig
-else
-    echo "物理警告：未找到 sl3000.config，请检查 main 分支路径"
+    echo "物理注入成功：已加载并覆盖 sl3000.config"
 fi
