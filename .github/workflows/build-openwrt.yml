@@ -1,12 +1,12 @@
-name: 司洛SL-3000 EMMC 1024M 救砖 (物理闭环彻底修复版)
+name: 司洛SL-3000 1024M 救砖 (三分支物理闭合版)
 
 on:
   workflow_dispatch:
 
 env:
-  # 物理框架源 (你的 openwrt-24.10-6.6 分支)
-  REPO_URL: https://github.com/ykm888/66
-  REPO_BRANCH: openwrt-24.10-6.6
+  # 物理分支定义
+  MY_REPO: ykm888/66
+  FRAMEWORK_BRANCH: openwrt-24.10-6.6
   TZ: Asia/Shanghai
 
 jobs:
@@ -14,8 +14,10 @@ jobs:
     runs-on: ubuntu-22.04
 
     steps:
-    - name: Checkout Repository
+    - name: Checkout Main (获取脚本与配置)
       uses: actions/checkout@v4
+      with:
+        ref: main
 
     - name: Initialization Environment
       run: |
@@ -24,46 +26,45 @@ jobs:
         sudo -E apt-get -qq install $(curl -fsSL https://raw.githubusercontent.com/ant0ny-0/openwrt-scripts/master/depends-ubuntu-2204)
         sudo timedatectl set-timezone "$TZ"
 
-    - name: Clone OpenWrt Framework
+    - name: Clone Framework Branch
       run: |
-        # 物理克隆至 $GITHUB_WORKSPACE/openwrt，确保 scripts/feeds 物理存在
-        git clone --depth 1 $REPO_URL -b $REPO_BRANCH $GITHUB_WORKSPACE/openwrt
+        # 物理构建：拉取 openwrt-24.10-6.6 分支作为编译底座
+        git clone --depth 1 https://github.com/${{ env.MY_REPO }}.git -b ${{ env.FRAMEWORK_BRANCH }} $GITHUB_WORKSPACE/openwrt
 
     - name: Update & Install Feeds
       run: |
         cd $GITHUB_WORKSPACE/openwrt
-        chmod +x ./scripts/feeds
         ./scripts/feeds update -a
         ./scripts/feeds install -a
 
-    - name: Physical Inject & Patch
+    - name: Execute Physical Patch (三位一体对齐)
       run: |
+        # 核心修复：进入子目录，通过绝对路径调用 main 分支的脚本
         cd $GITHUB_WORKSPACE/openwrt
-        # 赋予补丁脚本物理执行权，并执行
-        chmod +x scripts/sl3000-patch.sh
-        ./scripts/sl3000-patch.sh || (echo "物理补丁执行中存在非致命跳过"; exit 0)
+        chmod +x $GITHUB_WORKSPACE/scripts/sl3000-patch.sh
+        $GITHUB_WORKSPACE/scripts/sl3000-patch.sh
 
-    - name: Download Packages
+    - name: Download & Pre-compile
       run: |
         cd $GITHUB_WORKSPACE/openwrt
+        # 此时脚本已完成 U-Boot 源劫持和 Config 注入
         make defconfig
-        # 物理下载：系统将拉取你 sl3000-uboot-base 分支下的全量 U-Boot 源码
         make download -j8
 
-    - name: Compile Firmware
+    - name: Compile Recovery Firmware
       id: compile
       run: |
         cd $GITHUB_WORKSPACE/openwrt
-        # 执行物理构建
+        # 执行物理级全量构建
         make -j$(nproc) || make -j1 V=s
         echo "status=success" >> $GITHUB_OUTPUT
 
     - name: Organize Recovery Bundle
-      id: organize
       if: steps.compile.outputs.status == 'success'
       run: |
         mkdir -p $GITHUB_WORKSPACE/recovery_bundle
         cd $GITHUB_WORKSPACE/openwrt/bin/targets/mediatek/filogic
+        # 物理搜集救砖全家桶
         cp *factory.img.gz $GITHUB_WORKSPACE/recovery_bundle/ 2>/dev/null || true
         cp *emmc-gpt.bin $GITHUB_WORKSPACE/recovery_bundle/ 2>/dev/null || true
         cp *emmc-preloader.bin $GITHUB_WORKSPACE/recovery_bundle/ 2>/dev/null || true
@@ -77,8 +78,9 @@ jobs:
         tag_name: SL3000_1024M_SUCCESS_${{ github.run_id }}
         files: ${{ env.FIRMWARE }}/*
         body: |
-          SL-3000 1024M 物理全量救砖包
-          - 彻底修复了 Makefile 注入导致的 Exit 1 错误
-          - U-Boot 源码物理劫持自 sl3000-uboot-base 分支
+          司洛 SL-3000 1024M 物理全闭环救砖包
+          - 分支溯源：main(脚本/配置) + openwrt-24.10-6.6(框架) + sl3000-uboot-base(源码)
+          - 适配内存：1024M (DRAM_BANKS=1)
+          - 救砖功能：内置 Web FailSafe (192.168.1.1)
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
