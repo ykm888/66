@@ -1,0 +1,42 @@
+name: U-Boot-仓库物理脱水手术-修复版
+
+on:
+  workflow_dispatch:
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 物理签入仓库
+        uses: actions/checkout@v3
+        with:
+          ref: sl3000-uboot-base
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 执行物理粉碎手术 (带依赖保护)
+        run: |
+          # 1. 清理 configs：只留 mt7981，物理粉碎一切 Xilinx, Zynq, Rockchip 等
+          cd configs
+          find . -type f ! -name "*mt7981*" ! -name "sandbox*" -delete
+          cd ..
+
+          # 2. 清理 DTS：保留架构骨架，删除异构芯片
+          cd arch/arm/dts
+          find . -type f ! -name "*mt7981*" ! -name "Makefile" ! -name "Kconfig" ! -name "*.dtsi" -delete
+          # 二次物理审计：确保保留基础引用文件
+          ls | grep mt7981 || exit 1
+          cd ../../../
+
+          # 3. 清理 include/configs：这是你报错的地方
+          # 必须保留 mediatek.h，否则 mt7981.h 无法物理闭合
+          cd include/configs
+          find . -type f ! -name "mt7981.h" ! -name "mediatek.h" ! -name "mtk-common.h" -delete
+          cd ../../
+
+      - name: 提交物理变更 (带报错熔断)
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add .
+          # 如果没有变动，不报错，直接退出
+          git diff --quiet && git diff --staged --quiet || (git commit -m "物理瘦身：彻底移除 Xilinx/Zynq 等无关架构" && git push origin sl3000-uboot-base)
