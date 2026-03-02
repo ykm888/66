@@ -1,63 +1,60 @@
-name: U-Boot-仓库物理脱水手术-终极版
+name: U-Boot-物理同步并自动创建分支
 
 on:
   workflow_dispatch:
 
-# 【核心修复 1】物理开启写入权限，否则 push 必报 403 错误
 permissions:
   contents: write
 
 jobs:
-  cleanup:
+  build_and_push:
     runs-on: ubuntu-latest
     steps:
-      - name: 物理签入仓库 (V4 绝对锁定)
+      - name: 物理签入跳板
         uses: actions/checkout@v4
         with:
-          ref: sl3000-uboot-base
-          # 【核心修复 2】物理全量拉取历史，防止 push 失败
-          fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
+          ref: main  # 物理锁定现有的 main 分支作为启动跳板
 
-      - name: 执行物理粉碎手术 (像素级对齐)
+      - name: 物理环境初始化
         run: |
-          # 物理信任目录，防止安全策略拦截
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git config --global user.name "github-actions[bot]"
           git config --global --add safe.directory $GITHUB_WORKSPACE
 
-          # 1. 清理 configs：物理粉碎无关定义
-          if [ -d "configs" ]; then
-              cd configs
-              find . -type f ! -name "*mt7981*" ! -name "sandbox*" -delete
-              cd ..
-          fi
-
-          # 2. 清理 DTS：保留架构骨架，确保 Makefile 不断裂
-          if [ -d "arch/arm/dts" ]; then
-              cd arch/arm/dts
-              find . -type f ! -name "*mt7981*" ! -name "Makefile" ! -name "Kconfig" ! -name "*.dtsi" -delete
-              cd ../../../
-          fi
-
-          # 3. 清理 include/configs：物理保护引导头文件
-          if [ -d "include/configs" ]; then
-              cd include/configs
-              # 物理保留 mediatek 相关头文件，这是编译 MT7981 的命根子
-              find . -type f ! -name "mt7981.h" ! -name "mediatek.h" ! -name "mtk-common.h" -delete
-              cd ../../
-          fi
-
-      - name: 提交物理变更 (带逻辑保护)
+      - name: 物理拉取并注入魔改配置
         run: |
-          git config --local user.email "github-actions[bot]@users.noreply.github.com"
-          git config --local user.name "github-actions[bot]"
+          # 1. 物理拉取官方 MTK 源码全集
+          git clone -b mtksoc https://github.com/mtk-openwrt/u-boot.git u-boot-repo
+          cd u-boot-repo
           
-          git add .
-          
-          # 物理检查变动，防止空提交报错
-          if git diff --staged --quiet; then
-              echo "没有物理变动需要提交，仓库已经是脱水状态。"
-          else
-              git commit -m "物理瘦身：彻底移除无关架构，仅保留 MT7981 核心组件"
-              # 物理强制推送，确保同步
-              git push origin sl3000-uboot-base
+          # 2. 物理注入 SL-3000 1024M 配置文件
+          # 像素级复制：基于 eMMC 官方定义创建
+          if [ -f "configs/mt7981_emmc_rfb_defconfig" ]; then
+              cp configs/mt7981_emmc_rfb_defconfig configs/mt7981_sl_3000-emmc_defconfig
+              # 物理劫持：确保 DRAM 银行定义正确 (1024M 核心逻辑)
+              sed -i 's/CONFIG_NR_DRAM_BANKS=.*/CONFIG_NR_DRAM_BANKS=1/g' configs/mt7981_sl_3000-emmc_defconfig
           fi
+
+          # 3. 执行物理脱水手术 (粉碎无关架构)
+          echo "开始物理粉碎手术..."
+          find configs/ -type f ! -name "*mt7981*" ! -name "sandbox*" -delete
+          find arch/arm/dts/ -type f ! -name "*mt7981*" ! -name "Makefile" ! -name "Kconfig" ! -name "*.dtsi" -delete
+          find include/configs/ -type f ! -name "mt7981.h" ! -name "mediatek.h" ! -name "mtk-common.h" -delete
+
+      - name: 物理创建并推送分支
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cd u-boot-repo
+          
+          # 物理重定义远程目标为当前仓库
+          git remote remove origin
+          git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git"
+          
+          # 物理创建新分支 sl3000-uboot-base
+          git checkout -b sl3000-uboot-base
+          git add .
+          git commit -m "Initialize: SL-3000 1024M U-Boot (脱水完成版)"
+          
+          # 物理强制推送：即使远程没有这个分支，也会自动创建
+          git push -f origin sl3000-uboot-base
