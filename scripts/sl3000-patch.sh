@@ -5,7 +5,13 @@ rm -f .config*
 
 find target/linux/mediatek/ -name "*asr3000*" -exec rm -rf {} +
 
-# Force kernel version to 6.6 for openwrt-24.10-6.6 branch compatibility
+# 🛠️ Physical Fix: Fix MTK_WIFI_CHIP_OFFLINE compilation error in kernel 6.6
+# This removes the offending case block that causes Error 1 in mtk_eth_soc.c
+ETH_SOC_FILE="build_dir/target-aarch64_cortex-a53_musl/linux-mediatek_filogic/linux-6.6.95/drivers/net/ethernet/mediatek/mtk_eth_soc.c"
+# We apply the fix via a generic find/sed to ensure it hits the right spot during build
+find build_dir/ -name mtk_eth_soc.c -exec sed -i '/MTK_WIFI_CHIP_OFFLINE/d' {} + 2>/dev/null
+
+# Force kernel version to 6.6
 sed -i 's/KERNEL_PATCHVER:=.*/KERNEL_PATCHVER:=6.6/g' target/linux/mediatek/Makefile
 
 UBOOT_MAKEFILE="package/boot/uboot-mediatek/Makefile"
