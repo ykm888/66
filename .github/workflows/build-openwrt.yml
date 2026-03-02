@@ -1,14 +1,14 @@
-name: 司洛SL-3000 EMMC 救砖构建 (1024M物理修复版)
+name: 司洛SL-3000 EMMC 1024M 救砖构建 (物理对齐版)
 
 on:
   workflow_dispatch:
   repository_dispatch:
 
 env:
-  # 物理锁定：魔改 U-Boot 及底层驱动仓库
+  # 物理锁定魔改源码源
   REPO_URL: https://github.com/ykm99999/66
   REPO_BRANCH: sl3000-uboot-base
-  # 物理锁定：配置与脚本资源地址
+  # 物理锁定远程资源路径
   CONFIG_URL: https://raw.githubusercontent.com/ykm888/66/main/custom-config/sl3000.config
   SCRIPT_URL: https://raw.githubusercontent.com/ykm888/66/main/scripts/sl3000-patch.sh
   TZ: Asia/Shanghai
@@ -25,49 +25,51 @@ jobs:
       run: |
         sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
         sudo -E apt-get -qq update
-        # 物理安装 24.10 编译必需依赖，防止缺少 python3-pyelftools 等工具
+        # 物理补充 24.10 编译必需依赖
         sudo -E apt-get -qq install $(curl -fsSL https://raw.githubusercontent.com/ant0ny-0/openwrt-scripts/master/depends-ubuntu-2204)
         sudo timedatectl set-timezone "$TZ"
 
     - name: Clone source code
       run: |
-        # 物理精准拉取 sl3000-uboot-base 源码
+        # 物理清理并克隆魔改源
+        rm -rf openwrt
         git clone --depth 1 $REPO_URL -b $REPO_BRANCH openwrt
 
     - name: Update & Install feeds
+      working-directory: ./openwrt
       run: |
-        cd openwrt
+        # 物理校准：在 openwrt 文件夹内执行脚本
         ./scripts/feeds update -a
         ./scripts/feeds install -a
 
     - name: Fetch Remote Assets & Pre-patch
+      working-directory: ./openwrt
       run: |
-        cd openwrt
-        # 物理抓取 ykm888 仓库的远程补丁与 8000 行配置
+        # 物理抓取补丁与 8000 行配置，严禁使用 EOF
         curl -fsSL $CONFIG_URL > .config
         curl -fsSL $SCRIPT_URL > sl3000-patch.sh
         chmod +x sl3000-patch.sh
-        # 第一次物理拦截：注入 1024M U-Boot 劫持逻辑
+        # 第一次物理拦截：执行 U-Boot 劫持
         ./sl3000-patch.sh
 
     - name: Download package
+      working-directory: ./openwrt
       run: |
-        cd openwrt
         make defconfig
         make download -j8
         find dl -size -1024c -exec rm -f {} \;
 
     - name: Pre-compile Source Fix (Critical)
+      working-directory: ./openwrt
       run: |
-        cd openwrt
-        # 第二次物理拦截：针对解压后的内核源码执行截肢，防止 Error 1 报错
+        # 第二次物理拦截：切除动态解压后的内核 Error 1 报错点
         ./sl3000-patch.sh
 
     - name: Compile the firmware
       id: compile
+      working-directory: ./openwrt
       run: |
-        cd openwrt
-        # 编译目标：包含全套救砖必需品
+        # 物理执行救砖包全量构建
         make -j$(nproc) || make -j1 V=s
         echo "status=success" >> $GITHUB_OUTPUT
 
@@ -75,17 +77,15 @@ jobs:
       id: organize
       if: steps.compile.outputs.status == 'success' && !cancelled()
       run: |
-        # 物理路径：MT7981 产物目录
+        # 物理路径定位并提取救砖产物
         cd openwrt/bin/targets/mediatek/filogic
-        mkdir -p /workdir/recovery_bundle
-        # 物理提取救砖四件套：GPT, Preloader, FIP, Factory
-        cp *factory.img.gz /workdir/recovery_bundle/ 2>/dev/null || true
-        cp *emmc-gpt.bin /workdir/recovery_bundle/ 2>/dev/null || true
-        cp *emmc-preloader.bin /workdir/recovery_bundle/ 2>/dev/null || true
-        cp *emmc-bl31-uboot.fip /workdir/recovery_bundle/ 2>/dev/null || true
-        cp *sysupgrade.bin /workdir/recovery_bundle/ 2>/dev/null || true
-        echo "FIRMWARE=/workdir/recovery_bundle" >> $GITHUB_ENV
-        echo "status=success" >> $GITHUB_OUTPUT
+        mkdir -p $GITHUB_WORKSPACE/recovery_bundle
+        cp *factory.img.gz $GITHUB_WORKSPACE/recovery_bundle/ 2>/dev/null || true
+        cp *emmc-gpt.bin $GITHUB_WORKSPACE/recovery_bundle/ 2>/dev/null || true
+        cp *emmc-preloader.bin $GITHUB_WORKSPACE/recovery_bundle/ 2>/dev/null || true
+        cp *emmc-bl31-uboot.fip $GITHUB_WORKSPACE/recovery_bundle/ 2>/dev/null || true
+        cp *sysupgrade.bin $GITHUB_WORKSPACE/recovery_bundle/ 2>/dev/null || true
+        echo "FIRMWARE=$GITHUB_WORKSPACE/recovery_bundle" >> $GITHUB_ENV
 
     - name: Upload Recovery Artifacts
       uses: actions/upload-artifact@v4
@@ -101,9 +101,9 @@ jobs:
         tag_name: SL3000_RECOVERY_1024M_${{ github.run_id }}
         files: ${{ env.FIRMWARE }}/*
         body: |
-          司洛 SL-3000 eMMC 1024M 物理救砖专用包
-          - 劫持 U-Boot 引导链对齐 1024M 内存
-          - 物理修复 Kernel 6.6 Error 1 报错
-          - 包含全套引导文件：GPT/Preloader/FIP/Factory
+          SL-3000 1024M eMMC 救砖专用包
+          - 劫持 1024M 引导链
+          - 物理修复 Kernel 6.6 报错
+          - 包含全套 GPT/Preloader/FIP/Factory
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
