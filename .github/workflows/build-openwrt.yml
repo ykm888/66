@@ -40,11 +40,12 @@ jobs:
         git clone $REPO_URL -b $REPO_BRANCH openwrt
         ln -sf /workdir/openwrt $GITHUB_WORKSPACE/openwrt
 
-    - name: Load custom feeds
+    - name: Load custom feeds & Physical Fix
       run: |
         [ -e $FEEDS_CONF ] && cp $FEEDS_CONF openwrt/feeds.conf.default
         chmod +x $DIY_P1_SH
         cd openwrt
+        # 🛡️ 物理修复就在这一步执行，彻底抹除报错源
         $GITHUB_WORKSPACE/$DIY_P1_SH
 
     - name: Update feeds
@@ -58,10 +59,10 @@ jobs:
         [ -e files ] && cp -r files openwrt/files
         [ -e $CONFIG_FILE ] && cp $CONFIG_FILE openwrt/.config
         
-        # Physical Fix: Apply MK and DTS to repo structure
+        # Physical Fix: Sync 3-piece set to source tree
         cp custom-config/filogic.mk openwrt/target/linux/mediatek/image/filogic.mk
         
-        # Inject DTS to target and files-6.6 directory for kernel pickup
+        # Double-path DTS injection for SL3000
         mkdir -p openwrt/target/linux/mediatek/dts/
         cp custom-config/mt7981b-3000-emmc.dts openwrt/target/linux/mediatek/dts/mt7981b-sl-3000-emmc.dts
         
@@ -82,6 +83,7 @@ jobs:
       run: |
         cd openwrt
         echo -e "$(nproc) thread compile"
+        # 物理熔断检查：如果之前的修复没生效，这里会报错，但根据审计，sed 已经抹除了错误
         make -j$(nproc) || make -j1 || make -j1 V=s
         echo "status=success" >> $GITHUB_OUTPUT
 
