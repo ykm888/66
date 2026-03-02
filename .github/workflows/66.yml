@@ -1,0 +1,47 @@
+# 名称：物理自动同步与分支创建
+# 功能：解决本地无分支报错，物理对齐 ykm99999 的 6.6 内核仓库
+# 物理修复点：同步拉起编译工作流指定的 ykm99999/66 仓库源
+
+name: Sync Source Repository
+
+on:
+  workflow_dispatch:      # 手动启动
+  repository_dispatch:    # 自动信号启动
+    types: [sync-source]
+
+jobs:
+  update_source:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          # 物理隔离：确保初始化环境不报错
+
+      - name: 配置 Git 信息
+        run: |
+          git config --global user.name "GitHub Action"
+          git config --global user.email "action@github.com"
+
+      - name: 物理创建并同步 6.6 内核分支
+        run: |
+          # 1. 物理添加上游源仓库 (严格对齐你指定的 ykm99999 仓库)
+          git remote add upstream https://github.com/ykm99999/66.git
+          
+          # 2. 物理抓取上游所有分支数据
+          git fetch upstream
+          
+          # 3. 核心修复：物理强制创建本地 openwrt-24.10-6.6 分支并对齐上游
+          # 严格对齐 ykm99999 的 openwrt-24.10-6.6 分支内容
+          git checkout -B openwrt-24.10-6.6 upstream/openwrt-24.10-6.6
+          
+          # 4. 验证物理状态
+          echo "ykm99999 的 6.6 内核源已物理拉起，准备推送到本人仓库。"
+
+      - name: 物理推送触发构建
+        uses: ad-m/github-push-action@master
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          branch: openwrt-24.10-6.6
+          force: true # 物理强制推送，确保仓库产生分支并触发编译工作流
