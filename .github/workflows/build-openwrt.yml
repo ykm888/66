@@ -1,12 +1,13 @@
-name: 司洛SL-3000 EMMC 1024M 救砖 (绝对路径修复版)
+name: 司洛SL-3000 EMMC 1024M 救砖 (物理绝对路径重构版)
 
 on:
   workflow_dispatch:
-  repository_dispatch:
 
 env:
-  REPO_URL: https://github.com/ykm99999/66
-  REPO_BRANCH: sl3000-uboot-base
+  # 物理框架：提供 scripts/feeds 的标准环境
+  FRAMEWORK_URL: https://github.com/padavanonly/immortalwrt-mt798x-24.10
+  FRAMEWORK_BRANCH: 2410
+  # 资源链接
   CONFIG_URL: https://raw.githubusercontent.com/ykm888/66/main/custom-config/sl3000.config
   SCRIPT_URL: https://raw.githubusercontent.com/ykm888/66/main/scripts/sl3000-patch.sh
   TZ: Asia/Shanghai
@@ -16,86 +17,89 @@ jobs:
     runs-on: ubuntu-22.04
 
     steps:
-    - name: Checkout
+    - name: Checkout Repository
       uses: actions/checkout@v4
 
     - name: Initialization environment
       run: |
         sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
         sudo -E apt-get -qq update
+        # 物理补充 24.10 编译必需依赖
         sudo -E apt-get -qq install $(curl -fsSL https://raw.githubusercontent.com/ant0ny-0/openwrt-scripts/master/depends-ubuntu-2204)
         sudo timedatectl set-timezone "$TZ"
 
-    - name: Clone source code
+    - name: Clone OpenWrt Framework
       run: |
-        # 使用绝对路径确保物理位置唯一性
-        git clone --depth 1 $REPO_URL -b $REPO_BRANCH $GITHUB_WORKSPACE/openwrt
+        # 第一步：物理构建编译容器，解决脚本缺失导致的 Exit 127
+        git clone --depth 1 $FRAMEWORK_URL -b $FRAMEWORK_BRANCH $GITHUB_WORKSPACE/openwrt
 
     - name: Update & Install feeds
       run: |
-        # 物理对齐：直接进入绝对路径执行，不依赖 working-directory 属性
+        # 物理对齐：此时 ./scripts/feeds 必然物理存在
         cd $GITHUB_WORKSPACE/openwrt
         ./scripts/feeds update -a
         ./scripts/feeds install -a
 
-    - name: Fetch Remote Assets & Pre-patch
+    - name: Fetch Assets & Inject Patch
       run: |
         cd $GITHUB_WORKSPACE/openwrt
-        # 物理注入配置与脚本
+        # 第二步：物理注入补丁，补丁将重定向 U-Boot 下载源至你的仓库
         curl -fsSL $CONFIG_URL > .config
         curl -fsSL $SCRIPT_URL > sl3000-patch.sh
         chmod +x sl3000-patch.sh
-        # 第一次物理拦截
         ./sl3000-patch.sh
 
     - name: Download package
       run: |
         cd $GITHUB_WORKSPACE/openwrt
         make defconfig
+        # 第三步：执行物理下载。注意：此时系统会物理拉取你的魔改 U-Boot 源码
         make download -j8
-        find dl -size -1024c -exec rm -f {} \;
 
     - name: Pre-compile Source Fix (Critical)
       run: |
         cd $GITHUB_WORKSPACE/openwrt
-        # 第二次物理拦截：修复内核解压后的 Error 1
+        # 第四步：物理切除 Error 1 病灶
         ./sl3000-patch.sh
 
     - name: Compile the firmware
       id: compile
       run: |
         cd $GITHUB_WORKSPACE/openwrt
+        # 第五步：执行救砖包全量构建
         make -j$(nproc) || make -j1 V=s
         echo "status=success" >> $GITHUB_OUTPUT
 
     - name: Organize Recovery Bundle
       id: organize
-      if: steps.compile.outputs.status == 'success' && !cancelled()
+      if: steps.compile.outputs.status == 'success'
       run: |
-        # 物理路径全量追踪
         mkdir -p $GITHUB_WORKSPACE/recovery_bundle
         cd $GITHUB_WORKSPACE/openwrt/bin/targets/mediatek/filogic
+        # 物理搜集救砖产物：GPT, Preloader, FIP, Factory
         cp *factory.img.gz $GITHUB_WORKSPACE/recovery_bundle/ 2>/dev/null || true
         cp *emmc-gpt.bin $GITHUB_WORKSPACE/recovery_bundle/ 2>/dev/null || true
         cp *emmc-preloader.bin $GITHUB_WORKSPACE/recovery_bundle/ 2>/dev/null || true
         cp *emmc-bl31-uboot.fip $GITHUB_WORKSPACE/recovery_bundle/ 2>/dev/null || true
-        cp *sysupgrade.bin $GITHUB_WORKSPACE/recovery_bundle/ 2>/dev/null || true
         echo "FIRMWARE=$GITHUB_WORKSPACE/recovery_bundle" >> $GITHUB_ENV
 
     - name: Upload Recovery Artifacts
       uses: actions/upload-artifact@v4
-      if: steps.organize.outputs.status == 'success' && !cancelled()
+      if: env.FIRMWARE != ''
       with:
-        name: SL3000-Recovery-Bundle
+        name: SL3000-1024M-Recovery-Bundle
         path: ${{ env.FIRMWARE }}/*
 
     - name: Release Recovery Firmware
       uses: softprops/action-gh-release@v2
-      if: steps.organize.outputs.status == 'success' && !cancelled()
+      if: env.FIRMWARE != ''
       with:
-        tag_name: SL3000_RECOVERY_1024M_${{ github.run_id }}
+        tag_name: SL3000_1024M_FULL_${{ github.run_id }}
         files: ${{ env.FIRMWARE }}/*
         body: |
-          SL-3000 1024M 绝对路径修复版
+          司洛 SL-3000 eMMC 1024M 物理救砖专用包
+          - 劫持 U-Boot 源码源：ykm99999/66 (sl3000-uboot-base)
+          - 框架版本：ImmortalWrt 24.10
+          - 包含全套 GPT/Preloader/FIP 引导链
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
