@@ -1,14 +1,12 @@
-name: 司洛SL-3000 EMMC 1024M 救砖构建 (物理对齐版)
+name: 司洛SL-3000 EMMC 1024M 救砖 (绝对路径修复版)
 
 on:
   workflow_dispatch:
   repository_dispatch:
 
 env:
-  # 物理锁定魔改源码源
   REPO_URL: https://github.com/ykm99999/66
   REPO_BRANCH: sl3000-uboot-base
-  # 物理锁定远程资源路径
   CONFIG_URL: https://raw.githubusercontent.com/ykm888/66/main/custom-config/sl3000.config
   SCRIPT_URL: https://raw.githubusercontent.com/ykm888/66/main/scripts/sl3000-patch.sh
   TZ: Asia/Shanghai
@@ -25,51 +23,48 @@ jobs:
       run: |
         sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
         sudo -E apt-get -qq update
-        # 物理补充 24.10 编译必需依赖
         sudo -E apt-get -qq install $(curl -fsSL https://raw.githubusercontent.com/ant0ny-0/openwrt-scripts/master/depends-ubuntu-2204)
         sudo timedatectl set-timezone "$TZ"
 
     - name: Clone source code
       run: |
-        # 物理清理并克隆魔改源
-        rm -rf openwrt
-        git clone --depth 1 $REPO_URL -b $REPO_BRANCH openwrt
+        # 使用绝对路径确保物理位置唯一性
+        git clone --depth 1 $REPO_URL -b $REPO_BRANCH $GITHUB_WORKSPACE/openwrt
 
     - name: Update & Install feeds
-      working-directory: ./openwrt
       run: |
-        # 物理校准：在 openwrt 文件夹内执行脚本
+        # 物理对齐：直接进入绝对路径执行，不依赖 working-directory 属性
+        cd $GITHUB_WORKSPACE/openwrt
         ./scripts/feeds update -a
         ./scripts/feeds install -a
 
     - name: Fetch Remote Assets & Pre-patch
-      working-directory: ./openwrt
       run: |
-        # 物理抓取补丁与 8000 行配置，严禁使用 EOF
+        cd $GITHUB_WORKSPACE/openwrt
+        # 物理注入配置与脚本
         curl -fsSL $CONFIG_URL > .config
         curl -fsSL $SCRIPT_URL > sl3000-patch.sh
         chmod +x sl3000-patch.sh
-        # 第一次物理拦截：执行 U-Boot 劫持
+        # 第一次物理拦截
         ./sl3000-patch.sh
 
     - name: Download package
-      working-directory: ./openwrt
       run: |
+        cd $GITHUB_WORKSPACE/openwrt
         make defconfig
         make download -j8
         find dl -size -1024c -exec rm -f {} \;
 
     - name: Pre-compile Source Fix (Critical)
-      working-directory: ./openwrt
       run: |
-        # 第二次物理拦截：切除动态解压后的内核 Error 1 报错点
+        cd $GITHUB_WORKSPACE/openwrt
+        # 第二次物理拦截：修复内核解压后的 Error 1
         ./sl3000-patch.sh
 
     - name: Compile the firmware
       id: compile
-      working-directory: ./openwrt
       run: |
-        # 物理执行救砖包全量构建
+        cd $GITHUB_WORKSPACE/openwrt
         make -j$(nproc) || make -j1 V=s
         echo "status=success" >> $GITHUB_OUTPUT
 
@@ -77,9 +72,9 @@ jobs:
       id: organize
       if: steps.compile.outputs.status == 'success' && !cancelled()
       run: |
-        # 物理路径定位并提取救砖产物
-        cd openwrt/bin/targets/mediatek/filogic
+        # 物理路径全量追踪
         mkdir -p $GITHUB_WORKSPACE/recovery_bundle
+        cd $GITHUB_WORKSPACE/openwrt/bin/targets/mediatek/filogic
         cp *factory.img.gz $GITHUB_WORKSPACE/recovery_bundle/ 2>/dev/null || true
         cp *emmc-gpt.bin $GITHUB_WORKSPACE/recovery_bundle/ 2>/dev/null || true
         cp *emmc-preloader.bin $GITHUB_WORKSPACE/recovery_bundle/ 2>/dev/null || true
@@ -101,9 +96,6 @@ jobs:
         tag_name: SL3000_RECOVERY_1024M_${{ github.run_id }}
         files: ${{ env.FIRMWARE }}/*
         body: |
-          SL-3000 1024M eMMC 救砖专用包
-          - 劫持 1024M 引导链
-          - 物理修复 Kernel 6.6 报错
-          - 包含全套 GPT/Preloader/FIP/Factory
+          SL-3000 1024M 绝对路径修复版
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
