@@ -1,16 +1,14 @@
-name: Build SL3000 Firmware
+name: Build SL3000 Factory Recovery Firmware
 
 on:
   push:
     branches:
-      - openwrt-24.10-6.6  # 物理监听你自己的分支变动
-  workflow_dispatch:      # 支持手动触发
+      - openwrt-24.10-6.6
+  workflow_dispatch:
 
 env:
-  # 源码源：物理锁定为您自己的仓库地址
   REPO_URL: https://github.com/ykm888/66
   REPO_BRANCH: openwrt-24.10-6.6
-  # 配置与脚本路径：基于仓库根目录的物理路径
   CONFIG_FILE: custom-config/sl3000.config
   DIY_SH: scripts/sl3000-patch.sh
 
@@ -22,7 +20,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          ref: ${{ env.REPO_BRANCH }} # 物理拉起指定分支
+          ref: ${{ env.REPO_BRANCH }}
 
       - name: Initialization environment
         run: |
@@ -37,9 +35,7 @@ jobs:
 
       - name: Apply Local Config & Pre-patch
         run: |
-          # 1. 物理对齐 8000 多行的本地配置
           [ -e $CONFIG_FILE ] && cp $CONFIG_FILE .config
-          # 2. 执行物理修复脚本
           chmod +x $DIY_SH
           ./$DIY_SH
 
@@ -48,19 +44,23 @@ jobs:
           make defconfig
           make download -j8
 
-      - name: Pre-compile Source Fix (Critical Interception)
+      - name: Pre-compile Source Fix (Critical)
         run: |
-          # 第二次物理拦截：针对解压后的内核源码执行截肢手术，确保 Error 1 不再复现
+          # 针对救砖包编译过程中涉及的内核源码进行二次修复
           ./$DIY_SH
 
       - name: Compile the firmware
         run: |
+          # 开始物理编译，目标包含 factory 镜像
           make -j$(nproc) || make -j1 V=s
 
-      - name: Upload Artifact
+      - name: Upload Recovery Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: SL3000-eMMC-Firmware
+          name: SL3000-Recovery-Bundle
           path: |
-            bin/targets/mediatek/filogic/*.bin
-            bin/targets/mediatek/filogic/*.img.gz
+            bin/targets/mediatek/filogic/*factory.img.gz
+            bin/targets/mediatek/filogic/*emmc-gpt.bin
+            bin/targets/mediatek/filogic/*emmc-preloader.bin
+            bin/targets/mediatek/filogic/*emmc-bl31-uboot.fip
+            bin/targets/mediatek/filogic/*sysupgrade.bin
