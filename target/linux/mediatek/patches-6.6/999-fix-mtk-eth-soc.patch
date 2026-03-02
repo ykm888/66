@@ -1,0 +1,11 @@
+--- a/drivers/net/ethernet/mediatek/mtk_eth_soc.c
++++ b/drivers/net/ethernet/mediatek/mtk_eth_soc.c
+@@ -7172,9 +7172,6 @@ static void mtk_eth_wifitcp_handler(stru
+ 	case MTK_WIFI_CHIP_READY:
+ 		fe_reset_state = 0;
+ 		break;
+-	case MTK_WIFI_CHIP_OFFLINE:
+-		fe_reset_state = 1;
+-		break;
+ 	}
+ }
