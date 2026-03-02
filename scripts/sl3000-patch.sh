@@ -5,6 +5,9 @@ rm -f .config*
 
 find target/linux/mediatek/ -name "*asr3000*" -exec rm -rf {} +
 
+# Force kernel version to 6.6 for openwrt-24.10-6.6 branch compatibility
+sed -i 's/KERNEL_PATCHVER:=.*/KERNEL_PATCHVER:=6.6/g' target/linux/mediatek/Makefile
+
 UBOOT_MAKEFILE="package/boot/uboot-mediatek/Makefile"
 if [ -f "$UBOOT_MAKEFILE" ]; then
     sed -i '/curl -fsSL.*sl_3000/d' "$UBOOT_MAKEFILE"
