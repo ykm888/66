@@ -1,7 +1,6 @@
 define Device/sl_3000-emmc
   DEVICE_VENDOR := SL
   DEVICE_MODEL := 3000 eMMC
-  # 🛠️ 物理锁定：匹配上游文件名 mt7981b-sl-3000-emmc
   DEVICE_DTS := mt7981b-sl-3000-emmc
   DEVICE_DTS_DIR := $(DTS_DIR)/mediatek
   SUPPORTED_DEVICES := sl,3000-emmc
@@ -17,7 +16,6 @@ define Device/sl_3000-emmc
   ARTIFACTS := emmc-gpt.bin emmc-preloader.bin emmc-bl31-uboot.fip
   ARTIFACT/emmc-gpt.bin := mt798x-gpt emmc
   ARTIFACT/emmc-preloader.bin := mt7981-bl2 emmc-ddr3
-  # 🛠️ 物理修复：锁定引用名，防止 cat 找不到 fip 文件导致 Error 2
   ARTIFACT/emmc-bl31-uboot.fip := mt7981-bl31-uboot emmc-ddr3
   IMAGE/factory.img.gz := mt798x-gpt emmc |\
 	pad-to 17k | mt7981-bl2 emmc-ddr3 |\
