@@ -1,4 +1,4 @@
-name: 司洛SL-3000 1024M 救砖 (物理自愈最终版)
+name: 司洛SL-3000 1024M 救砖 (源头对齐最终版)
 
 on:
   workflow_dispatch:
@@ -13,7 +13,7 @@ jobs:
     runs-on: ubuntu-22.04
 
     steps:
-    - name: Checkout Main (获取补丁与配置)
+    - name: Checkout Main (获取补丁脚本与配置)
       uses: actions/checkout@v4
       with:
         ref: main
@@ -25,7 +25,7 @@ jobs:
         sudo -E apt-get -qq install $(curl -fsSL https://raw.githubusercontent.com/ant0ny-0/openwrt-scripts/master/depends-ubuntu-2204)
         sudo timedatectl set-timezone "$TZ"
 
-    - name: Clone Framework (物理获取修正后的 Makefile)
+    - name: Clone Framework (获取物理修正 Makefile 的分支)
       run: |
         git clone --depth 1 https://github.com/${{ env.MY_REPO }}.git -b ${{ env.FRAMEWORK_BRANCH }} $GITHUB_WORKSPACE/openwrt
 
@@ -41,28 +41,15 @@ jobs:
         chmod +x $GITHUB_WORKSPACE/scripts/sl3000-patch.sh
         $GITHUB_WORKSPACE/scripts/sl3000-patch.sh
 
-    - name: Configuration with Self-healing (配置自愈重试)
+    - name: Download & Compile
       run: |
         cd $GITHUB_WORKSPACE/openwrt
-        # 第一轮尝试：全量配置对齐
-        if ! make defconfig; then
-          echo "物理警告：全量配置死锁！启动自愈：物理切除冲突插件..."
-          # 自愈策略：强行删除所有插件配置（CONFIG_PACKAGE_），保留核心架构定义
-          sed -i '/CONFIG_PACKAGE_/d' .config
-          # 二次注入核心身份
-          echo "CONFIG_TARGET_mediatek_filogic_DEVICE_sl_3000-emmc=y" >> .config
-          echo "物理自愈：已回退至核心模式，执行二次对齐..."
-          make defconfig || (echo "物理崩溃：自愈失败，上传存证..." && exit 1)
-        fi
+        # 物理顺序：加载配置 -> 刷新依赖 -> 开始构建
+        make defconfig
         make download -j16
-
-    - name: Compile (物理极速构建)
-      run: |
-        cd $GITHUB_WORKSPACE/openwrt
-        # 并行失败则自动转为单线程输出 V=s 日志
         make -j$(nproc) || make -j1 V=s
 
-    - name: Organize Recovery Bundle (物理产物动态采集)
+    - name: Organize Recovery Bundle (物理产物全量收割)
       if: success()
       run: |
         mkdir -p $GITHUB_WORKSPACE/recovery_bundle
@@ -73,32 +60,26 @@ jobs:
         ls -lh
         echo "========================"
 
-        # 动态通配符采集，确保不漏掉任何救砖组件
+        # 动态通配符物理采集：GPT, Preloader, FIP (U-Boot), Factory
         cp -v *gpt.bin $GITHUB_WORKSPACE/recovery_bundle/ 2>/dev/null || true
         cp -v *preloader*.bin $GITHUB_WORKSPACE/recovery_bundle/ 2>/dev/null || true
-        cp -v *bl31-uboot.fip $GITHUB_WORKSPACE/recovery_bundle/ 2>/dev/null || true
+        # 核心：收割由源头 Makefile 产出的救砖专用 FIP 镜像
+        cp -v *u-boot.fip $GITHUB_WORKSPACE/recovery_bundle/ 2>/dev/null || true
         cp -v *factory.img.gz $GITHUB_WORKSPACE/recovery_bundle/ 2>/dev/null || true
         cp -v *sysupgrade.bin $GITHUB_WORKSPACE/recovery_bundle/ 2>/dev/null || true
         cp -v *recovery.itb $GITHUB_WORKSPACE/recovery_bundle/ 2>/dev/null || true
 
         echo "FIRMWARE=$GITHUB_WORKSPACE/recovery_bundle" >> $GITHUB_ENV
 
-    - name: Upload Config on Failure (失败现场存证)
-      uses: actions/upload-artifact@v4
-      if: failure()
-      with:
-        name: config-debug-report
-        path: ${{ github.workspace }}/openwrt/.config
-
     - name: Release Final Firmware
       uses: softprops/action-gh-release@v2
       if: env.FIRMWARE != ''
       with:
-        tag_name: SL3000_1024M_FINAL_${{ github.run_id }}
+        tag_name: SL3000_1024M_SUCCESS_${{ github.run_id }}
         files: ${{ env.FIRMWARE }}/*
         body: |
-          司洛 SL-3000 1024M 物理全闭环救砖固件
-          - 自愈机制：已通过物理切除逻辑绕过 olddefconfig 阻塞
-          - 核心组件：包含 GPT, Preloader, FIP, Factory (救砖全家桶)
+          司洛 SL-3000 1024M 物理全闭环构建成功
+          - 源头修复：UBOOT_CONFIG:=mt7981_emmc (Fixed)
+          - 救砖组件：GPT, Preloader, FIP, Factory
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
