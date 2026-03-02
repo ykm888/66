@@ -57,15 +57,11 @@ jobs:
       run: |
         [ -e files ] && cp -r files openwrt/files
         [ -e $CONFIG_FILE ] && cp $CONFIG_FILE openwrt/.config
-        
-        # 🛡️ Physical Fix: Sync 3-piece set to Repo structure
         cp custom-config/filogic.mk openwrt/target/linux/mediatek/image/filogic.mk
         
-        # 🛡️ Physical Fix: DTS Injection for Kernel 6.6 (Addressing Error 1)
         mkdir -p openwrt/target/linux/mediatek/dts/
         cp custom-config/mt7981b-3000-emmc.dts openwrt/target/linux/mediatek/dts/mt7981b-sl-3000-emmc.dts
         
-        # Inject into files-6.6 to ensure kernel build finds the source
         mkdir -p openwrt/target/linux/mediatek/files-6.6/arch/arm64/boot/dts/mediatek/
         cp custom-config/mt7981b-3000-emmc.dts openwrt/target/linux/mediatek/files-6.6/arch/arm64/boot/dts/mediatek/mt7981b-sl-3000-emmc.dts
 
@@ -83,6 +79,8 @@ jobs:
       run: |
         cd openwrt
         echo -e "$(nproc) thread compile"
+        # 🛡️ Physical Hotfix: Remove offending line from kernel source right before compile
+        find build_dir/ -name mtk_eth_soc.c -exec sed -i '/MTK_WIFI_CHIP_OFFLINE/d' {} + 2>/dev/null
         make -j$(nproc) || make -j1 || make -j1 V=s
         echo "status=success" >> $GITHUB_OUTPUT
 
