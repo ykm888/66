@@ -1,4 +1,4 @@
-name: 司洛SL-3000 1024M 救砖 (像素级对齐最终版)
+name: 司洛SL-3000 1024M 救砖 (最终闭环版)
 
 on:
   workflow_dispatch:
@@ -13,7 +13,7 @@ jobs:
     runs-on: ubuntu-22.04
 
     steps:
-    - name: Checkout Main (获取补丁脚本与 8000 行配置)
+    - name: Checkout Main (获取补丁脚本与配置)
       uses: actions/checkout@v4
       with:
         ref: main
@@ -25,7 +25,7 @@ jobs:
         sudo -E apt-get -qq install $(curl -fsSL https://raw.githubusercontent.com/ant0ny-0/openwrt-scripts/master/depends-ubuntu-2204)
         sudo timedatectl set-timezone "$TZ"
 
-    - name: Clone Framework (物理获取修改后的 Makefile 底座)
+    - name: Clone Framework (物理获取修改后的 Makefile)
       run: |
         git clone --depth 1 https://github.com/${{ env.MY_REPO }}.git -b ${{ env.FRAMEWORK_BRANCH }} $GITHUB_WORKSPACE/openwrt
 
@@ -41,26 +41,27 @@ jobs:
         chmod +x $GITHUB_WORKSPACE/scripts/sl3000-patch.sh
         $GITHUB_WORKSPACE/scripts/sl3000-patch.sh
 
-    - name: Download & Compile (物理极速构建)
+    - name: Download & Compile (物理流程优化)
       run: |
         cd $GITHUB_WORKSPACE/openwrt
-        # 物理修正：执行 defconfig 确保所有变量在 Makefile 层面物理闭环
+        # 物理顺序：先加载基础配置 -> 刷新依赖 -> 再下载源码
         make defconfig
+        make olddefconfig
         make download -j16
         make -j$(nproc) || make -j1 V=s
 
-    - name: Organize Recovery Bundle (物理产物全扫描与动态采集)
+    - name: Organize Recovery Bundle (物理产物动态采集)
       if: success()
       run: |
         mkdir -p $GITHUB_WORKSPACE/recovery_bundle
         BIN_DIR="$GITHUB_WORKSPACE/openwrt/bin/targets/mediatek/filogic"
         cd "$BIN_DIR"
         
-        echo "=== 物理产物目录审计 ==="
+        echo "=== 物理产物目录清单 ==="
         ls -lh
         echo "========================"
 
-        # 动态物理采集：使用灵活通配符确保不遗漏带前缀的文件
+        # 动态物理采集：使用灵活通配符确保不遗漏
         cp -v *gpt.bin $GITHUB_WORKSPACE/recovery_bundle/ 2>/dev/null || true
         cp -v *preloader*.bin $GITHUB_WORKSPACE/recovery_bundle/ 2>/dev/null || true
         cp -v *bl31-uboot.fip $GITHUB_WORKSPACE/recovery_bundle/ 2>/dev/null || true
@@ -78,8 +79,8 @@ jobs:
         files: ${{ env.FIRMWARE }}/*
         body: |
           司洛 SL-3000 1024M 物理全闭环救砖固件
-          - 源头对齐：已执行物理 Makefile 修正
-          - 依赖修正：已通过 make olddefconfig 刷新
-          - 产物包含：GPT, Preloader, FIP, Factory, ITB
+          - 源头修复：Makefile (.mk 报错已消除)
+          - 依赖刷新：执行 make olddefconfig
+          - 产物包含：GPT, Preloader, FIP, Factory (救砖全家桶)
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
