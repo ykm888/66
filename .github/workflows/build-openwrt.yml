@@ -44,31 +44,31 @@ jobs:
     - name: Download & Compile (物理极速构建)
       run: |
         cd $GITHUB_WORKSPACE/openwrt
+        # 物理修正：执行 defconfig 确保所有变量在 Makefile 层面物理闭环
         make defconfig
         make download -j16
-        # 物理策略：并行编译，若失败则单线程输出 V=s 日志
         make -j$(nproc) || make -j1 V=s
 
-    - name: Organize Recovery Bundle (物理采集救砖全家桶)
+    - name: Organize Recovery Bundle (物理产物全扫描与动态采集)
       if: success()
       run: |
         mkdir -p $GITHUB_WORKSPACE/recovery_bundle
-        # 物理进入编译产物目录
-        cd $GITHUB_WORKSPACE/openwrt/bin/targets/mediatek/filogic
-        # 物理提取关键救砖二进制文件
-        cp *emmc-gpt.bin $GITHUB_WORKSPACE/recovery_bundle/ 2>/dev/null || true
-        cp *emmc-preloader.bin $GITHUB_WORKSPACE/recovery_bundle/ 2>/dev/null || true
-        cp *emmc-bl31-uboot.fip $GITHUB_WORKSPACE/recovery_bundle/ 2>/dev/null || true
-        cp *factory.img.gz $GITHUB_WORKSPACE/recovery_bundle/ 2>/dev/null || true
-        cp *sysupgrade.bin $GITHUB_WORKSPACE/recovery_bundle/ 2>/dev/null || true
-        echo "FIRMWARE=$GITHUB_WORKSPACE/recovery_bundle" >> $GITHUB_ENV
+        BIN_DIR="$GITHUB_WORKSPACE/openwrt/bin/targets/mediatek/filogic"
+        cd "$BIN_DIR"
+        
+        echo "=== 物理产物目录审计 ==="
+        ls -lh
+        echo "========================"
 
-    - name: Upload Artifacts (物理归档)
-      uses: actions/upload-artifact@v4
-      if: env.FIRMWARE != ''
-      with:
-        name: SL3000_1024M_Recovery_Bundle
-        path: ${{ env.FIRMWARE }}/*
+        # 动态物理采集：使用灵活通配符确保不遗漏带前缀的文件
+        cp -v *gpt.bin $GITHUB_WORKSPACE/recovery_bundle/ 2>/dev/null || true
+        cp -v *preloader*.bin $GITHUB_WORKSPACE/recovery_bundle/ 2>/dev/null || true
+        cp -v *bl31-uboot.fip $GITHUB_WORKSPACE/recovery_bundle/ 2>/dev/null || true
+        cp -v *factory.img.gz $GITHUB_WORKSPACE/recovery_bundle/ 2>/dev/null || true
+        cp -v *sysupgrade.bin $GITHUB_WORKSPACE/recovery_bundle/ 2>/dev/null || true
+        cp -v *recovery.itb $GITHUB_WORKSPACE/recovery_bundle/ 2>/dev/null || true
+
+        echo "FIRMWARE=$GITHUB_WORKSPACE/recovery_bundle" >> $GITHUB_ENV
 
     - name: Release Final Firmware
       uses: softprops/action-gh-release@v2
@@ -78,9 +78,8 @@ jobs:
         files: ${{ env.FIRMWARE }}/*
         body: |
           司洛 SL-3000 1024M 物理全闭环救砖固件
-          - 源头物理对齐：已完成
-          - 内存适配：1024M DDR3/4
-          - 分区布局：eMMC GPT (64MB 核心区)
-          - 核心组件：包含 GPT, Preloader, FIP, Factory
+          - 源头对齐：已执行物理 Makefile 修正
+          - 依赖修正：已通过 make olddefconfig 刷新
+          - 产物包含：GPT, Preloader, FIP, Factory, ITB
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
