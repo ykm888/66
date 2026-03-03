@@ -51,12 +51,12 @@ ifdef CONFIG_TARGET_mediatek
 UBOOT_MAKE_FLAGS += $(UBOOT_IMAGE:.fip=.bin)
 endif
 
-# 物理合成：FIP 镜像核心逻辑 (救砖全家桶关键组件)
+# 物理合成：从子目录提取产物进行 FIP 合成
 define Build/fip-image
 	$(STAGING_DIR_HOST)/bin/fiptool create \
 		--soc-fw $(STAGING_DIR_IMAGE)/mt7981-emmc-ddr3-bl31.bin \
-		--nt-fw $(PKG_BUILD_DIR)/u-boot.bin \
-		$(PKG_BUILD_DIR)/u-boot.fip
+		--nt-fw $(PKG_BUILD_DIR)/$(BUILD_VARIANT)/u-boot.bin \
+		$(PKG_BUILD_DIR)/$(BUILD_VARIANT)/u-boot.fip
 endef
 
 define Build/Configure
@@ -77,10 +77,15 @@ define Package/u-boot/install
 endef
 endif
 
+# 物理交付：从目标子目录中提取产物并强制改名对齐 filogic.mk
 define Build/InstallDev
 	$(INSTALL_DIR) $(STAGING_DIR_IMAGE)
-	# 物理交付：将 FIP 镜像存入暂存区供后续流程打包 factory.img
-	$(INSTALL_DATA) $(PKG_BUILD_DIR)/$(UBOOT_IMAGE) $(STAGING_DIR_IMAGE)/$(BUILD_VARIANT)-$(UBOOT_IMAGE)
+	# 物理提取 BL2 并强制改名对齐，解决 filogic.mk 的 cat 报错
+	$(CP) $(PKG_BUILD_DIR)/$(BUILD_VARIANT)/bl2.bin \
+		$(STAGING_DIR_IMAGE)/mt7981-emmc-ddr3-bl2.bin
+	# 物理提取 FIP 并强制改名对齐
+	$(CP) $(PKG_BUILD_DIR)/$(BUILD_VARIANT)/u-boot.fip \
+		$(STAGING_DIR_IMAGE)/mt7981-emmc-ddr3-fip.bin
 endef
 
 $(eval $(call BuildPackage/U-Boot))
