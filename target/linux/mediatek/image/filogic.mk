@@ -1,7 +1,8 @@
-# 物理修复：分号改为标准空格，确保 foreach 能够物理拆分为多个 -p 参数
-MTK_GPT_PARTS := preloader:64k:256k bl31:256k:512k u-boot:512k:2048k u-boot-env:2048k:256k factory:2304k:256k production:2560k:512k recovery:3072k:20480k userdata:23552k:
+# 物理修复：将格式从 Name:Offset:Size 修正为 ptgen 识别的 Size@Offset:Name
+# 确保每个分区的物理位置与你之前的设计完全对齐
+MTK_GPT_PARTS := 256k@64k:preloader 512k@256k:bl31 2048k@512k:u-boot 256k@2048k:u-boot-env 256k@2304k:factory 512k@2560k:production 20480k@3072k:recovery 41984k@23552k:userdata
 
-# 修复后的 GPT 构建宏：先创建基础文件
+# 修复后的 GPT 构建宏：延续上一版的 cat 注入逻辑
 define Build/mt798x-gpt
 	rm -f $@
 	touch $@
@@ -22,7 +23,7 @@ define Build/mt7981-bl31-uboot
 	cat $(STAGING_DIR_HOST)/share/u-boot/mt7981-$(1)-bl31-uboot.fip >> $@
 endef
 
-# 设备定义 (像素级原文照抄，确保 1024M 物理闭环)
+# 设备定义 (像素级原文照抄，锁死 1024M 与 64M 容器)
 define Device/sl_3000-emmc
   DEVICE_VENDOR := SL
   DEVICE_MODEL := 3000 eMMC
