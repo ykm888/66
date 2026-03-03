@@ -15,7 +15,7 @@ define Build/mt798x-gpt
 	cat $@.gpt >> $@
 endef
 
-# 物理修复：加入 ls 探测，并修正为常见的 bl2/fip 命名结构
+# 物理修复：加入 ls 探测，并修正为与 U-Boot Makefile 强制改名一致的结构
 define Build/mt7981-bl2
 	@echo "--- 物理探测：检查 $(STAGING_DIR_HOST)/share/u-boot/ 目录内容 ---"
 	ls -l $(STAGING_DIR_HOST)/share/u-boot/
