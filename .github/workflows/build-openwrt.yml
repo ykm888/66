@@ -1,79 +1,77 @@
-name: SL-3000 1024M 救砖 (像素级物理对齐版)
+name: SL-3000 1024M Firmware Build
 
 on:
+  repository_dispatch:
   workflow_dispatch:
 
 env:
-  MY_REPO: ykm888/66
-  FRAMEWORK_BRANCH: openwrt-24.10-6.6
-  TZ: Asia/Shanghai
+  REPO_URL: https://github.com/immortalwrt/immortalwrt
+  REPO_BRANCH: openwrt-24.10
+  UBOOT_REPO: your-github-user/sl3000-uboot-base  # 请物理替换为你的仓库名
+  UBOOT_BRANCH: main
+  CONFIG_FILE: .config
+  DIY_P1_SH: diy-part1.sh
+  DIY_P2_SH: sl3000-patch.sh
 
 jobs:
   build:
     runs-on: ubuntu-22.04
 
     steps:
-    - name: Checkout Main (获取脚本与配置)
-      uses: actions/checkout@v4
-      with:
-        ref: main
+    - name: Checkout
+      uses: actions/checkout@main
 
-    - name: Initialization Environment
+    - name: Initialization environment
+      env:
+        DEBIAN_FRONTEND: noninteractive
       run: |
-        sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+        sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc
         sudo -E apt-get -qq update
-        sudo -E apt-get -qq install $(curl -fsSL https://raw.githubusercontent.com/ant0ny-0/openwrt-scripts/master/depends-ubuntu-2204)
-        sudo timedatectl set-timezone "$TZ"
+        sudo -E apt-get -qq install $(curl -fsSL https://is.gd/depends_ubuntu_2204)
+        sudo -E apt-get -qq autoremove --purge
+        sudo -E apt-get -qq clean
 
-    - name: Clone Framework (物理获取 Makefile 分支)
+    - name: Clone source code
       run: |
-        git clone --depth 1 https://github.com/${{ env.MY_REPO }}.git -b ${{ env.FRAMEWORK_BRANCH }} $GITHUB_WORKSPACE/openwrt
+        git clone --depth 1 $REPO_URL -b $REPO_BRANCH openwrt
+        cd openwrt
+        # 物理注入：在此处将你手动改好的 filogic.mk 放入目标位置（如果尚未在源码库中保存）
 
-    - name: Update & Install Feeds
+    - name: Update & Install feeds
       run: |
-        cd $GITHUB_WORKSPACE/openwrt
+        cd openwrt
         ./scripts/feeds update -a
         ./scripts/feeds install -a
 
-    - name: Execute Physical Patch (补丁物理缝合)
+    - name: Load custom configuration
       run: |
-        cd $GITHUB_WORKSPACE/openwrt
-        chmod +x $GITHUB_WORKSPACE/scripts/sl3000-patch.sh
-        $GITHUB_WORKSPACE/scripts/sl3000-patch.sh
+        [ -e $CONFIG_FILE ] && mv $CONFIG_FILE openwrt/.config
+        chmod +x $DIY_P2_SH
+        cd openwrt
+        ../$DIY_P2_SH
 
-    - name: Download & Compile
+    - name: Download package
       run: |
-        cd $GITHUB_WORKSPACE/openwrt
+        cd openwrt
         make defconfig
-        make download -j16
-        # 如果编译失败，会自动切换到单线程 V=s 暴露物理病灶
+        make download -j8
+        find dl -size -1024c -exec ls -l {} \;
+        find dl -size -1024c -exec rm -f {} \;
+
+    - name: Compile the firmware
+      run: |
+        cd openwrt
+        echo -e "$(nproc) thread compile"
         make -j$(nproc) || make -j1 V=s
 
-    - name: Organize Recovery Bundle (物理产物深度收割)
-      if: success()
+    - name: Organize files
       run: |
-        mkdir -p $GITHUB_WORKSPACE/recovery_bundle
-        BIN_DIR="$GITHUB_WORKSPACE/openwrt/bin/targets/mediatek/filogic"
-        cd "$BIN_DIR"
-        
-        # 采集救砖必备：GPT、Preloader、FIP (U-Boot)、Factory
-        cp -v *gpt.bin $GITHUB_WORKSPACE/recovery_bundle/ 2>/dev/null || true
-        cp -v *preloader*.bin $GITHUB_WORKSPACE/recovery_bundle/ 2>/dev/null || true
-        cp -v *u-boot.fip $GITHUB_WORKSPACE/recovery_bundle/ 2>/dev/null || true
-        cp -v *factory.img.gz $GITHUB_WORKSPACE/recovery_bundle/ 2>/dev/null || true
-        cp -v *sysupgrade.bin $GITHUB_WORKSPACE/recovery_bundle/ 2>/dev/null || true
+        cd openwrt/bin/targets/mediatek/filogic/
+        rm -rf packages
+        echo "FIRMWARE=$PWD" >> $GITHUB_ENV
 
-        echo "FIRMWARE=$GITHUB_WORKSPACE/recovery_bundle" >> $GITHUB_ENV
-
-    - name: Release Final Firmware
-      uses: softprops/action-gh-release@v2
-      if: env.FIRMWARE != ''
+    - name: Upload artifact
+      uses: actions/upload-artifact@main
       with:
-        tag_name: SL3000_1024M_SUCCESS_${{ github.run_id }}
-        files: ${{ env.FIRMWARE }}/*
-        body: |
-          司洛 SL-3000 1024M 物理全闭环构建成功
-          - 方案：模糊路径匹配 + 物理强插配置文件
-          - 组件：包含 1024M 内存适配的 FIP 与 Preloader
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        name: SL-3000-1024M-Firmware
+        path: ${{ env:FIRMWARE }}
