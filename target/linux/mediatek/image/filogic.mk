@@ -10,7 +10,7 @@ define Build/mt798x-gpt
 		-a 1 -l 1024 \
 		$(if $(findstring sd,$(1)), -s 512) \
 		$(if $(findstring emmc,$(1)), -s 512) \
-		$(foreach part,$(MTK_GPT_PARTS), -p $(part))
+		$(foreach part,$(MTK_GPT_PARTS), -p '$(part)')
 	cat $@.gpt >> $@
 endef
 
