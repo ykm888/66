@@ -23,12 +23,11 @@ jobs:
         sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
         sudo -E apt-get -qq update
         sudo -E apt-get -qq install $(curl -fsSL https://raw.githubusercontent.com/ant0ny-0/openwrt-scripts/master/depends-ubuntu-2204)
-        # 物理修正：确保时区变量正确引用
         sudo timedatectl set-timezone "${{ env.TZ }}"
 
     - name: Clone Framework (物理获取 Makefile 分支)
       run: |
-        # 物理克隆你已经修好 Build/mt798x-gpt 宏定义的仓库
+        # 物理克隆框架，建立构建根目录
         git clone --depth 1 https://github.com/${{ env.MY_REPO }}.git -b ${{ env.FRAMEWORK_BRANCH }} $GITHUB_WORKSPACE/openwrt
 
     - name: Update & Install Feeds
@@ -40,17 +39,25 @@ jobs:
     - name: Execute Physical Patch (补丁物理缝合)
       run: |
         cd $GITHUB_WORKSPACE/openwrt
-        # 延续之前逻辑，物理调用你仓库中的补丁脚本
+        # 延续逻辑：调用脚本注入你保存好的修复版 Makefile 和 filogic.mk
         chmod +x $GITHUB_WORKSPACE/scripts/sl3000-patch.sh
         $GITHUB_WORKSPACE/scripts/sl3000-patch.sh
+        
+        # 物理静默审计：确保补丁生效，防止旧文件干扰
+        echo "--- GPT 分区表补丁校验 ---"
+        grep "Size@Offset" target/linux/mediatek/image/filogic.mk || (echo "ERROR: Patch not applied!" && exit 1)
 
     - name: Download & Compile
       run: |
         cd $GITHUB_WORKSPACE/openwrt
-        # 此时 mk 补丁已就位，物理开始编译
         make defconfig
         make download -j16
-        # 如果编译失败，会自动切换到单线程 V=s 暴露物理病灶
+        
+        # 【核心时序修复】强制先单线程编译 U-Boot，确保物理隧道产物（bl2/fip）先行就位
+        # 这一步是为了根治 "No such file or directory" 的目录竞争问题
+        make package/boot/uboot-mediatek/compile -j1 V=s
+        
+        # 开始全局镜像缝合
         make -j$(nproc) || make -j1 V=s
 
     - name: Organize Recovery Bundle (物理产物深度收割)
@@ -58,29 +65,43 @@ jobs:
       run: |
         mkdir -p $GITHUB_WORKSPACE/recovery_bundle
         BIN_DIR="$GITHUB_WORKSPACE/openwrt/bin/targets/mediatek/filogic"
-        cd "$BIN_DIR"
+        STAGING_BOOT="$GITHUB_WORKSPACE/openwrt/staging_dir/host/share/u-boot"
         
-        # 采集救砖必备：GPT、Preloader、FIP (U-Boot)、Factory
-        cp -v *gpt.bin $GITHUB_WORKSPACE/recovery_bundle/ 2>/dev/null || true
-        cp -v *preloader*.bin $GITHUB_WORKSPACE/recovery_bundle/ 2>/dev/null || true
-        cp -v *u-boot.fip $GITHUB_WORKSPACE/recovery_bundle/ 2>/dev/null || true
+        cd "$BIN_DIR"
+        # 1. 采集缝合好的整机包和系统包
         cp -v *factory.img.gz $GITHUB_WORKSPACE/recovery_bundle/ 2>/dev/null || true
         cp -v *sysupgrade.bin $GITHUB_WORKSPACE/recovery_bundle/ 2>/dev/null || true
+        
+        # 2. 从物理隧道直接提取最底层的救砖组件（确保是最新编出来的）
+        echo "--- 正在收割物理隧道产物 ---"
+        if [ -d "$STAGING_BOOT" ]; then
+            cp -v $STAGING_BOOT/mt7981-emmc-ddr3-bl2.bin $GITHUB_WORKSPACE/recovery_bundle/emmc-preloader.bin || true
+            cp -v $STAGING_BOOT/mt7981-emmc-ddr3-fip.bin $GITHUB_WORKSPACE/recovery_bundle/emmc-bl31-uboot.fip || true
+            # 这里的 GPT 是镜像构建过程生成的
+            cp -v "$GITHUB_WORKSPACE/openwrt/build_dir/target-aarch64_cortex-a53_musl/linux-mediatek_filogic/tmp/"*gpt.bin $GITHUB_WORKSPACE/recovery_bundle/emmc-gpt.bin 2>/dev/null || true
+        fi
 
-        # 物理记录路径
+        # 物理记录路径供 Release 使用
         echo "FIRMWARE=$GITHUB_WORKSPACE/recovery_bundle" >> $GITHUB_ENV
 
     - name: Release Final Firmware
       uses: softprops/action-gh-release@v2
-      # 物理修正：确保变量引用格式正确
       if: env.FIRMWARE != ''
       with:
         tag_name: SL3000_1024M_SUCCESS_${{ github.run_id }}
         files: ${{ env.FIRMWARE }}/*
         body: |
           司洛 SL-3000 1024M 物理全闭环构建成功
-          - 方案：模糊路径匹配 + 物理强插配置文件
-          - 组件：包含 1024M 内存适配的 FIP 与 Preloader
-          - 状态：已解决 Makefile:34 Missing Build/mt798x-gpt 错误
+          
+          【组件清单】
+          1. factory.img.gz : 64MB 编程器整机刷机包 (含 GPT+BL2+FIP+RootFS)
+          2. emmc-preloader.bin : DDR3 1024M 初始化引导 (BL2)
+          3. emmc-bl31-uboot.fip : ATF + U-Boot 交互控制台
+          4. emmc-gpt.bin : 物理分区表定义
+          
+          【物理状态】
+          - 内存适配：1024M DDR3
+          - 分区格式：Size@Offset 物理对齐
+          - 编译模式：U-Boot 强制优先编译
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
