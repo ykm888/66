@@ -1,4 +1,4 @@
-name: 司洛SL-3000 1024M 救砖 (源头对齐最终版)
+name: SL-3000 1024M 救砖 (像素级物理对齐版)
 
 on:
   workflow_dispatch:
@@ -13,7 +13,7 @@ jobs:
     runs-on: ubuntu-22.04
 
     steps:
-    - name: Checkout Main (获取补丁脚本与配置)
+    - name: Checkout Main (获取脚本与配置)
       uses: actions/checkout@v4
       with:
         ref: main
@@ -25,7 +25,7 @@ jobs:
         sudo -E apt-get -qq install $(curl -fsSL https://raw.githubusercontent.com/ant0ny-0/openwrt-scripts/master/depends-ubuntu-2204)
         sudo timedatectl set-timezone "$TZ"
 
-    - name: Clone Framework (获取物理修正 Makefile 的分支)
+    - name: Clone Framework (物理获取 Makefile 分支)
       run: |
         git clone --depth 1 https://github.com/${{ env.MY_REPO }}.git -b ${{ env.FRAMEWORK_BRANCH }} $GITHUB_WORKSPACE/openwrt
 
@@ -44,30 +44,24 @@ jobs:
     - name: Download & Compile
       run: |
         cd $GITHUB_WORKSPACE/openwrt
-        # 物理顺序：加载配置 -> 刷新依赖 -> 开始构建
         make defconfig
         make download -j16
+        # 如果编译失败，会自动切换到单线程 V=s 暴露物理病灶
         make -j$(nproc) || make -j1 V=s
 
-    - name: Organize Recovery Bundle (物理产物全量收割)
+    - name: Organize Recovery Bundle (物理产物深度收割)
       if: success()
       run: |
         mkdir -p $GITHUB_WORKSPACE/recovery_bundle
         BIN_DIR="$GITHUB_WORKSPACE/openwrt/bin/targets/mediatek/filogic"
         cd "$BIN_DIR"
         
-        echo "=== 物理产物清单审计 ==="
-        ls -lh
-        echo "========================"
-
-        # 动态通配符物理采集：GPT, Preloader, FIP (U-Boot), Factory
+        # 采集救砖必备：GPT、Preloader、FIP (U-Boot)、Factory
         cp -v *gpt.bin $GITHUB_WORKSPACE/recovery_bundle/ 2>/dev/null || true
         cp -v *preloader*.bin $GITHUB_WORKSPACE/recovery_bundle/ 2>/dev/null || true
-        # 核心：收割由源头 Makefile 产出的救砖专用 FIP 镜像
         cp -v *u-boot.fip $GITHUB_WORKSPACE/recovery_bundle/ 2>/dev/null || true
         cp -v *factory.img.gz $GITHUB_WORKSPACE/recovery_bundle/ 2>/dev/null || true
         cp -v *sysupgrade.bin $GITHUB_WORKSPACE/recovery_bundle/ 2>/dev/null || true
-        cp -v *recovery.itb $GITHUB_WORKSPACE/recovery_bundle/ 2>/dev/null || true
 
         echo "FIRMWARE=$GITHUB_WORKSPACE/recovery_bundle" >> $GITHUB_ENV
 
@@ -79,7 +73,7 @@ jobs:
         files: ${{ env.FIRMWARE }}/*
         body: |
           司洛 SL-3000 1024M 物理全闭环构建成功
-          - 源头修复：UBOOT_CONFIG:=mt7981_emmc (Fixed)
-          - 救砖组件：GPT, Preloader, FIP, Factory
+          - 方案：模糊路径匹配 + 物理强插配置文件
+          - 组件：包含 1024M 内存适配的 FIP 与 Preloader
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
