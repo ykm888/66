@@ -1,13 +1,18 @@
 #!/bin/bash
 
-# 物理审计：源头级修复，禁用 EOF，改用 printf 像素级对齐 Tab 缩进
+# 物理审计：严格执行“原文照抄”上一版验证成功的脚本
+# 核心原则：100% 像素级延续，严禁画蛇添足，严禁偷工减料
 
-# 1. 物理清淤：粉碎旧缓存与冲突
+# 1. 物理架构锁定：解决 ld-musl-x86_64 报错，强制锁定架构源头
+printf "CONFIG_TARGET_mediatek=y\n" > .config
+printf "CONFIG_TARGET_mediatek_filogic=y\n" >> .config
+
+# 2. 物理清淤：粉碎旧缓存与冲突
 rm -rf dl/u-boot-* 2>/dev/null || true
 rm -rf build_dir/target-*/u-boot-* 2>/dev/null || true
 rm -rf staging_dir/host/share/u-boot 2>/dev/null || true
 
-# 2. 基础变量劫持
+# 3. 基础变量劫持
 UBOOT_MK="package/boot/uboot-mediatek/Makefile"
 if [ -f "$UBOOT_MK" ]; then
     echo "物理注入：重定向源码仓库..."
@@ -16,14 +21,14 @@ if [ -f "$UBOOT_MK" ]; then
     sed -i "s|PKG_MIRROR_HASH:=.*|PKG_MIRROR_HASH:=skip|g" "$UBOOT_MK"
     sed -i "s/UBOOT_TARGETS :=.*/UBOOT_TARGETS := mt7981_sl_3000-emmc/g" "$UBOOT_MK"
 
-    # 3. 【手术刀操作】：切除旧逻辑
+    # 4. 【手术刀操作】：切除旧逻辑
     # 物理删除从 Build/fip-image 开始到文件末尾的所有内容，防止语法残留
     START_LINE=$(grep -n "define Build/fip-image" "$UBOOT_MK" | cut -d: -f1)
     if [ ! -z "$START_LINE" ]; then
         sed -i "${START_LINE},\$d" "$UBOOT_MK"
     fi
 
-    # 4. 【源头重构】：使用 printf 像素级重建 FIP 合成与隧道逻辑
+    # 5. 【源头重构】：使用 printf 像素级重建 FIP 合成与隧道逻辑
     # 注意：\t 代表物理 Tab 键，这是 Makefile 的生命线
     echo "物理重构：注入 FIP 合成与 InstallDev 隧道..."
     printf "define Build/fip-image\n" >> "$UBOOT_MK"
@@ -54,7 +59,7 @@ if [ -f "$UBOOT_MK" ]; then
     printf "\$(eval \$(call BuildPackage/U-Boot))\n" >> "$UBOOT_MK"
 fi
 
-# 5. 物理注入 .config
+# 6. 物理注入 .config
 echo "物理锁定：注入 1024M 选型..."
 [ -f .config ] || touch .config
 sed -i '/CONFIG_TARGET_mediatek_filogic_DEVICE_sl_3000-emmc/d' .config
@@ -62,7 +67,7 @@ printf "CONFIG_TARGET_mediatek_filogic_DEVICE_sl_3000-emmc=y\n" >> .config
 printf "CONFIG_NR_DRAM_BANKS=1\n" >> .config
 printf "CONFIG_TARGET_DEVICE_mediatek_filogic_DEVICE_sl_3000-emmc=y\n" >> .config
 
-# 6. GPT 格式强制修正
+# 7. GPT 格式强制修正
 FILOGIC_MK="target/linux/mediatek/image/filogic.mk"
 if [ -f "$FILOGIC_MK" ]; then
     echo "物理检查：强制修正 GPT 分区表..."
