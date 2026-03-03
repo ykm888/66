@@ -1,15 +1,17 @@
-# SPDX-License-Identifier: GPL-2.0-only
+# GPT 分区物理定义
+MTK_GPT_PARTS := preloader:64k:256k;bl31:256k:512k;u-boot:512k:2048k;u-boot-env:2048k:256k;factory:2304k:256k;production:2560k:512k;recovery:3072k:20480k;userdata:23552k:
 
-# --- 第一部分：补齐物理打包宏（Build Macros） ---
-# 这些宏告诉系统如何物理生成 GPT 分区表和缝合 BL2/FIP
-
+# 修复后的 GPT 构建宏：先创建基础文件
 define Build/mt798x-gpt
+	rm -f $@
+	touch $@
 	$(STAGING_DIR_HOST)/bin/ptgen \
 		-g -o $@.gpt \
 		-a 1 -l 1024 \
 		$(if $(findstring sd,$(1)), -s 512) \
 		$(if $(findstring emmc,$(1)), -s 512) \
 		$(foreach part,$(MTK_GPT_PARTS), -p $(part))
+	cat $@.gpt >> $@
 endef
 
 define Build/mt7981-bl2
@@ -20,8 +22,7 @@ define Build/mt7981-bl31-uboot
 	cat $(STAGING_DIR_HOST)/share/u-boot/mt7981-$(1)-bl31-uboot.fip >> $@
 endef
 
-# --- 第二部分：SL-3000 设备物理定义 ---
-
+# 设备定义
 define Device/sl_3000-emmc
   DEVICE_VENDOR := SL
   DEVICE_MODEL := 3000 eMMC
@@ -36,15 +37,14 @@ define Device/sl_3000-emmc
   KERNEL_INITRAMFS := kernel-bin | lzma | fit lzma $$(KDIR)/image-$$(firstword $$(DEVICE_DTS)).dtb with-initrd | pad-to 64k
   KERNEL_INITRAMFS_SUFFIX := -recovery.itb
   
-  # 物理产物：救砖全家桶
   ARTIFACTS := emmc-gpt.bin emmc-preloader.bin emmc-bl31-uboot.fip
   ARTIFACT/emmc-gpt.bin := mt798x-gpt emmc
   ARTIFACT/emmc-preloader.bin := mt7981-bl2 emmc-ddr3
   ARTIFACT/emmc-bl31-uboot.fip := mt7981-bl31-uboot emmc-ddr3
 
-  # 物理合成逻辑：严格执行 17k 和 6656k 偏移缝合
   IMAGES := sysupgrade.bin factory.img.gz
   IMAGE/sysupgrade.bin := sysupgrade-tar | append-metadata
+  # 物理缝合逻辑：增加底图初始化
   IMAGE/factory.img.gz := mt798x-gpt emmc |\
 	pad-to 17k | mt7981-bl2 emmc-ddr3 |\
 	pad-to 6656k | mt7981-bl31-uboot emmc-ddr3 |\
