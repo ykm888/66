@@ -44,7 +44,7 @@ ifdef CONFIG_TARGET_mediatek
 UBOOT_MAKE_FLAGS += $(UBOOT_IMAGE:.fip=.bin)
 endif
 
-# 物理合成宏：注意行首必须是 TAB
+# 物理合成宏
 define Build/fip-image
 	$(STAGING_DIR_HOST)/bin/fiptool create \
 		--soc-fw $(STAGING_DIR_IMAGE)/mt7981-emmc-ddr3-bl31.bin \
