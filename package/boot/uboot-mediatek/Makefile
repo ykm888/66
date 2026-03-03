@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: GPL-2.0-only
+# 物理审计：原文照抄，保留修复好的双路交付隧道
 
 include $(TOPDIR)/rules.mk
 include $(INCLUDE_DIR)/kernel.mk
@@ -44,7 +45,6 @@ ifdef CONFIG_TARGET_mediatek
 UBOOT_MAKE_FLAGS += $(UBOOT_IMAGE:.fip=.bin)
 endif
 
-# 物理合成宏
 define Build/fip-image
 	$(STAGING_DIR_HOST)/bin/fiptool create \
 		--soc-fw $(STAGING_DIR_IMAGE)/mt7981-emmc-ddr3-bl31.bin \
@@ -69,7 +69,6 @@ define Package/u-boot/install
 endef
 endif
 
-# 物理隧道交付宏
 define Build/InstallDev
 	$(INSTALL_DIR) $(STAGING_DIR_HOST)/share/u-boot
 	$(CP) $(PKG_BUILD_DIR)/$(BUILD_VARIANT)/bl2.bin \
