@@ -26,13 +26,12 @@ define U-Boot/mt7981_sl_3000-emmc
   NAME:=SL 3000 (eMMC)
   BUILD_SUBTARGET:=filogic
   BUILD_DEVICES:=sl_3000-emmc
-  # 【核心修复点】物理指向源码中真实的 configs/mt7981_emmc_defconfig
   UBOOT_CONFIG:=mt7981_emmc
   UBOOT_IMAGE:=u-boot.fip
   BL2_BOOTDEV:=emmc
   BL2_SOC:=mt7981
   BL2_DDRTYPE:=ddr3
-  # 物理依赖：必须先有 ATF 产出的 bl31.bin 才能合成 FIP
+  # 物理依赖：必须先有 ATF 产出的 bl31.bin
   DEPENDS:=+trusted-firmware-a-mt7981-emmc-ddr3
 endef
 
@@ -61,7 +60,7 @@ endef
 
 define Build/Configure
 	$(call Build/Configure/U-Boot)
-	# 物理脱敏：移除工具链对 libcrypto 的强制依赖，防止 GitHub 环境编译报错
+	# 物理脱敏：移除工具链对 libcrypto 的强制依赖
 	sed -i 's/CONFIG_TOOLS_LIBCRYPTO=y/# CONFIG_TOOLS_LIBCRYPTO is not set/' $(PKG_BUILD_DIR)/.config
 endef
 
@@ -77,15 +76,20 @@ define Package/u-boot/install
 endef
 endif
 
-# 物理交付：从目标子目录中提取产物并强制改名对齐 filogic.mk
+# 物理修复：源头解决目录不存在及路径对齐问题
 define Build/InstallDev
-	$(INSTALL_DIR) $(STAGING_DIR_IMAGE)
-	# 物理提取 BL2 并强制改名对齐，解决 filogic.mk 的 cat 报错
+	# 1. 强制建立物理隧道：确保 host 共享目录存在
+	$(INSTALL_DIR) $(STAGING_DIR_HOST)/share/u-boot
+	# 2. 物理提取 BL2 并强制改名交付至 host 共享区 (对齐 filogic.mk 的探测路径)
 	$(CP) $(PKG_BUILD_DIR)/$(BUILD_VARIANT)/bl2.bin \
-		$(STAGING_DIR_IMAGE)/mt7981-emmc-ddr3-bl2.bin
-	# 物理提取 FIP 并强制改名对齐
+		$(STAGING_DIR_HOST)/share/u-boot/mt7981-emmc-ddr3-bl2.bin
+	# 3. 物理提取 FIP 并强制改名交付
 	$(CP) $(PKG_BUILD_DIR)/$(BUILD_VARIANT)/u-boot.fip \
-		$(STAGING_DIR_IMAGE)/mt7981-emmc-ddr3-fip.bin
+		$(STAGING_DIR_HOST)/share/u-boot/mt7981-emmc-ddr3-fip.bin
+	# 4. 同时保留镜像区备份
+	$(INSTALL_DIR) $(STAGING_DIR_IMAGE)
+	$(CP) $(STAGING_DIR_HOST)/share/u-boot/mt7981-emmc-ddr3-bl2.bin $(STAGING_DIR_IMAGE)/
+	$(CP) $(STAGING_DIR_HOST)/share/u-boot/mt7981-emmc-ddr3-fip.bin $(STAGING_DIR_IMAGE)/
 endef
 
 $(eval $(call BuildPackage/U-Boot))
