@@ -4,15 +4,6 @@ on:
   repository_dispatch:
   workflow_dispatch:
 
-env:
-  REPO_URL: https://github.com/immortalwrt/immortalwrt
-  REPO_BRANCH: openwrt-24.10
-  UBOOT_REPO: your-github-user/sl3000-uboot-base  # 请物理替换为你的仓库名
-  UBOOT_BRANCH: main
-  CONFIG_FILE: .config
-  DIY_P1_SH: diy-part1.sh
-  DIY_P2_SH: sl3000-patch.sh
-
 jobs:
   build:
     runs-on: ubuntu-22.04
@@ -33,45 +24,39 @@ jobs:
 
     - name: Clone source code
       run: |
-        git clone --depth 1 $REPO_URL -b $REPO_BRANCH openwrt
-        cd openwrt
-        # 物理注入：在此处将你手动改好的 filogic.mk 放入目标位置（如果尚未在源码库中保存）
-
-    - name: Update & Install feeds
-      run: |
+        git clone --depth 1 https://github.com/immortalwrt/immortalwrt -b openwrt-24.10 openwrt
         cd openwrt
         ./scripts/feeds update -a
         ./scripts/feeds install -a
 
     - name: Load custom configuration
       run: |
-        [ -e $CONFIG_FILE ] && mv $CONFIG_FILE openwrt/.config
-        chmod +x $DIY_P2_SH
-        cd openwrt
-        ../$DIY_P2_SH
+        [ -e .config ] && mv .config openwrt/.config
+        chmod +x sl3000-patch.sh
+        ./sl3000-patch.sh
 
     - name: Download package
       run: |
         cd openwrt
         make defconfig
         make download -j8
-        find dl -size -1024c -exec ls -l {} \;
-        find dl -size -1024c -exec rm -f {} \;
 
     - name: Compile the firmware
       run: |
         cd openwrt
-        echo -e "$(nproc) thread compile"
         make -j$(nproc) || make -j1 V=s
 
     - name: Organize files
+      id: organize
       run: |
         cd openwrt/bin/targets/mediatek/filogic/
         rm -rf packages
+        # 物理设置环境变量
         echo "FIRMWARE=$PWD" >> $GITHUB_ENV
 
     - name: Upload artifact
       uses: actions/upload-artifact@main
       with:
         name: SL-3000-1024M-Firmware
-        path: ${{ env:FIRMWARE }}
+        # 物理语法修复：使用 env.FIRMWARE
+        path: ${{ env.FIRMWARE }}
