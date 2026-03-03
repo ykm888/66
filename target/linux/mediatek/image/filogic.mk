@@ -1,4 +1,27 @@
-# SL-3000 1024M eMMC 专属定义
+# SPDX-License-Identifier: GPL-2.0-only
+
+# --- 第一部分：补齐物理打包宏（Build Macros） ---
+# 这些宏告诉系统如何物理生成 GPT 分区表和缝合 BL2/FIP
+
+define Build/mt798x-gpt
+	$(STAGING_DIR_HOST)/bin/ptgen \
+		-g -o $@.gpt \
+		-a 1 -l 1024 \
+		$(if $(findstring sd,$(1)), -s 512) \
+		$(if $(findstring emmc,$(1)), -s 512) \
+		$(foreach part,$(MTK_GPT_PARTS), -p $(part))
+endef
+
+define Build/mt7981-bl2
+	cat $(STAGING_DIR_HOST)/share/u-boot/mt7981-$(1)-preloader.bin >> $@
+endef
+
+define Build/mt7981-bl31-uboot
+	cat $(STAGING_DIR_HOST)/share/u-boot/mt7981-$(1)-bl31-uboot.fip >> $@
+endef
+
+# --- 第二部分：SL-3000 设备物理定义 ---
+
 define Device/sl_3000-emmc
   DEVICE_VENDOR := SL
   DEVICE_MODEL := 3000 eMMC
@@ -19,7 +42,7 @@ define Device/sl_3000-emmc
   ARTIFACT/emmc-preloader.bin := mt7981-bl2 emmc-ddr3
   ARTIFACT/emmc-bl31-uboot.fip := mt7981-bl31-uboot emmc-ddr3
 
-  # 物理合成：factory 镜像缝合逻辑
+  # 物理合成逻辑：严格执行 17k 和 6656k 偏移缝合
   IMAGES := sysupgrade.bin factory.img.gz
   IMAGE/sysupgrade.bin := sysupgrade-tar | append-metadata
   IMAGE/factory.img.gz := mt798x-gpt emmc |\
