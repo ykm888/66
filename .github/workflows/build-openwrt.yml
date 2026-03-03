@@ -1,4 +1,4 @@
-name: SL-3000 1024M 救砖 (物理闭环版·修复工具链顺序)
+name: SL-3000 1024M 救砖 (物理闭环版·修复工具链顺序 + dtc)
 
 on:
   workflow_dispatch:
@@ -22,7 +22,6 @@ jobs:
       run: |
         sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
         sudo -E apt-get -qq update
-        # 使用 OpenWrt 官方推荐的稳定依赖列表
         sudo -E apt-get -qq install build-essential clang flex bison g++ gawk gcc-multilib g++-multilib \
             gettext git libncurses5-dev libssl-dev python3-setuptools rsync swig unzip zlib1g-dev \
             file wget qemu-utils
@@ -50,14 +49,12 @@ jobs:
         make defconfig
         make download -j8
 
-    # ===== 新增：先完整构建工具链，确保 musl 库文件生成 =====
     - name: Build Full Toolchain First
       run: |
         cd $GITHUB_WORKSPACE/openwrt
-        echo "Building toolchain (this may take a while)..."
         make toolchain/compile -j$(nproc) V=s
 
-    - name: Verify Toolchain (检查 musl 动态链接器)
+    - name: Verify Toolchain
       run: |
         cd $GITHUB_WORKSPACE/openwrt
         if [ ! -f staging_dir/toolchain-aarch64_cortex-a53_gcc-13.3.0_musl/lib/ld-musl-aarch64.so.1 ]; then
@@ -66,7 +63,13 @@ jobs:
         fi
         echo "Toolchain verification passed."
 
-    - name: Compile U-Boot First (强制打通隧道)
+    # ===== 新增：构建 host 工具 dtc（解决 ATF 编译报错）=====
+    - name: Build Host Tools (dtc)
+      run: |
+        cd $GITHUB_WORKSPACE/openwrt
+        make tools/device-tree-compiler/compile -j$(nproc)
+
+    - name: Compile U-Boot First
       run: |
         cd $GITHUB_WORKSPACE/openwrt
         make package/boot/uboot-mediatek/compile -j1 V=s
@@ -89,7 +92,7 @@ jobs:
         cd $GITHUB_WORKSPACE/openwrt
         make -j$(nproc) || make -j1 V=s
 
-    - name: Organize Recovery Bundle (严格检查)
+    - name: Organize Recovery Bundle
       if: success()
       run: |
         set -e
@@ -97,7 +100,6 @@ jobs:
         BIN_DIR="$GITHUB_WORKSPACE/openwrt/bin/targets/mediatek/filogic"
         STAGING_BOOT="$GITHUB_WORKSPACE/openwrt/staging_dir/host/share/u-boot"
 
-        # 1. 整机包
         if ls $BIN_DIR/*factory.img.gz 1> /dev/null 2>&1; then
           cp -v $BIN_DIR/*factory.img.gz $GITHUB_WORKSPACE/recovery_bundle/
         else
@@ -105,7 +107,6 @@ jobs:
           exit 1
         fi
 
-        # 2. 独立的救砖组件
         if [ -f "$STAGING_BOOT/mt7981-emmc-ddr3-bl2.bin" ]; then
           cp -v $STAGING_BOOT/mt7981-emmc-ddr3-bl2.bin $GITHUB_WORKSPACE/recovery_bundle/emmc-preloader.bin
         else
@@ -120,7 +121,6 @@ jobs:
           exit 1
         fi
 
-        # 3. GPT 分区表（可选）
         GPT_FILE=$(find $GITHUB_WORKSPACE/openwrt/build_dir/target-*/linux-mediatek_filogic/tmp -name "*gpt.bin" | head -n1)
         if [ -n "$GPT_FILE" ]; then
           cp -v $GPT_FILE $GITHUB_WORKSPACE/recovery_bundle/emmc-gpt.bin
@@ -137,10 +137,11 @@ jobs:
         tag_name: SL3000_FIXED_${{ github.run_id }}
         files: ${{ env.FIRMWARE }}/*
         body: |
-          ## 司洛 SL-3000 1024M 物理闭环构建成功（工具链顺序修复）
+          ## 司洛 SL-3000 1024M 物理闭环构建成功（工具链顺序修复 + dtc）
 
           ### 修复内容
           - ✅ 先完整构建工具链，确保 musl 库文件生成
+          - ✅ 单独构建 dtc host 工具，解决 ATF 编译报错
           - ✅ BL2 来源修正、FIP 合成加入 BL2
           - ✅ 依赖安装采用官方稳定列表
           - ✅ 产物收集严格验证，避免缺件
