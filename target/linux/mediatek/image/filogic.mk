@@ -15,12 +15,15 @@ define Build/mt798x-gpt
 	cat $@.gpt >> $@
 endef
 
+# 物理修复：加入 ls 探测，并修正为常见的 bl2/fip 命名结构
 define Build/mt7981-bl2
-	cat $(STAGING_DIR_HOST)/share/u-boot/mt7981-$(1)-preloader.bin >> $@
+	@echo "--- 物理探测：检查 $(STAGING_DIR_HOST)/share/u-boot/ 目录内容 ---"
+	ls -l $(STAGING_DIR_HOST)/share/u-boot/
+	cat $(STAGING_DIR_HOST)/share/u-boot/mt7981-$(1)-bl2.bin >> $@
 endef
 
 define Build/mt7981-bl31-uboot
-	cat $(STAGING_DIR_HOST)/share/u-boot/mt7981-$(1)-bl31-uboot.fip >> $@
+	cat $(STAGING_DIR_HOST)/share/u-boot/mt7981-$(1)-fip.bin >> $@
 endef
 
 # 设备定义 (像素级原文照抄，锁死 1024M 与 64M 容器)
