@@ -1,4 +1,4 @@
-name: SL-3000 1024M 救砖 (物理闭环版·修复工具链顺序 + dtc)
+name: SL-3000 1024M 救砖 (物理闭环版·修复工具链顺序 + dtc + 自定义 config)
 
 on:
   workflow_dispatch:
@@ -37,6 +37,13 @@ jobs:
         ./scripts/feeds update -a
         ./scripts/feeds install -a
 
+    # ===== 新增：应用自定义配置 =====
+    - name: Apply Custom Config
+      run: |
+        cd $GITHUB_WORKSPACE/openwrt
+        cp $GITHUB_WORKSPACE/custom-config/sl3000.config .config
+        make defconfig
+
     - name: Execute Physical Patch (修复版脚本)
       run: |
         cd $GITHUB_WORKSPACE/openwrt
@@ -63,7 +70,6 @@ jobs:
         fi
         echo "Toolchain verification passed."
 
-    # ===== 新增：构建 host 工具 dtc（解决 ATF 编译报错）=====
     - name: Build Host Tools (dtc)
       run: |
         cd $GITHUB_WORKSPACE/openwrt
@@ -137,9 +143,10 @@ jobs:
         tag_name: SL3000_FIXED_${{ github.run_id }}
         files: ${{ env.FIRMWARE }}/*
         body: |
-          ## 司洛 SL-3000 1024M 物理闭环构建成功（工具链顺序修复 + dtc）
+          ## 司洛 SL-3000 1024M 物理闭环构建成功（工具链顺序修复 + dtc + 自定义 config）
 
           ### 修复内容
+          - ✅ 应用您提供的 `custom-config/sl3000.config` 作为基础配置
           - ✅ 先完整构建工具链，确保 musl 库文件生成
           - ✅ 单独构建 dtc host 工具，解决 ATF 编译报错
           - ✅ BL2 来源修正、FIP 合成加入 BL2
