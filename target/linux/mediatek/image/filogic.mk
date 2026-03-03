@@ -1,5 +1,5 @@
-# GPT 分区物理定义
-MTK_GPT_PARTS := preloader:64k:256k;bl31:256k:512k;u-boot:512k:2048k;u-boot-env:2048k:256k;factory:2304k:256k;production:2560k:512k;recovery:3072k:20480k;userdata:23552k:
+# 物理修复：分号改为标准空格，确保 foreach 能够物理拆分为多个 -p 参数
+MTK_GPT_PARTS := preloader:64k:256k bl31:256k:512k u-boot:512k:2048k u-boot-env:2048k:256k factory:2304k:256k production:2560k:512k recovery:3072k:20480k userdata:23552k:
 
 # 修复后的 GPT 构建宏：先创建基础文件
 define Build/mt798x-gpt
@@ -10,7 +10,7 @@ define Build/mt798x-gpt
 		-a 1 -l 1024 \
 		$(if $(findstring sd,$(1)), -s 512) \
 		$(if $(findstring emmc,$(1)), -s 512) \
-		$(foreach part,$(MTK_GPT_PARTS), -p '$(part)')
+		$(foreach part,$(MTK_GPT_PARTS), -p $(part))
 	cat $@.gpt >> $@
 endef
 
@@ -22,7 +22,7 @@ define Build/mt7981-bl31-uboot
 	cat $(STAGING_DIR_HOST)/share/u-boot/mt7981-$(1)-bl31-uboot.fip >> $@
 endef
 
-# 设备定义
+# 设备定义 (像素级原文照抄，确保 1024M 物理闭环)
 define Device/sl_3000-emmc
   DEVICE_VENDOR := SL
   DEVICE_MODEL := 3000 eMMC
@@ -44,7 +44,7 @@ define Device/sl_3000-emmc
 
   IMAGES := sysupgrade.bin factory.img.gz
   IMAGE/sysupgrade.bin := sysupgrade-tar | append-metadata
-  # 物理缝合逻辑：增加底图初始化
+  # 物理缝合逻辑：严格遵循 17k/6656k/64M 偏移量
   IMAGE/factory.img.gz := mt798x-gpt emmc |\
 	pad-to 17k | mt7981-bl2 emmc-ddr3 |\
 	pad-to 6656k | mt7981-bl31-uboot emmc-ddr3 |\
