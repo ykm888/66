@@ -7,7 +7,7 @@
 #   - BL2 来源更正为 STAGING_DIR_IMAGE（由 ATF 包提供）
 #   - FIP 合成加入 BL2（根据 MT7981 平台要求）
 #   - BL31 文件名使用通配符增强兼容性
-#   - 分区表替换增加行限定，避免误改
+#   - 增强 U-Boot 源码重定向的可靠性
 
 # 1. 物理清淤：粉碎旧缓存与冲突
 rm -rf dl/u-boot-* 2>/dev/null || true
@@ -18,9 +18,14 @@ rm -rf staging_dir/host/share/u-boot 2>/dev/null || true
 UBOOT_MK="package/boot/uboot-mediatek/Makefile"
 if [ -f "$UBOOT_MK" ]; then
     echo "物理注入：重定向源码仓库..."
+    # 强制使用 git 协议，并设置分支
     sed -i "s|PKG_SOURCE_URL:=.*|PKG_SOURCE_URL:=https://github.com/ykm888/66.git|g" "$UBOOT_MK"
     sed -i "s|PKG_SOURCE_VERSION:=.*|PKG_SOURCE_VERSION:=sl3000-uboot-base|g" "$UBOOT_MK"
     sed -i "s|PKG_MIRROR_HASH:=.*|PKG_MIRROR_HASH:=skip|g" "$UBOOT_MK"
+    # 确保使用 git 协议
+    if ! grep -q "PKG_SOURCE_PROTO:=git" "$UBOOT_MK"; then
+        sed -i '/PKG_SOURCE_URL:=/a PKG_SOURCE_PROTO:=git' "$UBOOT_MK"
+    fi
     sed -i "s/UBOOT_TARGETS :=.*/UBOOT_TARGETS := mt7981_sl_3000-emmc/g" "$UBOOT_MK"
 
     # 3. 【手术刀操作】：切除旧逻辑
@@ -71,28 +76,14 @@ fi
 # 5. 补充必要配置选项（不覆盖用户已有配置）
 echo "物理注入：补充必要配置选项..."
 [ -f .config ] || touch .config
-# 确保设备选中（如果未在自定义配置中设置，则追加）
 if ! grep -q "CONFIG_TARGET_mediatek_filogic_DEVICE_sl_3000-emmc=y" .config; then
     echo "CONFIG_TARGET_mediatek_filogic_DEVICE_sl_3000-emmc=y" >> .config
 fi
-# 确保 DRAM 配置正确
 if ! grep -q "CONFIG_NR_DRAM_BANKS=1" .config; then
     echo "CONFIG_NR_DRAM_BANKS=1" >> .config
 fi
-# 确保设备包被编译（可选）
 if ! grep -q "CONFIG_TARGET_DEVICE_mediatek_filogic_DEVICE_sl_3000-emmc=y" .config; then
     echo "CONFIG_TARGET_DEVICE_mediatek_filogic_DEVICE_sl_3000-emmc=y" >> .config
-fi
-
-# 6. GPT 格式强制修正（限定设备块，避免误伤）
-FILOGIC_MK="target/linux/mediatek/image/filogic.mk"
-if [ -f "$FILOGIC_MK" ]; then
-    echo "物理检查：强制修正 GPT 分区表（仅限 sl-3000-emmc 条目）..."
-    cp "$FILOGIC_MK" "$FILOGIC_MK.bak"
-    # 定位到设备定义开始行，然后只替换该设备块内的内容
-    sed -i '/^define Device\/sl-3000-emmc/,/^endef/ s/preloader:64k:256k/256k@64k:preloader/g' "$FILOGIC_MK"
-    sed -i '/^define Device\/sl-3000-emmc/,/^endef/ s/bl31:256k:512k/512k@256k:bl31/g' "$FILOGIC_MK"
-    sed -i '/^define Device\/sl-3000-emmc/,/^endef/ s/u-boot:512k:2048k/2048k@512k:u-boot/g' "$FILOGIC_MK"
 fi
 
 echo "补丁脚本执行完毕，缺陷已修复。"
