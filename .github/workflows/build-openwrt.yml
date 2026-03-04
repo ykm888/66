@@ -14,6 +14,8 @@ env:
   MY_REPO: ykm888/66
   FRAMEWORK_BRANCH: openwrt-24.10-6.6
   TZ: Asia/Shanghai
+  CONFIG_FILE: custom-config/sl3000.config
+  DIY_P2_SH: scripts/diy-part2.sh
 
 jobs:
   build:
@@ -41,7 +43,7 @@ jobs:
       run: |
         git clone --depth 1 https://github.com/${{ env.MY_REPO }}.git -b ${{ env.FRAMEWORK_BRANCH }} $GITHUB_WORKSPACE/openwrt
 
-    - name: 初始化 OpenWrt Feeds
+    - name: Update/Install feeds
       run: |
         cd $GITHUB_WORKSPACE/openwrt
         ./scripts/feeds update -a
@@ -50,14 +52,14 @@ jobs:
     - name: 应用定制配置
       run: |
         cd $GITHUB_WORKSPACE/openwrt
-        cp $GITHUB_WORKSPACE/custom-config/sl3000.config .config
+        cp $GITHUB_WORKSPACE/${{ env.CONFIG_FILE }} .config
         make defconfig
 
     - name: 执行本地集成补丁脚本
       run: |
         cd $GITHUB_WORKSPACE/openwrt
-        chmod +x $GITHUB_WORKSPACE/scripts/sl3000-patch.sh
-        $GITHUB_WORKSPACE/scripts/sl3000-patch.sh
+        chmod +x $GITHUB_WORKSPACE/${{ env.DIY_P2_SH }}
+        $GITHUB_WORKSPACE/${{ env.DIY_P2_SH }}
 
     - name: 预编译工具链
       run: |
