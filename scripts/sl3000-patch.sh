@@ -11,17 +11,18 @@ echo "=== 删除官方补丁目录，确保无残留 ==="
 rm -rf package/boot/uboot-mediatek/patches
 mkdir -p package/boot/uboot-mediatek/patches
 
-echo "=== 克隆自定义 U-Boot 源码（路径修正）==="
+echo "=== 克隆自定义 U-Boot 源码（适配你的仓库结构）==="
 rm -rf /tmp/uboot-src
 git clone --depth 1 -b sl3000-uboot-base --filter=blob:none https://github.com/ykm888/66.git /tmp/uboot-src
 cd /tmp/uboot-src
 git sparse-checkout init --cone
-git sparse-checkout set u-boot/configs  # 强制检出配置文件目录
-git sparse-checkout set u-boot/include  # 检出必要头文件
-git sparse-checkout set u-boot/arch     # 检出架构相关文件
+git sparse-checkout set configs  # 检出根目录下的 configs
+git sparse-checkout set include  # 检出根目录下的 include
+git sparse-checkout set arch     # 检出根目录下的 arch
+git sparse-checkout set package  # 检出根目录下的 package
 
 echo "=== 验证关键文件 ==="
-if [ ! -f /tmp/uboot-src/u-boot/configs/mt7981_emmc_defconfig ]; then
+if [ ! -f /tmp/uboot-src/configs/mt7981_emmc_defconfig ]; then
     echo "错误：克隆后未找到 mt7981_emmc_defconfig！"
     exit 1
 fi
@@ -29,7 +30,7 @@ echo "关键文件存在，继续。"
 
 echo "=== 打包源码为 uboot-custom.tar.zst 并放入 dl/ 目录 ==="
 mkdir -p dl
-cd /tmp/uboot-src/u-boot  # 仅打包 u-boot 目录
+cd /tmp/uboot-src  # 打包整个检出的仓库
 tar -cf - . | zstd -19 -o $GITHUB_WORKSPACE/openwrt/dl/uboot-custom.tar.zst
 rm -rf /tmp/uboot-src
 echo "打包完成：$(ls -lh $GITHUB_WORKSPACE/openwrt/dl/uboot-custom.tar.zst)"
