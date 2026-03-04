@@ -11,12 +11,15 @@ echo "=== 删除官方补丁目录，确保无残留 ==="
 rm -rf package/boot/uboot-mediatek/patches
 mkdir -p package/boot/uboot-mediatek/patches
 
-echo "=== 克隆自定义 U-Boot 源码到临时目录 ==="
+echo "=== 克隆自定义 U-Boot 源码（稀疏检出优化）==="
 rm -rf /tmp/uboot-src
-git clone --depth 1 -b sl3000-uboot-base https://github.com/ykm888/66.git /tmp/uboot-src
+git clone --depth 1 -b sl3000-uboot-base --filter=blob:none https://github.com/ykm888/66.git /tmp/uboot-src
+cd /tmp/uboot-src
+git sparse-checkout init --cone
+git sparse-checkout set u-boot  # 假设 U-Boot 源码位于仓库的 u-boot 目录
 
 echo "=== 验证关键文件 ==="
-if [ ! -f /tmp/uboot-src/configs/mt7981_emmc_defconfig ]; then
+if [ ! -f /tmp/uboot-src/u-boot/configs/mt7981_emmc_defconfig ]; then
     echo "错误：克隆后未找到 mt7981_emmc_defconfig！"
     exit 1
 fi
@@ -24,9 +27,8 @@ echo "关键文件存在，继续。"
 
 echo "=== 打包源码为 uboot-custom.tar.zst 并放入 dl/ 目录 ==="
 mkdir -p dl
-cd /tmp
-# 打包目录本身，使用 zstd 压缩（级别 19 兼顾速度和体积）
-tar -cf - uboot-src | zstd -19 -o $GITHUB_WORKSPACE/openwrt/dl/uboot-custom.tar.zst
+cd /tmp/uboot-src/u-boot  # 仅打包 u-boot 目录
+tar -cf - . | zstd -19 -o $GITHUB_WORKSPACE/openwrt/dl/uboot-custom.tar.zst
 rm -rf /tmp/uboot-src
 echo "打包完成：$(ls -lh $GITHUB_WORKSPACE/openwrt/dl/uboot-custom.tar.zst)"
 
