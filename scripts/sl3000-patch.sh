@@ -8,6 +8,7 @@
 #   - FIP 合成加入 BL2（根据 MT7981 平台要求）
 #   - BL31 文件名使用通配符增强兼容性
 #   - 增强 U-Boot 源码重定向的可靠性
+#   - 增加调试输出，显示修改后的 Makefile 内容
 
 # 1. 物理清淤：粉碎旧缓存与冲突
 rm -rf dl/u-boot-* 2>/dev/null || true
@@ -18,6 +19,8 @@ rm -rf staging_dir/host/share/u-boot 2>/dev/null || true
 UBOOT_MK="package/boot/uboot-mediatek/Makefile"
 if [ -f "$UBOOT_MK" ]; then
     echo "物理注入：重定向源码仓库..."
+    # 备份原文件
+    cp "$UBOOT_MK" "$UBOOT_MK.bak"
     # 强制使用 git 协议，并设置分支
     sed -i "s|PKG_SOURCE_URL:=.*|PKG_SOURCE_URL:=https://github.com/ykm888/66.git|g" "$UBOOT_MK"
     sed -i "s|PKG_SOURCE_VERSION:=.*|PKG_SOURCE_VERSION:=sl3000-uboot-base|g" "$UBOOT_MK"
@@ -27,6 +30,11 @@ if [ -f "$UBOOT_MK" ]; then
         sed -i '/PKG_SOURCE_URL:=/a PKG_SOURCE_PROTO:=git' "$UBOOT_MK"
     fi
     sed -i "s/UBOOT_TARGETS :=.*/UBOOT_TARGETS := mt7981_sl_3000-emmc/g" "$UBOOT_MK"
+
+    # 输出修改后的 Makefile 以验证
+    echo "===== Modified U-Boot Makefile ====="
+    cat "$UBOOT_MK"
+    echo "===================================="
 
     # 3. 【手术刀操作】：切除旧逻辑
     START_LINE=$(grep -n "define Build/fip-image" "$UBOOT_MK" | cut -d: -f1)
