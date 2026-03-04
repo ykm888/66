@@ -1,15 +1,13 @@
 #
 # SPDX-License-Identifier: GPL-2.0-only
-# 物理审计：本地集成版，使用 file://src 源码，禁用补丁
+# 物理审计：本地集成版，使用预打包的 tarball，禁用补丁
 #
 
 include $(TOPDIR)/rules.mk
 include $(INCLUDE_DIR)/kernel.mk
 
-# 使用本地源码（由补丁脚本克隆到 src 目录）
-PKG_SOURCE_URL:=file://src
-PKG_SOURCE_PROTO:=file
-PKG_SOURCE:=uboot-custom          # 新增：解决 Download/default 缺少 FILE 字段
+# 使用预打包的 tarball（由补丁脚本创建并放入 dl/）
+PKG_SOURCE:=uboot-custom.tar.zst
 PKG_VERSION:=custom
 PKG_HASH:=skip
 
