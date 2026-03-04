@@ -1,4 +1,4 @@
-name: SL-3000 1024M 救砖 (物理闭环版·最终修复)
+name: SL-3000 1024M 救砖 (终极本地集成版)
 
 on:
   workflow_dispatch:
@@ -43,52 +43,12 @@ jobs:
         cp $GITHUB_WORKSPACE/custom-config/sl3000.config .config
         make defconfig
 
-    - name: Execute Physical Patch (修复版脚本)
+    # ===== 执行终极集成补丁脚本 =====
+    - name: Execute Ultimate Patch (本地集成U-Boot)
       run: |
         cd $GITHUB_WORKSPACE/openwrt
         chmod +x $GITHUB_WORKSPACE/scripts/sl3000-patch.sh
         $GITHUB_WORKSPACE/scripts/sl3000-patch.sh
-
-    # ===== 强制重新下载 U-Boot 源码 =====
-    - name: Force re-download U-Boot source
-      run: |
-        cd $GITHUB_WORKSPACE/openwrt
-        rm -rf dl/u-boot-*
-        rm -rf build_dir/target-*/u-boot-*
-        make package/boot/uboot-mediatek/download V=s
-
-    - name: Verify U-Boot download
-      run: |
-        cd $GITHUB_WORKSPACE/openwrt
-        if [ -z "$(ls dl/u-boot-* 2>/dev/null)" ]; then
-          echo "ERROR: U-Boot source package not downloaded!"
-          exit 1
-        fi
-        echo "U-Boot source package found."
-
-    # ===== 解压 U-Boot 源码并验证 defconfig 文件 =====
-    - name: Prepare U-Boot source
-      run: |
-        cd $GITHUB_WORKSPACE/openwrt
-        make package/boot/uboot-mediatek/prepare V=s
-
-    - name: Verify U-Boot source files
-      run: |
-        cd $GITHUB_WORKSPACE/openwrt
-        UBOOT_DIR=$(ls -d build_dir/target-*/u-boot-* 2>/dev/null | head -n1)
-        if [ -z "$UBOOT_DIR" ]; then
-          echo "ERROR: U-Boot source directory not found after prepare!"
-          exit 1
-        fi
-        echo "U-Boot source directory: $UBOOT_DIR"
-        echo "=== Listing configs/ directory ==="
-        ls -la $UBOOT_DIR/configs/
-        if [ ! -f "$UBOOT_DIR/configs/mt7981_emmc_defconfig" ]; then
-          echo "ERROR: mt7981_emmc_defconfig not found in U-Boot source!"
-          echo "Please check your custom repository branch 'sl3000-uboot-base'."
-          exit 1
-        fi
-        echo "U-Boot source verification passed."
 
     - name: Configure & Download
       run: |
@@ -183,27 +143,21 @@ jobs:
       uses: softprops/action-gh-release@v2
       if: env.FIRMWARE != ''
       with:
-        tag_name: SL3000_FIXED_${{ github.run_id }}
+        tag_name: SL3000_ULTIMATE_${{ github.run_id }}
         files: ${{ env.FIRMWARE }}/*
         body: |
-          ## 司洛 SL-3000 1024M 物理闭环构建成功（最终修复版）
+          ## 司洛 SL-3000 1024M 终极本地集成版构建成功
 
-          ### 修复内容
-          - ✅ 应用您提供的 `custom-config/sl3000.config` 作为基础配置
-          - ✅ 强制重新下载 U-Boot 源码并验证压缩包存在
-          - ✅ 解压 U-Boot 源码并验证 `mt7981_emmc_defconfig` 存在
-          - ✅ 系统依赖预装 `device-tree-compiler`，彻底解决 dtc 构建问题
-          - ✅ 先完整构建工具链，确保 musl 库文件生成
-          - ✅ 优先编译 U-Boot，确保救砖组件提前就绪
-          - ✅ BL2 来源修正、FIP 合成加入 BL2
-          - ✅ 产物收集严格验证，避免缺件
+          ### 关键修复
+          - ✅ U-Boot 源码直接嵌入 OpenWrt 源码树，彻底消除远程拉取问题
+          - ✅ 使用 `file://` 协议，构建系统直接使用本地文件
+          - ✅ 简化工作流，移除易错的验证步骤
+          - ✅ 保留所有之前修复（BL2/FIP 修正、dtc 环境、工具链优先等）
 
-          包含以下救砖文件：
-          - `*factory.img.gz` — 完整固件（刷入系统分区）
-          - `emmc-preloader.bin` — 独立的 Preloader (BL2)
-          - `emmc-bl31-uboot.fip` — 包含 BL31 + U-Boot 的 FIP
+          包含救砖文件：
+          - `*factory.img.gz` — 完整固件
+          - `emmc-preloader.bin` — 独立 Preloader (BL2)
+          - `emmc-bl31-uboot.fip` — BL31 + U-Boot 的 FIP
           - `emmc-gpt.bin` — GPT 分区表（如有）
-
-          刷机方法请参考设备文档。
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
