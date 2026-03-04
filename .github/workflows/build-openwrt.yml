@@ -33,7 +33,6 @@ jobs:
     env:
       TARGET: mediatek/filogic
       DEVICE: sl3000
-      OUTPUT_DIR: ./bin/targets/${{ env.TARGET }}  # 正确格式：双大括号包裹
     steps:
       - name: 拉取代码仓库
         uses: actions/checkout@v4
@@ -46,11 +45,11 @@ jobs:
           sudo apt install -y build-essential libncurses5-dev libssl-dev \
             python3-distutils unzip wget rsync device-tree-compiler
 
-      - name: 加载配置并生成Makefile
+      - name: 初始化 feeds 并生成默认配置
         run: |
           ./scripts/feeds update -a
           ./scripts/feeds install -a
-          make defconfig ${{ env.TARGET }}_${{ env.DEVICE }}_config  # 正确格式
+          make defconfig
 
       - name: 执行构建脚本
         run: |
@@ -61,20 +60,20 @@ jobs:
 
       - name: 验证构建产物
         run: |
-          if [ ! -f "${{ env.OUTPUT_DIR }}/openwrt-${{ env.TARGET }}-${{ env.DEVICE }}-firmware.bin" ]; then
+          OUTPUT_DIR="bin/targets/${{ env.TARGET }}"
+          if [ ! -f "$OUTPUT_DIR/openwrt-${{ env.TARGET }}-${{ env.DEVICE }}-firmware.bin" ]; then
             echo "ERROR: 构建产物缺失"
             exit 1
           fi
-          sha256sum -c ${{ env.OUTPUT_DIR }}/sha256sums || exit 1
+          sha256sum -c "$OUTPUT_DIR/sha256sums" || exit 1
           echo "构建产物验证通过"
 
       - name: 上传构建结果
         uses: actions/upload-artifact@v3
         with:
           name: sl3000-firmware
-          path: ${{ env.OUTPUT_DIR }}/*.bin
+          path: bin/targets/${{ env.TARGET }}/*.bin
           retention-days: 7
-
 
   test-deployment:
     needs: build-sl3000
@@ -87,8 +86,10 @@ jobs:
 
       - name: 模拟设备部署测试
         run: |
-          if ! file openwrt-*.bin | grep -q "data"; then
-            echo "ERROR: 固件格式异常"
-            exit 1
-          fi
+          for f in openwrt-*.bin; do
+            if ! file "$f" | grep -q "data"; then
+              echo "ERROR: 固件格式异常: $f"
+              exit 1
+            fi
+          done
           echo "部署测试通过"
