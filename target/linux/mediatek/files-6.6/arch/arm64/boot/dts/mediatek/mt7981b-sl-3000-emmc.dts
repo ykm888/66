@@ -24,7 +24,17 @@
 
 	memory@40000000 {
 		device_type = "memory";
-		reg = <0 0x40000000 0 0x40000000>;
+		reg = <0 0x40000000 0 0x40000000>;   /* 1024 MB */
+	};
+
+	/* 添加 3.3V 固定稳压器（eMMC 供电） */
+	reg_3p3v: regulator-3p3v {
+		compatible = "regulator-fixed";
+		regulator-name = "3p3v";
+		regulator-min-microvolt = <3300000>;
+		regulator-max-microvolt = <3300000>;
+		regulator-always-on;
+		regulator-boot-on;
 	};
 
 	gpio-keys {
@@ -56,13 +66,21 @@
 		compatible = "mediatek,eth-mac";
 		reg = <0>;
 		phy-mode = "2500base-x";
-		fixed-link { speed = <2500>; full-duplex; pause; };
+		fixed-link {
+			speed = <2500>;
+			full-duplex;
+			pause;
+		};
 	};
 	gmac1: mac@1 {
 		compatible = "mediatek,eth-mac";
 		reg = <1>;
 		phy-mode = "2500base-x";
-		fixed-link { speed = <2500>; full-duplex; pause; };
+		fixed-link {
+			speed = <2500>;
+			full-duplex;
+			pause;
+		};
 	};
 	mdio: mdio-bus {
 		#address-cells = <1>;
@@ -70,7 +88,8 @@
 		switch@0 {
 			compatible = "mediatek,mt7531";
 			reg = <31>;
-			reset-gpios = <&pio 39 0>;
+			/* 修正复位引脚极性（假设低电平有效） */
+			reset-gpios = <&pio 39 GPIO_ACTIVE_LOW>;
 			ports {
 				#address-cells = <1>;
 				#size-cells = <0>;
@@ -83,7 +102,11 @@
 					label = "cpu";
 					ethernet = <&gmac0>;
 					phy-mode = "2500base-x";
-					fixed-link { speed = <2500>; full-duplex; pause; };
+					fixed-link {
+						speed = <2500>;
+						full-duplex;
+						pause;
+					};
 				};
 			};
 		};
@@ -98,45 +121,42 @@
 	pinctrl-names = "default", "state_uhs";
 	pinctrl-0 = <&mmc0_pins_default>;
 	pinctrl-1 = <&mmc0_pins_uhs>;
-	vmmc-supply = <&reg_3p3v>;
+	vmmc-supply = <&reg_3p3v>;          /* 使用前面定义的稳压器 */
 	status = "okay";
-
-	card@0 {
-		compatible = "mmc-card";
-		reg = <0>;
-		block {
-			compatible = "block-device";
-			partitions {
-				block-partition-factory {
-					partname = "factory";
-					nvmem-layout {
-						compatible = "fixed-layout";
-						#address-cells = <1>;
-						#size-cells = <1>;
-						eeprom_factory_0: eeprom@0 { reg = <0x0 0x1000>; };
-						macaddr_factory_4: macaddr@4 { compatible = "mac-base"; reg = <0x4 0x6>; };
-					};
-				};
-				block-partition-rootfs {
-					partname = "rootfs";
-				};
-			};
-		};
-	};
+	/* eMMC 分区由 GPT 管理，不在设备树中描述 */
 };
 
 &pio {
-	mmc0_pins_default: mmc0-pins-default { mux { function = "flash"; groups = "emmc_51"; }; };
-	mmc0_pins_uhs: mmc0-pins-uhs { mux { function = "flash"; groups = "emmc_51"; }; };
+	mmc0_pins_default: mmc0-pins-default {
+		mux {
+			function = "flash";
+			groups = "emmc_51";
+		};
+	};
+	mmc0_pins_uhs: mmc0-pins-uhs {
+		mux {
+			function = "flash";
+			groups = "emmc_51";
+		};
+	};
 };
 
 &uart0 { status = "okay"; };
 &watchdog { status = "okay"; };
 &usb_phy { status = "okay"; };
 &xhci { status = "okay"; };
+
 &wifi {
-	nvmem-cells = <&eeprom_factory_0>;
-	nvmem-cell-names = "eeprom";
+	/* 校准数据应由 bootloader 从 eMMC 的 factory 分区读取后填充
+	   nvmem-cells = <&eeprom_factory_0>;
+	   nvmem-cell-names = "eeprom";
+	*/
 	status = "okay";
-	band@1 { reg = <1>; nvmem-cells = <&macaddr_factory_4 1>; nvmem-cell-names = "mac-address"; };
+	band@1 {
+		reg = <1>;
+		/* MAC 地址也应由 bootloader 填充
+		   nvmem-cells = <&macaddr_factory_4 1>;
+		   nvmem-cell-names = "mac-address";
+		*/
+	};
 };
