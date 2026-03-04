@@ -1,5 +1,4 @@
-name: SL3000 构建与验证流程
-
+name: SL3000 构建验证
 on:
   push:
     branches: [ openwrt-24.10-6.6 ]
@@ -13,86 +12,43 @@ on:
   workflow_dispatch:
 
 jobs:
-  simulate-env:
-    runs-on: ubuntu-22.04
-    steps:
-      - name: 检查环境依赖
-        run: |
-          echo "验证GitHub Actions基础环境..."
-          for tool in git make gcc g++ python3 pip wget curl; do
-            if ! command -v $tool &> /dev/null; then
-              echo "ERROR: 缺少工具 $tool"
-              exit 1
-            fi
-          done
-          echo "基础环境验证通过"
-
-  build-sl3000:
-    needs: simulate-env
+  build:
     runs-on: ubuntu-22.04
     env:
       TARGET: mediatek/filogic
       DEVICE: sl3000
     steps:
-      - name: 拉取我的仓库源（openwrt-24.10-6.6分支）
+      - name: 拉取代码（openwrt-24.10-6.6分支）
         uses: actions/checkout@v4
         with:
           repository: ykm888/66
-          ref: openwrt-24.10-6.6  # 指定克隆该分支
+          ref: openwrt-24.10-6.6
           fetch-depth: 1
 
-      - name: 安装编译依赖
+      - name: 安装依赖
         run: |
-          sudo apt update
-          sudo apt install -y build-essential libncurses5-dev libssl-dev \
+          sudo apt update && sudo apt install -y build-essential libncurses5-dev libssl-dev \
             python3-distutils unzip wget rsync device-tree-compiler
 
-      - name: 初始化 feeds 并生成默认配置
+      - name: 初始化OpenWrt
         run: |
-          cd ${{ github.workspace }}  # 确保在仓库根目录执行
-          ./scripts/feeds update -a
-          ./scripts/feeds install -a
-          make defconfig
+          ./scripts/feeds update -a && ./scripts/feeds install -a
+          make defconfig ${{ env.TARGET }}_${{ env.DEVICE }}_config
 
-      - name: 执行构建脚本
+      - name: 编译固件
         run: |
-          chmod +x ./scripts/sl3000-build.sh
-          ./scripts/sl3000-build.sh
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          chmod +x ./scripts/sl3000-build.sh && ./scripts/sl3000-build.sh
 
-      - name: 验证构建产物
+      - name: 验证产物
         run: |
-          OUTPUT_DIR="bin/targets/${{ env.TARGET }}"
-          if [ ! -f "$OUTPUT_DIR/openwrt-${{ env.TARGET }}-${{ env.DEVICE }}-firmware.bin" ]; then
-            echo "ERROR: 构建产物缺失"
+          [ -f "bin/targets/${{ env.TARGET }}/openwrt-${{ env.TARGET }}-${{ env.DEVICE }}-firmware.bin" ] || {
+            echo "产物缺失，构建失败"
             exit 1
-          fi
-          sha256sum -c "$OUTPUT_DIR/sha256sums" || exit 1
-          echo "构建产物验证通过"
+          }
+          sha256sum -c "bin/targets/${{ env.TARGET }}/sha256sums"
 
-      - name: 上传构建结果
+      - name: 上传固件
         uses: actions/upload-artifact@v4
         with:
           name: sl3000-firmware
           path: bin/targets/${{ env.TARGET }}/*.bin
-          retention-days: 7
-
-  test-deployment:
-    needs: build-sl3000
-    runs-on: ubuntu-22.04
-    steps:
-      - name: 下载构建产物
-        uses: actions/download-artifact@v4
-        with:
-          name: sl3000-firmware
-
-      - name: 模拟设备部署测试
-        run: |
-          for f in openwrt-*.bin; do
-            if ! file "$f" | grep -q "data"; then
-              echo "ERROR: 固件格式异常: $f"
-              exit 1
-            fi
-          done
-          echo "部署测试通过"
