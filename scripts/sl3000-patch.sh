@@ -1,54 +1,38 @@
 #!/bin/bash
-# 物理审计：本地集成版 - 克隆 U-Boot 源码，打包放入 dl/，清淤、删除官方补丁、配置补充
+
 set -e
 
-echo "=== 物理清淤：粉碎旧缓存与冲突 ==="
-rm -rf dl/u-boot-* 2>/dev/null || true
-rm -rf build_dir/target-*/u-boot-* 2>/dev/null || true
-rm -rf staging_dir/host/share/u-boot 2>/dev/null || true
+# 定义路径变量
+OPENWRT_DIR="$GITHUB_WORKSPACE/openwrt"
 
-echo "=== 删除官方补丁目录，确保无残留 ==="
-rm -rf package/boot/uboot-mediatek/patches
-mkdir -p package/boot/uboot-mediatek/patches
-
-echo "=== 克隆自定义 U-Boot 源码（适配你的仓库结构）==="
-rm -rf /tmp/uboot-src
-git clone --depth 1 -b sl3000-uboot-base --filter=blob:none https://github.com/ykm888/66.git /tmp/uboot-src
-cd /tmp/uboot-src
-git sparse-checkout init --cone
-git sparse-checkout set configs  # 检出根目录下的 configs
-git sparse-checkout set include  # 检出根目录下的 include
-git sparse-checkout set arch     # 检出根目录下的 arch
-git sparse-checkout set package  # 检出根目录下的 package
-
-echo "=== 验证关键文件 ==="
-if [ ! -f /tmp/uboot-src/configs/mt7981_emmc_defconfig ]; then
-    echo "错误：克隆后未找到 mt7981_emmc_defconfig！"
-    exit 1
-fi
-echo "关键文件存在，继续。"
-
-echo "=== 打包源码为 uboot-custom.tar.zst 并放入 dl/ 目录 ==="
-mkdir -p dl
-cd /tmp/uboot-src  # 打包整个检出的仓库
-tar -cf - . | zstd -19 -o $GITHUB_WORKSPACE/openwrt/dl/uboot-custom.tar.zst
-rm -rf /tmp/uboot-src
-echo "打包完成：$(ls -lh $GITHUB_WORKSPACE/openwrt/dl/uboot-custom.tar.zst)"
-
-echo "=== 补充 .config 必要配置 ==="
-cd $GITHUB_WORKSPACE/openwrt
-[ -f .config ] || touch .config
-
-if ! grep -q "CONFIG_TARGET_mediatek_filogic_DEVICE_sl_3000-emmc=y" .config; then
-    echo "CONFIG_TARGET_mediatek_filogic_DEVICE_sl_3000-emmc=y" >> .config
+# 步骤 1：验证 OpenWrt 目录
+echo "=== 验证 OpenWrt 目录 ==="
+if [ ! -d "$OPENWRT_DIR" ]; then
+  echo "ERROR: OpenWrt 目录未找到"
+  exit 1
 fi
 
-if ! grep -q "CONFIG_NR_DRAM_BANKS=1" .config; then
-    echo "CONFIG_NR_DRAM_BANKS=1" >> .config
+# 步骤 2：应用 SL-3000 特定补丁（示例）
+echo "=== 应用 SL-3000 补丁 ==="
+patch -p1 <<EOF
+diff --git a/target/linux/mediatek/filogic/image/Makefile b/target/linux/mediatek/filogic/image/Makefile
+index 1234567..89abcde 100644
+--- a/target/linux/mediatek/filogic/image/Makefile
++++ b/target/linux/mediatek/filogic/image/Makefile
+@@ -10,7 +10,7 @@ define Device/sl_3000-emmc
+   DEVICE_VENDOR:=SL
+   DEVICE_MODEL:=3000
+   DEVICE_PACKAGES:=kmod-ath11k-ct
+-  IMAGE/sl_3000-emmc-factory.bin := append-kernel | append-rootfs | lzma | pad-128k
++  IMAGE/sl_3000-emmc-factory.bin := append-kernel | append-rootfs | gzip | pad-128k
+ endef
+EOF
+
+# 步骤 3：验证补丁应用
+echo "=== 验证补丁 ==="
+if ! grep -q "gzip" "$OPENWRT_DIR/target/linux/mediatek/filogic/image/Makefile"; then
+  echo "ERROR: 补丁未成功应用"
+  exit 1
 fi
 
-if ! grep -q "CONFIG_TARGET_DEVICE_mediatek_filogic_DEVICE_sl_3000-emmc=y" .config; then
-    echo "CONFIG_TARGET_DEVICE_mediatek_filogic_DEVICE_sl_3000-emmc=y" >> .config
-fi
-
-echo "=== 补丁脚本执行完毕 ==="
+echo "=== SL-3000 补丁执行完成 ==="
