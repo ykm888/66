@@ -11,12 +11,14 @@ echo "=== 删除官方补丁目录，确保无残留 ==="
 rm -rf package/boot/uboot-mediatek/patches
 mkdir -p package/boot/uboot-mediatek/patches
 
-echo "=== 克隆自定义 U-Boot 源码（稀疏检出优化）==="
+echo "=== 克隆自定义 U-Boot 源码（路径修正）==="
 rm -rf /tmp/uboot-src
 git clone --depth 1 -b sl3000-uboot-base --filter=blob:none https://github.com/ykm888/66.git /tmp/uboot-src
 cd /tmp/uboot-src
 git sparse-checkout init --cone
-git sparse-checkout set u-boot  # 假设 U-Boot 源码位于仓库的 u-boot 目录
+git sparse-checkout set u-boot/configs  # 强制检出配置文件目录
+git sparse-checkout set u-boot/include  # 检出必要头文件
+git sparse-checkout set u-boot/arch     # 检出架构相关文件
 
 echo "=== 验证关键文件 ==="
 if [ ! -f /tmp/uboot-src/u-boot/configs/mt7981_emmc_defconfig ]; then
