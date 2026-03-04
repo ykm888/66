@@ -1,13 +1,20 @@
 #
 # SPDX-License-Identifier: GPL-2.0-only
 # 物理审计：修复 BL2 来源、FIP 合成加入 BL2，增加文件检查
+# 添加自定义源码仓库（ykm888/66, sl3000-uboot-base）
 #
 
 include $(TOPDIR)/rules.mk
 include $(INCLUDE_DIR)/kernel.mk
 
-PKG_VERSION:=2024.10
-PKG_HASH:=b28daf4ac17e43156363078bf510297584137f6df50fced9b12df34f61a92fb0
+# 自定义 U-Boot 源码仓库
+PKG_SOURCE_URL:=https://github.com/ykm888/66.git
+PKG_SOURCE_PROTO:=git
+PKG_SOURCE_VERSION:=sl3000-uboot-base
+PKG_VERSION:=custom
+PKG_HASH:=skip
+
+# 保持原有依赖定义（若不需要可删除，但保留无害）
 PKG_BUILD_DEPENDS:=!(TARGET_ramips||TARGET_mediatek_mt7623):arm-trusted-firmware-tools/host
 
 UBOOT_USE_INTREE_DTC:=1
@@ -97,4 +104,4 @@ define Build/InstallDev
 	$(CP) $(STAGING_DIR_HOST)/share/u-boot/mt7981-emmc-ddr3-fip.bin $(STAGING_DIR_IMAGE)/
 endef
 
-$(eval $(call BuildPackage/U-Boot))
+$(eval $(call BuildPackage,U-Boot))
