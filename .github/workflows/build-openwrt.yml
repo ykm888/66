@@ -66,6 +66,30 @@ jobs:
         fi
         echo "U-Boot source package found."
 
+    # ===== 解压 U-Boot 源码并验证 defconfig 文件 =====
+    - name: Prepare U-Boot source
+      run: |
+        cd $GITHUB_WORKSPACE/openwrt
+        make package/boot/uboot-mediatek/prepare V=s
+
+    - name: Verify U-Boot source files
+      run: |
+        cd $GITHUB_WORKSPACE/openwrt
+        UBOOT_DIR=$(ls -d build_dir/target-*/u-boot-* 2>/dev/null | head -n1)
+        if [ -z "$UBOOT_DIR" ]; then
+          echo "ERROR: U-Boot source directory not found after prepare!"
+          exit 1
+        fi
+        echo "U-Boot source directory: $UBOOT_DIR"
+        echo "=== Listing configs/ directory ==="
+        ls -la $UBOOT_DIR/configs/
+        if [ ! -f "$UBOOT_DIR/configs/mt7981_emmc_defconfig" ]; then
+          echo "ERROR: mt7981_emmc_defconfig not found in U-Boot source!"
+          echo "Please check your custom repository branch 'sl3000-uboot-base'."
+          exit 1
+        fi
+        echo "U-Boot source verification passed."
+
     - name: Configure & Download
       run: |
         cd $GITHUB_WORKSPACE/openwrt
@@ -167,6 +191,7 @@ jobs:
           ### 修复内容
           - ✅ 应用您提供的 `custom-config/sl3000.config` 作为基础配置
           - ✅ 强制重新下载 U-Boot 源码并验证压缩包存在
+          - ✅ 解压 U-Boot 源码并验证 `mt7981_emmc_defconfig` 存在
           - ✅ 系统依赖预装 `device-tree-compiler`，彻底解决 dtc 构建问题
           - ✅ 先完整构建工具链，确保 musl 库文件生成
           - ✅ 优先编译 U-Boot，确保救砖组件提前就绪
