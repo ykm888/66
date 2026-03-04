@@ -25,7 +25,6 @@ define Build/mt798x-gpt
 		-a 1 -l 1024 \
 		-s 512 \
 		$(foreach part,$(1), -p $(part))
-	# 将 GPT 表写入镜像开头（覆盖前 17k）
 	dd if=$@.gpt of=$@ conv=notrunc 2>/dev/null
 	rm -f $@.gpt
 endef
@@ -73,13 +72,12 @@ define Device/sl_3000-emmc
   IMAGES := sysupgrade.bin factory.img.gz
   IMAGE/sysupgrade.bin := sysupgrade-tar | append-metadata
 
-  # 工厂镜像构建：创建 64M 空白文件，写入 GPT，再写入各组件
-  IMAGE/factory.img.gz := \
-	dd if=/dev/zero of="$@" bs=1M count=64 2>/dev/null ; \
-	$(call Build/mt798x-gpt,$(MTK_GPT_PARTS_SL3000)) ; \
-	$(call Build/mt7981-bl2,emmc-ddr3) ; \
-	$(call Build/mt7981-bl31-uboot,emmc-ddr3) ; \
-	$(call Build/write-at-offset,24384,$(KDIR)/squashfs-sysupgrade.itb) ; \
+  # 工厂镜像构建：所有命令写在一行，避免续行符后出现 Tab
+  IMAGE/factory.img.gz := dd if=/dev/zero of="$@" bs=1M count=64 2>/dev/null && \
+	$(call Build/mt798x-gpt,$(MTK_GPT_PARTS_SL3000)) && \
+	$(call Build/mt7981-bl2,emmc-ddr3) && \
+	$(call Build/mt7981-bl31-uboot,emmc-ddr3) && \
+	$(call Build/write-at-offset,24384,$(KDIR)/squashfs-sysupgrade.itb) && \
 	gzip -f "$@"
 endef
 
