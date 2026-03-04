@@ -3,7 +3,7 @@ name: SL-3000 1024M 救砖构建 (本地集成最终版)
 on:
   workflow_dispatch:
   push:
-    branches: [ sl3000-uboot-base ]
+    branches: [ openwrt-24.10-6.6 ]
     paths:
       - 'scripts/sl3000-patch.sh'
       - 'custom-config/sl3000.config'
@@ -22,18 +22,13 @@ jobs:
       fail-fast: false
 
     steps:
-    - name: Checkout OpenWrt Framework
+    - name: Checkout Custom Framework
       uses: actions/checkout@v4
       with:
-        repository: openwrt/openwrt
-        ref: v24.05.0
+        repository: ykm888/66
+        ref: openwrt-24.10-6.6  # 直接使用你的分支
         path: openwrt
         fetch-depth: 1
-
-    - name: 克隆 U-Boot 定制代码
-      run: |
-        git clone --depth 1 -b sl3000-uboot-base https://github.com/ykm888/66.git $GITHUB_WORKSPACE/uboot-custom
-        cp -r $GITHUB_WORKSPACE/uboot-custom/* $GITHUB_WORKSPACE/openwrt/
 
     - name: 初始化纯净环境
       run: |
