@@ -1,11 +1,17 @@
 #!/bin/bash
-# 物理审计：简化版补丁脚本，仅执行清淤与配置补充
+# 物理审计：最终版补丁脚本 - 清淤、删除官方补丁、配置补充
 set -e
 
 echo "=== 物理清淤：粉碎旧缓存与冲突 ==="
 rm -rf dl/u-boot-* 2>/dev/null || true
 rm -rf build_dir/target-*/u-boot-* 2>/dev/null || true
 rm -rf staging_dir/host/share/u-boot 2>/dev/null || true
+
+echo "=== 删除官方补丁目录，确保无残留 ==="
+rm -rf package/boot/uboot-mediatek/patches
+mkdir -p package/boot/uboot-mediatek/patches
+echo "补丁目录已清空："
+ls -la package/boot/uboot-mediatek/patches/
 
 echo "=== 补充 .config 必要配置 ==="
 [ -f .config ] || touch .config
