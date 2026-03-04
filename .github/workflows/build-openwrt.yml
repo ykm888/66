@@ -10,7 +10,7 @@ on:
       - 'scripts/sl3000-build.sh'
   pull_request:
     branches: [ main ]
-  workflow_dispatch:  # 允许手动触发
+  workflow_dispatch:
 
 jobs:
   simulate-env:
@@ -19,7 +19,6 @@ jobs:
       - name: 检查环境依赖
         run: |
           echo "验证GitHub Actions基础环境..."
-          # 检查核心工具是否存在
           for tool in git make gcc g++ python3 pip wget curl; do
             if ! command -v $tool &> /dev/null; then
               echo "ERROR: 缺少工具 $tool"
@@ -34,7 +33,7 @@ jobs:
     env:
       TARGET: mediatek/filogic
       DEVICE: sl3000
-      OUTPUT_DIR: ./bin/targets/${{ env.TARGET }}  # 正确引用环境变量
+      OUTPUT_DIR: ./bin/targets/${{ env.TARGET }}  # 正确格式：双大括号包裹
     steps:
       - name: 拉取代码仓库
         uses: actions/checkout@v4
@@ -51,7 +50,7 @@ jobs:
         run: |
           ./scripts/feeds update -a
           ./scripts/feeds install -a
-          make defconfig ${{ env.TARGET }}_${{ env.DEVICE }}_config  # 正确引用变量
+          make defconfig ${{ env.TARGET }}_${{ env.DEVICE }}_config  # 正确格式
 
       - name: 执行构建脚本
         run: |
@@ -66,7 +65,6 @@ jobs:
             echo "ERROR: 构建产物缺失"
             exit 1
           fi
-          # 检查文件完整性
           sha256sum -c ${{ env.OUTPUT_DIR }}/sha256sums || exit 1
           echo "构建产物验证通过"
 
@@ -89,8 +87,6 @@ jobs:
 
       - name: 模拟设备部署测试
         run: |
-          # 检查固件兼容性（模拟刷入流程）
-          echo "模拟固件刷入验证..."
           if ! file openwrt-*.bin | grep -q "data"; then
             echo "ERROR: 固件格式异常"
             exit 1
