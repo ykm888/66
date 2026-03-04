@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: GPL-2.0-only
 # 物理审计：修复 BL2 来源、FIP 合成加入 BL2，增加文件检查
 # 添加自定义源码仓库（ykm888/66, sl3000-uboot-base）
+# 添加 Package/U-Boot 定义以解决 TITLE 缺失错误
 #
 
 include $(TOPDIR)/rules.mk
@@ -22,6 +23,14 @@ UBOOT_USE_INTREE_DTC:=1
 include $(INCLUDE_DIR)/u-boot.mk
 include $(INCLUDE_DIR)/package.mk
 include $(INCLUDE_DIR)/host-build.mk
+
+# 定义 Package/U-Boot 模板（解决 TITLE 缺失错误）
+define Package/U-Boot
+  SECTION:=boot
+  CATEGORY:=Boot Loaders
+  TITLE:=U-Boot for MediaTek boards
+  DEPENDS:=
+endef
 
 define U-Boot/Default
   BUILD_TARGET:=mediatek
