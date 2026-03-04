@@ -1,33 +1,56 @@
-# 物理修复：将格式从 Name:Offset:Size 修正为 ptgen 识别的 Size@Offset:Name
-# 确保每个分区的物理位置与你之前的设计完全对齐
-MTK_GPT_PARTS := 256k@64k:preloader 512k@256k:bl31 2048k@512k:u-boot 256k@2048k:u-boot-env 256k@2304k:factory 512k@2560k:production 20480k@3072k:recovery 41984k@23552k:userdata
+#
+# SPDX-License-Identifier: GPL-2.0-only
+#
 
-# 修复后的 GPT 构建宏：延续上一版的 cat 注入逻辑
+include $(TOPDIR)/rules.mk
+include $(INCLUDE_DIR)/image.mk
+
+# 修正后的 GPT 分区表（64K 对齐，连续不重叠）
+# 格式：Size@Offset:Name
+MTK_GPT_PARTS_SL3000 := \
+	256k@64k:preloader \
+	512k@320k:bl31 \
+	2048k@832k:u-boot \
+	256k@2880k:u-boot-env \
+	256k@3136k:factory \
+	512k@3392k:production \
+	20480k@3904k:recovery \
+	-@24384k:userdata
+
+# GPT 生成宏（基于 ptgen）
 define Build/mt798x-gpt
-	rm -f $@
-	touch $@
+	rm -f $@.gpt
 	$(STAGING_DIR_HOST)/bin/ptgen \
 		-g -o $@.gpt \
 		-a 1 -l 1024 \
-		$(if $(findstring sd,$(1)), -s 512) \
-		$(if $(findstring emmc,$(1)), -s 512) \
-		$(foreach part,$(MTK_GPT_PARTS), -p $(part))
-	cat $@.gpt >> $@
+		-s 512 \
+		$(foreach part,$(1), -p $(part))
+	# 将 GPT 表写入镜像开头（覆盖前 17k）
+	dd if=$@.gpt of=$@ conv=notrunc 2>/dev/null
+	rm -f $@.gpt
 endef
 
-# 物理修复：源头解决目录不存在问题，并锁定与 U-Boot Makefile 交付一致的文件名
+# 在指定偏移（KB）写入文件
+define Build/write-at-offset
+	( \
+		offset_kb=$(1); \
+		src_file="$(2)"; \
+		[ -f "$$src_file" ] || { echo "Error: $$src_file not found"; exit 1; }; \
+		dd if="$$src_file" of="$@" bs=1k seek=$$offset_kb conv=notrunc 2>/dev/null; \
+	)
+endef
+
+# 写入 BL2（文件名与 U-Boot 包生成一致）
 define Build/mt7981-bl2
-	@echo "--- 物理探测：执行目录补全与内容核查 ---"
-	mkdir -p $(STAGING_DIR_HOST)/share/u-boot
-	ls -l $(STAGING_DIR_HOST)/share/u-boot/
-	cat $(STAGING_DIR_HOST)/share/u-boot/mt7981-$(1)-bl2.bin >> $@
+	$(call Build/write-at-offset,64,$(STAGING_DIR_HOST)/share/u-boot/mt7981-$(1)-bl2.bin)
 endef
 
+# 写入 FIP（BL31 + U-Boot）
 define Build/mt7981-bl31-uboot
-	cat $(STAGING_DIR_HOST)/share/u-boot/mt7981-$(1)-fip.bin >> $@
+	$(call Build/write-at-offset,320,$(STAGING_DIR_HOST)/share/u-boot/mt7981-$(1)-fip.bin)
 endef
 
-# 设备定义 (像素级原文照抄，锁死 1024M 与 64M 容器)
+# SL-3000 eMMC 设备定义
 define Device/sl_3000-emmc
   DEVICE_VENDOR := SL
   DEVICE_MODEL := 3000 eMMC
@@ -41,18 +64,25 @@ define Device/sl_3000-emmc
   KERNEL := kernel-bin | lzma | fit lzma $$(KDIR)/image-$$(firstword $$(DEVICE_DTS)).dtb
   KERNEL_INITRAMFS := kernel-bin | lzma | fit lzma $$(KDIR)/image-$$(firstword $$(DEVICE_DTS)).dtb with-initrd | pad-to 64k
   KERNEL_INITRAMFS_SUFFIX := -recovery.itb
-  
+
   ARTIFACTS := emmc-gpt.bin emmc-preloader.bin emmc-bl31-uboot.fip
-  ARTIFACT/emmc-gpt.bin := mt798x-gpt emmc
+  ARTIFACT/emmc-gpt.bin := mt798x-gpt "$(MTK_GPT_PARTS_SL3000)"
   ARTIFACT/emmc-preloader.bin := mt7981-bl2 emmc-ddr3
   ARTIFACT/emmc-bl31-uboot.fip := mt7981-bl31-uboot emmc-ddr3
 
   IMAGES := sysupgrade.bin factory.img.gz
   IMAGE/sysupgrade.bin := sysupgrade-tar | append-metadata
-  # 物理缝合逻辑：严格遵循 17k/6656k/64M 偏移量
-  IMAGE/factory.img.gz := mt798x-gpt emmc |\
-	pad-to 17k | mt7981-bl2 emmc-ddr3 |\
-	pad-to 6656k | mt7981-bl31-uboot emmc-ddr3 |\
-	pad-to 64M | append-image squashfs-sysupgrade.itb | gzip
+
+  # 工厂镜像构建：创建 64M 空白文件，写入 GPT，再写入各组件
+  IMAGE/factory.img.gz := \
+	dd if=/dev/zero of="$@" bs=1M count=64 2>/dev/null ; \
+	$(call Build/mt798x-gpt,$(MTK_GPT_PARTS_SL3000)) ; \
+	$(call Build/mt7981-bl2,emmc-ddr3) ; \
+	$(call Build/mt7981-bl31-uboot,emmc-ddr3) ; \
+	$(call Build/write-at-offset,24384,$(KDIR)/squashfs-sysupgrade.itb) ; \
+	gzip -f "$@"
 endef
+
 TARGET_DEVICES += sl_3000-emmc
+
+$(eval $(call BuildImage))
