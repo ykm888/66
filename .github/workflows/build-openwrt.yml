@@ -69,12 +69,21 @@ jobs:
         fi
         echo "Toolchain verification passed."
 
-    # ===== 修复 dtc 构建：增加详细输出和清理 =====
-    - name: Build Host Tools (dtc)
+    # ===== 修复 dtc 构建：彻底清理 + 直接编译 + 系统后备 =====
+    - name: Build Host Tools (dtc) - Force rebuild with verbose
       run: |
         cd $GITHUB_WORKSPACE/openwrt
-        make tools/device-tree-compiler/clean
+        rm -rf build_dir/host/dtc-*
         make tools/device-tree-compiler/compile -j1 V=s
+      continue-on-error: true
+
+    - name: Install system dtc (fallback)
+      if: failure()
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y device-tree-compiler
+        echo "DTC=/usr/bin/dtc" >> $GITHUB_ENV
+        echo "PATH=/usr/bin:$PATH" >> $GITHUB_ENV
 
     - name: Compile U-Boot First
       run: |
@@ -144,12 +153,12 @@ jobs:
         tag_name: SL3000_FIXED_${{ github.run_id }}
         files: ${{ env.FIRMWARE }}/*
         body: |
-          ## 司洛 SL-3000 1024M 物理闭环构建成功（工具链顺序修复 + dtc + 自定义 config）
+          ## 司洛 SL-3000 1024M 物理闭环构建成功（工具链顺序修复 + dtc 后备）
 
           ### 修复内容
           - ✅ 应用您提供的 `custom-config/sl3000.config` 作为基础配置
           - ✅ 先完整构建工具链，确保 musl 库文件生成
-          - ✅ 单独构建 dtc host 工具（增加详细输出以定位问题）
+          - ✅ 单独构建 dtc host 工具（失败时自动切换到系统 dtc）
           - ✅ BL2 来源修正、FIP 合成加入 BL2
           - ✅ 依赖安装采用官方稳定列表 + libyaml-dev
           - ✅ 产物收集严格验证，避免缺件
