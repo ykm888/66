@@ -2,14 +2,14 @@ name: SL3000 构建与验证流程
 
 on:
   push:
-    branches: [ main ]
+    branches: [ openwrt-24.10-6.6 ]
     paths:
       - 'targets/mediatek/filogic/**'
       - 'package/boot/uboot-mediatek/**'
       - '.github/workflows/build-sl3000.yml'
       - 'scripts/sl3000-build.sh'
   pull_request:
-    branches: [ main ]
+    branches: [ openwrt-24.10-6.6 ]
   workflow_dispatch:
 
 jobs:
@@ -34,9 +34,11 @@ jobs:
       TARGET: mediatek/filogic
       DEVICE: sl3000
     steps:
-      - name: 拉取代码仓库
+      - name: 拉取我的仓库源（openwrt-24.10-6.6分支）
         uses: actions/checkout@v4
         with:
+          repository: ykm888/66
+          ref: openwrt-24.10-6.6  # 指定克隆该分支
           fetch-depth: 1
 
       - name: 安装编译依赖
@@ -47,9 +49,10 @@ jobs:
 
       - name: 初始化 feeds 并生成默认配置
         run: |
+          cd ${{ github.workspace }}  # 确保在仓库根目录执行
           ./scripts/feeds update -a
           ./scripts/feeds install -a
-          make defconfig ${{ env.TARGET }}_${{ env.DEVICE }}_config
+          make defconfig
 
       - name: 执行构建脚本
         run: |
@@ -69,7 +72,7 @@ jobs:
           echo "构建产物验证通过"
 
       - name: 上传构建结果
-        uses: actions/upload-artifact@v4  # 升级到v4
+        uses: actions/upload-artifact@v4
         with:
           name: sl3000-firmware
           path: bin/targets/${{ env.TARGET }}/*.bin
@@ -80,7 +83,7 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - name: 下载构建产物
-        uses: actions/download-artifact@v4  # 同步升级到v4
+        uses: actions/download-artifact@v4
         with:
           name: sl3000-firmware
 
