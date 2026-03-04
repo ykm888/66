@@ -9,6 +9,7 @@ include $(INCLUDE_DIR)/kernel.mk
 # 使用本地源码（由补丁脚本克隆到 src 目录）
 PKG_SOURCE_URL:=file://src
 PKG_SOURCE_PROTO:=file
+PKG_SOURCE:=uboot-custom          # 新增：解决 Download/default 缺少 FILE 字段
 PKG_VERSION:=custom
 PKG_HASH:=skip
 
