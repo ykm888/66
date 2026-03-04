@@ -49,7 +49,7 @@ jobs:
         run: |
           ./scripts/feeds update -a
           ./scripts/feeds install -a
-          make defconfig
+          make defconfig ${{ env.TARGET }}_${{ env.DEVICE }}_config
 
       - name: 执行构建脚本
         run: |
@@ -69,7 +69,7 @@ jobs:
           echo "构建产物验证通过"
 
       - name: 上传构建结果
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4  # 升级到v4
         with:
           name: sl3000-firmware
           path: bin/targets/${{ env.TARGET }}/*.bin
@@ -80,7 +80,7 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - name: 下载构建产物
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4  # 同步升级到v4
         with:
           name: sl3000-firmware
 
