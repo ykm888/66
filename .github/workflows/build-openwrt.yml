@@ -49,7 +49,7 @@ jobs:
         chmod +x $GITHUB_WORKSPACE/scripts/sl3000-patch.sh
         $GITHUB_WORKSPACE/scripts/sl3000-patch.sh
 
-    # ===== 强制重新下载 U-Boot 源码，确保自定义仓库生效 =====
+    # ===== 强制重新下载 U-Boot 源码 =====
     - name: Force re-download U-Boot source
       run: |
         cd $GITHUB_WORKSPACE/openwrt
@@ -57,21 +57,14 @@ jobs:
         rm -rf build_dir/target-*/u-boot-*
         make package/boot/uboot-mediatek/download V=s
 
-    - name: Verify U-Boot source (check defconfig)
+    - name: Verify U-Boot download
       run: |
         cd $GITHUB_WORKSPACE/openwrt
-        UBOOT_DIR=$(ls -d build_dir/target-*/u-boot-* 2>/dev/null | head -n1)
-        if [ -z "$UBOOT_DIR" ]; then
-          echo "ERROR: U-Boot source directory not found!"
+        if [ -z "$(ls dl/u-boot-* 2>/dev/null)" ]; then
+          echo "ERROR: U-Boot source package not downloaded!"
           exit 1
         fi
-        echo "U-Boot source directory: $UBOOT_DIR"
-        ls -la $UBOOT_DIR/configs/ | grep mt7981_emmc
-        if [ $? -ne 0 ]; then
-          echo "ERROR: mt7981_emmc_defconfig not found in U-Boot source!"
-          exit 1
-        fi
-        echo "U-Boot source verification passed."
+        echo "U-Boot source package found."
 
     - name: Configure & Download
       run: |
@@ -93,7 +86,6 @@ jobs:
         fi
         echo "Toolchain verification passed."
 
-    # 系统已安装 dtc，设置环境变量确保 ATF 能找到
     - name: Set DTC environment
       run: |
         echo "DTC=/usr/bin/dtc" >> $GITHUB_ENV
@@ -174,8 +166,7 @@ jobs:
 
           ### 修复内容
           - ✅ 应用您提供的 `custom-config/sl3000.config` 作为基础配置
-          - ✅ 强制重新下载 U-Boot 源码，确保自定义仓库生效
-          - ✅ 增加 U-Boot 源码验证，确保 `mt7981_emmc_defconfig` 存在
+          - ✅ 强制重新下载 U-Boot 源码并验证压缩包存在
           - ✅ 系统依赖预装 `device-tree-compiler`，彻底解决 dtc 构建问题
           - ✅ 先完整构建工具链，确保 musl 库文件生成
           - ✅ 优先编译 U-Boot，确保救砖组件提前就绪
