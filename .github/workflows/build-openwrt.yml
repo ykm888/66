@@ -1,9 +1,9 @@
-name: SL-3000 1024M 救砖 (本地集成最终版)
+name: SL-3000 1024M 救砖构建 (本地集成最终版)
 
 on:
   workflow_dispatch:
   push:
-    branches: [ sl3000-uboot-base ]  # 直接使用 U-Boot 分支
+    branches: [ sl3000-uboot-base ]
     paths:
       - 'scripts/sl3000-patch.sh'
       - 'custom-config/sl3000.config'
@@ -11,8 +11,6 @@ on:
       - 'package/boot/uboot-mediatek/**'
 
 env:
-  MY_REPO: ykm888/66
-  FRAMEWORK_BRANCH: sl3000-uboot-base  # 直接使用 U-Boot 分支
   TZ: Asia/Shanghai
   CONFIG_FILE: custom-config/sl3000.config
   DIY_P2_SH: scripts/diy-part2.sh
@@ -24,11 +22,18 @@ jobs:
       fail-fast: false
 
     steps:
-    - name: Checkout U-Boot Base
+    - name: Checkout OpenWrt Framework
       uses: actions/checkout@v4
       with:
-        ref: sl3000-uboot-base  # 直接检出 U-Boot 分支
+        repository: openwrt/openwrt
+        ref: v24.05.0
+        path: openwrt
         fetch-depth: 1
+
+    - name: 克隆 U-Boot 定制代码
+      run: |
+        git clone --depth 1 -b sl3000-uboot-base https://github.com/ykm888/66.git $GITHUB_WORKSPACE/uboot-custom
+        cp -r $GITHUB_WORKSPACE/uboot-custom/* $GITHUB_WORKSPACE/openwrt/
 
     - name: 初始化纯净环境
       run: |
@@ -41,30 +46,30 @@ jobs:
 
     - name: 初始化 OpenWrt Feeds
       run: |
-        cd $GITHUB_WORKSPACE
+        cd $GITHUB_WORKSPACE/openwrt
         ./scripts/feeds update -a
         ./scripts/feeds install -a
 
     - name: 应用定制配置
       run: |
-        cd $GITHUB_WORKSPACE
+        cd $GITHUB_WORKSPACE/openwrt
         cp $GITHUB_WORKSPACE/${{ env.CONFIG_FILE }} .config
         make defconfig
 
     - name: 执行本地集成补丁脚本
       run: |
-        cd $GITHUB_WORKSPACE
+        cd $GITHUB_WORKSPACE/openwrt
         chmod +x $GITHUB_WORKSPACE/${{ env.DIY_P2_SH }}
         $GITHUB_WORKSPACE/${{ env.DIY_P2_SH }}
 
     - name: 预编译工具链
       run: |
-        cd $GITHUB_WORKSPACE
+        cd $GITHUB_WORKSPACE/openwrt
         make toolchain/compile -j$(nproc) V=s
 
     - name: 验证工具链完整性
       run: |
-        cd $GITHUB_WORKSPACE
+        cd $GITHUB_WORKSPACE/openwrt
         if [ ! -f staging_dir/toolchain-aarch64_cortex-a53_gcc-13.3.0_musl/lib/ld-musl-aarch64.so.1 ]; then
           echo "ERROR: musl dynamic linker missing!"
           exit 1
@@ -72,12 +77,12 @@ jobs:
 
     - name: 编译 U-Boot 救砖组件
       run: |
-        cd $GITHUB_WORKSPACE
+        cd $GITHUB_WORKSPACE/openwrt
         make package/boot/uboot-mediatek/compile -j1 V=s
 
     - name: 验证 U-Boot 产物
       run: |
-        cd $GITHUB_WORKSPACE
+        cd $GITHUB_WORKSPACE/openwrt
         if [ ! -f staging_dir/host/share/u-boot/mt7981-emmc-ddr3-bl2.bin ]; then
           echo "ERROR: BL2 not found!"
           exit 1
@@ -90,7 +95,7 @@ jobs:
     - name: 完整固件编译
       id: compile
       run: |
-        cd $GITHUB_WORKSPACE
+        cd $GITHUB_WORKSPACE/openwrt
         echo "Using $(nproc) threads for compile"
         make -j$(nproc) || make -j1 || make -j1 V=s
         echo "status=success" >> $GITHUB_OUTPUT
@@ -100,14 +105,14 @@ jobs:
       run: |
         set -e
         mkdir -p $GITHUB_WORKSPACE/recovery_bundle
-        BIN_DIR="$GITHUB_WORKSPACE/bin/targets/mediatek/filogic"
-        STAGING_BOOT="$GITHUB_WORKSPACE/staging_dir/host/share/u-boot"
+        BIN_DIR="$GITHUB_WORKSPACE/openwrt/bin/targets/mediatek/filogic"
+        STAGING_BOOT="$GITHUB_WORKSPACE/openwrt/staging_dir/host/share/u-boot"
 
         cp -v $BIN_DIR/*factory.img.gz $GITHUB_WORKSPACE/recovery_bundle/
         cp -v $STAGING_BOOT/mt7981-emmc-ddr3-bl2.bin $GITHUB_WORKSPACE/recovery_bundle/emmc-preloader.bin
         cp -v $STAGING_BOOT/mt7981-emmc-ddr3-fip.bin $GITHUB_WORKSPACE/recovery_bundle/emmc-bl31-uboot.fip
 
-        GPT_FILE=$(find $GITHUB_WORKSPACE/build_dir/target-*/linux-mediatek_filogic/tmp -name "*gpt.bin" | head -n1)
+        GPT_FILE=$(find $GITHUB_WORKSPACE/openwrt/build_dir/target-*/linux-mediatek_filogic/tmp -name "*gpt.bin" | head -n1)
         [ -n "$GPT_FILE" ] && cp -v $GPT_FILE $GITHUB_WORKSPACE/recovery_bundle/emmc-gpt.bin
 
         echo "FIRMWARE=$GITHUB_WORKSPACE/recovery_bundle" >> $GITHUB_ENV
