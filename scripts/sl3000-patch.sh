@@ -1,34 +1,49 @@
 #!/bin/bash
-set -euo pipefail
+# 物理审计：本地集成版 - 克隆 U-Boot 源码，打包放入 dl/，清淤、删除官方补丁、配置补充
+set -e
 
-# 从环境变量获取配置（与工作流保持一致）
-TARGET="${TARGET:-mediatek/filogic}"
-DEVICE="${DEVICE:-sl3000}"
-BUILD_DIR=$(pwd)
-JOBS=$(nproc)
+echo "=== 物理清淤：粉碎旧缓存与冲突 ==="
+rm -rf dl/u-boot-* 2>/dev/null || true
+rm -rf build_dir/target-*/u-boot-* 2>/dev/null || true
+rm -rf staging_dir/host/share/u-boot 2>/dev/null || true
 
-# 清理旧构建文件
-make clean
+echo "=== 删除官方补丁目录，确保无残留 ==="
+rm -rf package/boot/uboot-mediatek/patches
+mkdir -p package/boot/uboot-mediatek/patches
 
-# 生成设备配置（使用工作流传入的TARGET和DEVICE）
-make menuconfig <<EOF
-${TARGET}_${DEVICE}_config
-exit
-EOF
+echo "=== 克隆自定义 U-Boot 源码到临时目录 ==="
+rm -rf /tmp/uboot-src
+git clone --depth 1 -b sl3000-uboot-base https://github.com/ykm888/66.git /tmp/uboot-src
 
-# 开始编译（启用并行构建，失败时降级为单线程排查）
-echo "开始构建，使用 $JOBS 线程..."
-make -j$JOBS || {
-  echo "并行构建失败，尝试单线程构建..."
-  make -j1 V=s
-}
+echo "=== 验证关键文件 ==="
+if [ ! -f /tmp/uboot-src/configs/mt7981_emmc_defconfig ]; then
+    echo "错误：克隆后未找到 mt7981_emmc_defconfig！"
+    exit 1
+fi
+echo "关键文件存在，继续。"
 
-# 生成校验文件
-cd bin/targets/"${TARGET}"
-sha256sum *.bin > sha256sums
+echo "=== 打包源码为 uboot-custom.tar.zst 并放入 dl/ 目录 ==="
+mkdir -p dl
+cd /tmp
+# 打包目录本身，使用 zstd 压缩（级别 19 兼顾速度和体积）
+tar -cf - uboot-src | zstd -19 -o $GITHUB_WORKSPACE/openwrt/dl/uboot-custom.tar.zst
+rm -rf /tmp/uboot-src
+echo "打包完成：$(ls -lh $GITHUB_WORKSPACE/openwrt/dl/uboot-custom.tar.zst)"
 
-# 输出构建信息
-echo "构建完成："
-ls -lh *.bin
-echo "SHA256校验值："
-cat sha256sums
+echo "=== 补充 .config 必要配置 ==="
+cd $GITHUB_WORKSPACE/openwrt
+[ -f .config ] || touch .config
+
+if ! grep -q "CONFIG_TARGET_mediatek_filogic_DEVICE_sl_3000-emmc=y" .config; then
+    echo "CONFIG_TARGET_mediatek_filogic_DEVICE_sl_3000-emmc=y" >> .config
+fi
+
+if ! grep -q "CONFIG_NR_DRAM_BANKS=1" .config; then
+    echo "CONFIG_NR_DRAM_BANKS=1" >> .config
+fi
+
+if ! grep -q "CONFIG_TARGET_DEVICE_mediatek_filogic_DEVICE_sl_3000-emmc=y" .config; then
+    echo "CONFIG_TARGET_DEVICE_mediatek_filogic_DEVICE_sl_3000-emmc=y" >> .config
+fi
+
+echo "=== 补丁脚本执行完毕 ==="
