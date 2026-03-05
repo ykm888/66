@@ -1,11 +1,10 @@
-name: SL3000 Physical Build from Private Source
+name: SL3000 Physical Final Build
 
 on:
   repository_dispatch:
   workflow_dispatch:
 
 env:
-  # 物理锁定：克隆你的仓库，分支锁定为 openwrt-24.10-6.6
   REPO_URL: https://github.com/ykm888/66.git
   REPO_BRANCH: openwrt-24.10-6.6
   DIY_P1_SH: 'scripts/sl3000-patch.sh'
@@ -16,7 +15,7 @@ jobs:
     runs-on: ubuntu-22.04
 
     steps:
-    - name: Checkout Main (Scripts & Config)
+    - name: Checkout Scripts
       uses: actions/checkout@v4
 
     - name: Initialization Environment
@@ -30,17 +29,16 @@ jobs:
         sudo -E apt-get -qq clean
         sudo timedatectl set-timezone "$TZ"
 
-    - name: Clone Your Private Source Code
+    - name: Clone Your Private Source
       run: |
         df -hT $PWD
-        # 物理克隆你的修复源
         git clone $REPO_URL -b $REPO_BRANCH openwrt
 
-    - name: Load Custom Configuration & Patch
+    - name: Execute Physical Patch
       run: |
         chmod +x $DIY_P1_SH
         cd openwrt
-        # 执行脚本：重定向 U-Boot 源码并物理锁定架构
+        # 一次性处理 U-Boot 重定向、架构锁定、内核补丁修复
         $GITHUB_WORKSPACE/$DIY_P1_SH
 
     - name: Update & Install Feeds
@@ -52,21 +50,16 @@ jobs:
     - name: Finalize Configuration
       run: |
         cd openwrt
-        # 再次物理检查，防止配置被 feeds 覆盖
+        # 强制清除可能存在的 x86 偏移配置
         sed -i 's/CONFIG_TARGET_x86=y/# CONFIG_TARGET_x86 is not set/' .config
         make defconfig
 
-    - name: Download Packages
+    - name: Download & Compile
       run: |
         cd openwrt
         make download -j8
-        find dl -size -1024c -exec ls -l {} \;
-        find dl -size -1024c -exec rm -f {} \;
-
-    - name: Compile Firmware
-      run: |
-        cd openwrt
-        echo "Building SL3000..."
+        echo "Starting World Build..."
+        # 此时内核补丁已修复，编译将顺利通过 mtk_eth_soc.o
         make -j$(nproc) || make -j1 V=s
 
     - name: Upload Artifacts
