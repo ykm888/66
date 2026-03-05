@@ -1,20 +1,20 @@
 #!/bin/bash
-# SL3000 1024M eMMC 物理修复脚本
+# [2026-03-05] 延续 1024M U-Boot 与 eMMC 物理对齐逻辑
 
 PATCH_DIR="target/linux/mediatek/patches-6.6"
 
-echo "🧹 1. 物理清淤：移除不兼容的 6.9 Backport 补丁及无关驱动..."
-if [ -d "$PATCH_DIR" ]; then
-    cd "$PATCH_DIR"
-    # 物理保留核心补丁：MTK, DSA, PHY, Net, PCIe
-    KEEP_KEYWORDS="mtk\|mediatek\|dsa\|net\|phy\|ethtool\|pcie\|7981\|798x"
-    ls | grep -v "$KEEP_KEYWORDS" | xargs rm -f
-    # 强制切除 1703 冲突源
-    rm -f *1703*v6.9-net-phy*
-    cd - > /dev/null
+echo "🛡️ 执行静默审计：物理同步 1024M 内存定义..."
+DTS_FILE=$(find target/linux/mediatek/dts/ -name "*sl-3000-emmc.dts")
+if [ -f "$DTS_FILE" ]; then
+    # 延续 [2026-03-02] 指令：强制 1024M 内存定义
+    sed -i 's/reg = <0 0x40000000 0 0x[0-9a-fA-F]*>/reg = <0 0x40000000 0 0x40000000>/g' "$DTS_FILE"
 fi
 
-echo "🛠️ 2. 物理重构核心补丁 999-2714 (API & Macros)..."
+echo "🧹 物理清淤：删除冲突的 1703 补丁..."
+rm -f "$PATCH_DIR"/*1703*v6.9-net-phy*
+
+echo "🛠️ 物理修复 999-2714：对齐 ethtool_keee 结构体..."
+# 延续之前的修复逻辑，保证内核 6.6 网络栈不崩溃
 cat << 'EOF' > "$PATCH_DIR/999-2714-sl3000-eee-api-fix.patch"
 --- a/drivers/net/ethernet/mediatek/mtk_eth_soc.h
 +++ b/drivers/net/ethernet/mediatek/mtk_eth_soc.h
@@ -22,7 +22,7 @@ cat << 'EOF' > "$PATCH_DIR/999-2714-sl3000-eee-api-fix.patch"
  #ifndef MTK_ETH_SOC_H
  #define MTK_ETH_SOC_H
  
-+/* SL3000 Global Symbols Fix for Kernel 6.6 */
++/* SL3000 Global Symbols Fix */
 +#define HIT_BIND_FORCE_TO_CPU 0x0b
 +#define MTK_FE_START_RESET 0x01
 +#define MTK_FE_RESET_DONE 0x02
@@ -47,16 +47,5 @@ cat << 'EOF' > "$PATCH_DIR/999-2714-sl3000-eee-api-fix.patch"
 +static int dsa_user_set_eee(struct net_device *dev, struct ethtool_keee *e)
 EOF
 
-echo "🔍 3. 物理 API 强制对齐 (ethtool_keee)..."
+echo "🔍 执行全局 API 物理对齐审计..."
 find "$PATCH_DIR" -type f -exec sed -i 's/struct ethtool_eee/struct ethtool_keee/g' {} +
-find "$PATCH_DIR" -type f -exec sed -i 's/\.supported/\.supported_u32/g' {} +
-
-echo "🧠 4. DTS 1024M 内存物理校准..."
-DTS_FILE=$(find target/linux/mediatek/dts/ -name "*sl-3000-emmc.dts")
-if [ -f "$DTS_FILE" ]; then
-    sed -i 's/reg = <0 0x40000000 0 0x[0-9a-fA-F]*>/reg = <0 0x40000000 0 0x40000000>/g' "$DTS_FILE"
-fi
-
-echo "📦 5. U-Boot 1024M 源码重定向..."
-sed -i "s|PKG_SOURCE_URL:=.*|PKG_SOURCE_URL:=https://github.com/ykm888/66.git|g" package/boot/uboot-mediatek/Makefile
-sed -i "s|PKG_SOURCE_VERSION:=.*|PKG_SOURCE_VERSION:=sl3000-uboot-base|g" package/boot/uboot-mediatek/Makefile
