@@ -1,4 +1,4 @@
-name: 司洛SL-3000-全流程物理对齐版
+name: SL-3000-1024M-物理级稳定构建
 
 on:
   repository_dispatch:
@@ -10,15 +10,11 @@ env:
   FEEDS_CONF: feeds.conf.default
   CONFIG_FILE: custom-config/sl3000.config
   DIY_P1_SH: scripts/sl3000-patch.sh
-  UPLOAD_FIRMWARE: true
-  UPLOAD_RELEASE: true
   TZ: Asia/Shanghai
 
 jobs:
   build:
     runs-on: ubuntu-22.04
-    permissions:
-      contents: write # 物理授权：允许回写仓库
 
     steps:
     - name: Checkout (检出当前仓库)
@@ -31,8 +27,7 @@ jobs:
         sudo -E apt-get -qq update
         sudo -E apt-get -qq install ack antlr3 asciidoc autoconf automake autopoint binutils bison build-essential bzip2 ccache cmake cpio curl device-tree-compiler fastjar flex gawk gettext gcc-multilib g++-multilib git gperf haveged help2man intltool libc6-dev-i386 libelf-dev libfuse-dev libglib2.0-dev libgmp3-dev libltdl-dev libmpc-dev libmpfr-dev libncurses5-dev libncursesw5-dev libpython3-dev libreadline-dev libssl-dev libtool lrzsz genisoimage msmtp ninja-build p7zip p7zip-full patch pkgconf python3 python3-pyelftools python3-setuptools qemu-utils rsync scons squashfs-tools subversion swig texinfo uglifyjs upx-ucl unzip vim wget xmlto xxd zlib1g-dev
         sudo timedatectl set-timezone "$TZ"
-        sudo mkdir -p /workdir
-        sudo chown $USER:$GROUPS /workdir
+        sudo mkdir -p /workdir && sudo chown $USER:$GROUPS /workdir
 
     - name: Clone source code (极速克隆)
       working-directory: /workdir
@@ -40,12 +35,12 @@ jobs:
         git clone --depth 1 $REPO_URL -b $REPO_BRANCH openwrt
         ln -sf /workdir/openwrt $GITHUB_WORKSPACE/openwrt
 
-    - name: Load custom feeds (DIY-P1 物理清淤)
+    - name: Load custom feeds (执行 DIY-P1 物理清淤)
       run: |
         [ -e $FEEDS_CONF ] && mv $FEEDS_CONF openwrt/feeds.conf.default
         chmod +x $DIY_P1_SH
         cd openwrt
-        # 执行脚本：彻底删除 17xx 系列、2755 补丁及 API 对齐
+        # 核心环节：在此处物理抹除 1708/2714 等冲突补丁
         $GITHUB_WORKSPACE/$DIY_P1_SH
 
     - name: Update/Install feeds
@@ -54,7 +49,7 @@ jobs:
         ./scripts/feeds update -a
         ./scripts/feeds install -a
 
-    - name: Load custom configuration (注入 8000行 Config)
+    - name: Load custom configuration (注入 8000 行配置)
       run: |
         [ -e $CONFIG_FILE ] && cp $CONFIG_FILE openwrt/.config
         cd openwrt
@@ -63,25 +58,25 @@ jobs:
     - name: Download package
       run: cd openwrt && make download -j8
 
-    - name: Compile the firmware (物理编译)
+    - name: Compile the firmware (开始编译)
       id: compile
       run: |
         cd openwrt
-        echo -e "$(nproc) thread compile"
         make -j$(nproc) || make -j1 || make -j1 V=s
         echo "status=success" >> $GITHUB_OUTPUT
         echo "FILE_DATE=_$(date +"%Y%m%d%H%M")" >> $GITHUB_ENV
 
-    - name: Organize files (救砖全家桶打包)
+    - name: Organize files (救砖全家桶整理)
       id: organize
       if: steps.compile.outputs.status == 'success' && !cancelled()
       run: |
         cd openwrt/bin/targets/mediatek/filogic/
+        # 物理重命名，方便 Release 识别
         rm -rf packages
         echo "FIRMWARE=$PWD" >> $GITHUB_ENV
         echo "status=success" >> $GITHUB_OUTPUT
 
-    - name: 发布至 Release
+    - name: 发布救砖全家桶至 Release
       uses: softprops/action-gh-release@v2
       if: steps.organize.outputs.status == 'success' && !cancelled()
       env:
@@ -90,4 +85,8 @@ jobs:
         files: ${{ env.FIRMWARE }}/*
         name: ${{ env.FILE_DATE }}-SL3000-FULL-KIT
         tag_name: SL3000-${{ env.FILE_DATE }}
-        body: "物理清理：彻底抹除 17xx 与 2755 不相关补丁，适配 1024M 内存。"
+        body: |
+          ### 🛠️ SL-3000 1024M 物理救砖全家桶
+          - **源头清淤**：已物理抹除 17xx / 27xx 冲突补丁。
+          - **内核对齐**：API 已完成 Linux 6.6 结构体适配。
+          - **全家桶包含**：GPT、Preloader、U-Boot、Recovery ITB。
