@@ -1,8 +1,13 @@
 #!/bin/bash
 
-# 1. 【物理锁定】：锁定架构，压制 x86 干扰
+# 1. 【物理锁定】：锁定架构与具体设备，压制 x86 干扰
+# 这里我帮你加了 DEVICE 行，确保 defconfig 物理对齐 SL-3000
 printf "CONFIG_TARGET_mediatek=y\n" > .config
 printf "CONFIG_TARGET_mediatek_filogic=y\n" >> .config
+printf "CONFIG_TARGET_mediatek_filogic_DEVICE_sl_3000-emmc=y\n" >> .config
+
+# 强制压制 x86 环境偏移
+sed -i 's/CONFIG_TARGET_x86=y/# CONFIG_TARGET_x86 is not set/' .config
 
 # 2. 【物理清淤】：关键步骤——删除那个导致 Hunk FAILED 的冲突补丁
 rm -rf dl/u-boot-* 2>/dev/null || true
