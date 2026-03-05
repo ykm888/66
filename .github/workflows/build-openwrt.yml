@@ -1,4 +1,4 @@
-name: SL3000 Ultimate Atomic Build
+name: SL3000 Final Immutable Build
 
 on:
   workflow_dispatch:
@@ -7,107 +7,44 @@ env:
   REPO_URL: https://github.com/ykm888/66.git
   REPO_BRANCH: openwrt-24.10-6.6
   DIY_SH: 'scripts/sl3000-patch.sh'
-  TZ: Asia/Shanghai
 
 jobs:
   build:
     runs-on: ubuntu-22.04
-
     steps:
-    - name: Checkout Scripts
+    - name: Checkout
       uses: actions/checkout@v4
 
-    - name: Init Environment
+    - name: Init
       run: |
         sudo -E apt-get -qq update
         sudo -E apt-get -qq install $(curl -fsSL https://is.gd/depends_ubuntu_2204)
-        sudo timedatectl set-timezone "$TZ"
 
-    - name: Clone Source
+    - name: Clone
       run: git clone $REPO_URL -b $REPO_BRANCH openwrt
 
-    - name: Execute Script Patch
+    - name: Patch
       run: |
         chmod +x $DIY_SH
         cd openwrt && $GITHUB_WORKSPACE/$DIY_SH
 
-    - name: Update Feeds
+    - name: Feeds
       run: cd openwrt && ./scripts/feeds update -a && ./scripts/feeds install -a
 
-    - name: Generate Config
-      run: |
-        cd openwrt
-        printf "CONFIG_TARGET_mediatek=y\nCONFIG_TARGET_mediatek_filogic=y\nCONFIG_TARGET_mediatek_filogic_DEVICE_sl_3000-emmc=y\n" >> .config
-        make defconfig
+    - name: Config
+      run: cd openwrt && make defconfig
 
-    - name: Download & Prepare Kernel
+    - name: Prepare Kernel
       run: |
         cd openwrt
-        make download -j8
         make target/linux/prepare -j$(nproc) V=s
+        # 物理调用脚本生成的 Python 手术刀
+        python3 kernel_fix.py
 
-    - name: Atomic Physical Inject (Python 物理直入)
-      run: |
-        cd openwrt
-        # 1. 动态定位文件（已验证 find 逻辑有效）
-        TARGET_H=$(find build_dir/ -name "mtk_eth_soc.h" | grep "mediatek/mtk_eth_soc.h" | head -n 1)
-        TARGET_C=$(find build_dir/ -name "mtk_eth_soc.c" | grep "mediatek/mtk_eth_soc.c" | head -n 1)
+    - name: Build
+      run: cd openwrt && make -j$(nproc) || make -j1 V=s
 
-        if [ -n "$TARGET_H" ]; then
-            echo "🎯 物理命中路径：$TARGET_H"
-            
-            # 2. 调用 Python 执行行级原子注入
-            python3 - <<EOF
-import os
-
-def atomic_fix(h_path, c_path):
-    # 注入宏定义到头文件
-    with open(h_path, 'r') as f:
-        lines = f.readlines()
-    
-    with open(h_path, 'w') as f:
-        for line in lines:
-            f.write(line)
-            if '#define MTK_ETH_SOC_H' in line:
-                f.write("\n/* --- SL3000 Atomic Fix Start --- */\n")
-                f.write("#define HIT_BIND_FORCE_TO_CPU 0x0b\n")
-                f.write("#define MTK_FE_START_RESET 0x01\n")
-                f.write("#define MTK_FE_RESET_DONE 0x02\n")
-                f.write("#define MTK_FE_RESET_NAT_DONE 0x03\n")
-                f.write("#define MTK_WIFI_RESET_DONE 0x04\n")
-                f.write("#define MTK_WIFI_CHIP_ONLINE 0x05\n")
-                f.write("#define MTK_WIFI_CHIP_OFFLINE 0x06\n")
-                f.write("/* --- SL3000 Atomic Fix End --- */\n")
-
-    # 全局更名结构体，适配内核 6.6 API
-    for p in [h_path, c_path]:
-        with open(p, 'r') as f:
-            content = f.read()
-        with open(p, 'w') as f:
-            f.write(content.replace('ethtool_eee', 'ethtool_keee'))
-
-atomic_fix('$TARGET_H', '$TARGET_C')
-EOF
-            
-            # 3. 最终审计
-            echo "验证物理注入..."
-            if grep -q "HIT_BIND_FORCE_TO_CPU" "$TARGET_H"; then
-                echo "✅ 宏定义注入成功！"
-            else
-                echo "❌ 注入失败，文件内容未改变！"
-                exit 1
-            fi
-        else
-            echo "❌ 物理脱靶：未找到驱动源码文件"
-            exit 1
-        fi
-
-    - name: Final Build
-      run: |
-        cd openwrt
-        make -j$(nproc) || make -j1 V=s
-
-    - name: Upload Artifacts
+    - name: Upload
       uses: actions/upload-artifact@v4
       with:
         name: SL3000-Firmware
