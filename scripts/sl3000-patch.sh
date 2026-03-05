@@ -6,13 +6,13 @@ printf "CONFIG_TARGET_mediatek_filogic=y\n" >> .config
 printf "CONFIG_TARGET_mediatek_filogic_DEVICE_sl_3000-emmc=y\n" >> .config
 sed -i 's/CONFIG_TARGET_x86=y/# CONFIG_TARGET_x86 is not set/' .config
 
-# 2. 【物理清淤】：删除缓存与冲突源
+# 2. 【物理清淤】：删除缓存与物理冲突源
 rm -rf dl/u-boot-* 2>/dev/null || true
 rm -rf build_dir/target-*/u-boot-* 2>/dev/null || true
-# 必须物理删除此冲突补丁，否则 prepare 阶段会 FAILED
+# 必须物理删除此补丁，否则 prepare 阶段会 FAILED
 rm -f target/linux/mediatek/patches-6.6/999-2714-net-fix-eee-struct-for-mtk-eth-soc-and-net-dsa-due-to-eee-backport.patch
 
-# 3. 【原文照抄】：U-Boot 重定向与双 CP 路径逻辑（延续成功版本）
+# 3. 【原文照抄】：U-Boot 重定向与双 CP 路径（延续成功版）
 UBOOT_MK="package/boot/uboot-mediatek/Makefile"
 if [ -f "$UBOOT_MK" ]; then
     sed -i "s|PKG_SOURCE_URL:=.*|PKG_SOURCE_URL:=https://github.com/ykm888/66.git|g" "$UBOOT_MK"
