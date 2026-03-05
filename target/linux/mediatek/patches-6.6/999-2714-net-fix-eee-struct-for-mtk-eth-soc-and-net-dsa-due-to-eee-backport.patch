@@ -1,40 +1,46 @@
+--- a/drivers/net/ethernet/mediatek/mtk_eth_soc.h
++++ b/drivers/net/ethernet/mediatek/mtk_eth_soc.h
+@@ -10,6 +10,15 @@
+ #ifndef MTK_ETH_SOC_H
+ #define MTK_ETH_SOC_H
+ 
++/* SL3000 Global Symbols for Kernel 6.6 compatibility */
++#define HIT_BIND_FORCE_TO_CPU 0x0b
++#define MTK_FE_START_RESET 0x01
++#define MTK_FE_RESET_DONE 0x02
++#define MTK_FE_RESET_NAT_DONE 0x03
++#define MTK_WIFI_RESET_DONE 0x04
++#define MTK_WIFI_CHIP_ONLINE 0x05
++#define MTK_WIFI_CHIP_OFFLINE 0x06
++
+ #define MTK_QDMA_PAGE_SIZE	2048
+ #define	MTK_MAX_RXD_NUM		16384
+ 
 --- a/drivers/net/ethernet/mediatek/mtk_eth_soc.c
 +++ b/drivers/net/ethernet/mediatek/mtk_eth_soc.c
-@@ -5367,7 +5367,7 @@ static int mtk_set_rxfh(struct net_devic
- 	return 0;
- }
- 
+@@ -5367,7 +5367,7 @@
 -static int mtk_get_eee(struct net_device *dev, struct ethtool_eee *eee)
 +static int mtk_get_eee(struct net_device *dev, struct ethtool_keee *eee)
  {
  	struct mtk_mac *mac = netdev_priv(dev);
  	u32 reg;
-@@ -5387,7 +5387,7 @@ static int mtk_get_eee(struct net_device
- 	return 0;
- }
- 
+@@ -5387,7 +5387,7 @@
 -static int mtk_set_eee(struct net_device *dev, struct ethtool_eee *eee)
 +static int mtk_set_eee(struct net_device *dev, struct ethtool_keee *eee)
  {
  	struct mtk_mac *mac = netdev_priv(dev);
  	int ret;
---- a/net/dsa/slave.c
-+++ b/net/dsa/slave.c
-@@ -1238,7 +1238,7 @@ static int dsa_slave_set_wol(struct net_
- 	return ret;
- }
- 
--static int dsa_slave_set_eee(struct net_device *dev, struct ethtool_eee *e)
-+static int dsa_slave_set_eee(struct net_device *dev, struct ethtool_keee *e)
+--- a/net/dsa/user.c
++++ b/net/dsa/user.c
+@@ -1238,7 +1238,7 @@
+-static int dsa_user_set_eee(struct net_device *dev, struct ethtool_eee *e)
++static int dsa_user_set_eee(struct net_device *dev, struct ethtool_keee *e)
  {
- 	struct dsa_port *dp = dsa_slave_to_port(dev);
+ 	struct dsa_port *dp = dsa_user_to_port(dev);
  	struct dsa_switch *ds = dp->ds;
-@@ -1258,7 +1258,7 @@ static int dsa_slave_set_eee(struct net_
- 	return phylink_ethtool_set_eee(dp->pl, e);
- }
- 
--static int dsa_slave_get_eee(struct net_device *dev, struct ethtool_eee *e)
-+static int dsa_slave_get_eee(struct net_device *dev, struct ethtool_keee *e)
+@@ -1258,7 +1258,7 @@
+-static int dsa_user_get_eee(struct net_device *dev, struct ethtool_eee *e)
++static int dsa_user_get_eee(struct net_device *dev, struct ethtool_keee *e)
  {
- 	struct dsa_port *dp = dsa_slave_to_port(dev);
+ 	struct dsa_port *dp = dsa_user_to_port(dev);
  	struct dsa_switch *ds = dp->ds;
