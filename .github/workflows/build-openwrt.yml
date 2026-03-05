@@ -1,4 +1,4 @@
-name: SL3000 Absolute Immutable Build
+name: SL3000 Ultimate Atomic Build
 
 on:
   workflow_dispatch:
@@ -31,7 +31,7 @@ jobs:
         chmod +x $DIY_SH
         cd openwrt && $GITHUB_WORKSPACE/$DIY_SH
 
-    - name: Update & Install Feeds
+    - name: Update Feeds
       run: cd openwrt && ./scripts/feeds update -a && ./scripts/feeds install -a
 
     - name: Generate Config
@@ -46,29 +46,59 @@ jobs:
         make download -j8
         make target/linux/prepare -j$(nproc) V=s
 
-    - name: Forced Physical Inject (动态定位手术版)
+    - name: Atomic Physical Inject (Python 物理直入)
       run: |
         cd openwrt
-        echo "开始动态寻址物理手术..."
-        # 自动搜索 build_dir 下真实的驱动源码路径
+        # 1. 动态定位文件（已验证 find 逻辑有效）
         TARGET_H=$(find build_dir/ -name "mtk_eth_soc.h" | grep "mediatek/mtk_eth_soc.h" | head -n 1)
         TARGET_C=$(find build_dir/ -name "mtk_eth_soc.c" | grep "mediatek/mtk_eth_soc.c" | head -n 1)
 
-        if [ -f "$TARGET_H" ]; then
-            echo "🎯 物理命中：$TARGET_H"
-            MACROS="#define HIT_BIND_FORCE_TO_CPU 0x0b\n#define MTK_FE_START_RESET 0x01\n#define MTK_FE_RESET_DONE 0x02\n#define MTK_FE_RESET_NAT_DONE 0x03\n#define MTK_WIFI_RESET_DONE 0x04\n#define MTK_WIFI_CHIP_ONLINE 0x05\n#define MTK_WIFI_CHIP_OFFLINE 0x06"
+        if [ -n "$TARGET_H" ]; then
+            echo "🎯 物理命中路径：$TARGET_H"
             
-            # 暴力注入宏定义与结构体更名
-            sed -i "/#define MTK_ETH_SOC_H/a $MACROS" "$TARGET_H"
-            sed -i 's/ethtool_eee/ethtool_keee/g' "$TARGET_C"
-            sed -i 's/ethtool_eee/ethtool_keee/g' "$TARGET_H"
+            # 2. 调用 Python 执行行级原子注入
+            python3 - <<EOF
+import os
+
+def atomic_fix(h_path, c_path):
+    # 注入宏定义到头文件
+    with open(h_path, 'r') as f:
+        lines = f.readlines()
+    
+    with open(h_path, 'w') as f:
+        for line in lines:
+            f.write(line)
+            if '#define MTK_ETH_SOC_H' in line:
+                f.write("\n/* --- SL3000 Atomic Fix Start --- */\n")
+                f.write("#define HIT_BIND_FORCE_TO_CPU 0x0b\n")
+                f.write("#define MTK_FE_START_RESET 0x01\n")
+                f.write("#define MTK_FE_RESET_DONE 0x02\n")
+                f.write("#define MTK_FE_RESET_NAT_DONE 0x03\n")
+                f.write("#define MTK_WIFI_RESET_DONE 0x04\n")
+                f.write("#define MTK_WIFI_CHIP_ONLINE 0x05\n")
+                f.write("#define MTK_WIFI_CHIP_OFFLINE 0x06\n")
+                f.write("/* --- SL3000 Atomic Fix End --- */\n")
+
+    # 全局更名结构体，适配内核 6.6 API
+    for p in [h_path, c_path]:
+        with open(p, 'r') as f:
+            content = f.read()
+        with open(p, 'w') as f:
+            f.write(content.replace('ethtool_eee', 'ethtool_keee'))
+
+atomic_fix('$TARGET_H', '$TARGET_C')
+EOF
             
-            # 物理审计：如果注入失败则中断
-            grep -q "HIT_BIND_FORCE_TO_CPU" "$TARGET_H" || (echo "❌ 手术失败！" && exit 1)
-            echo "✅ 手术成功，物理校验通过。"
+            # 3. 最终审计
+            echo "验证物理注入..."
+            if grep -q "HIT_BIND_FORCE_TO_CPU" "$TARGET_H"; then
+                echo "✅ 宏定义注入成功！"
+            else
+                echo "❌ 注入失败，文件内容未改变！"
+                exit 1
+            fi
         else
-            echo "❌ 物理脱靶：未找到目标文件，正在打印目录树..."
-            find build_dir/ -maxdepth 8 -name "mtk_eth_soc.h"
+            echo "❌ 物理脱靶：未找到驱动源码文件"
             exit 1
         fi
 
@@ -80,5 +110,5 @@ jobs:
     - name: Upload Artifacts
       uses: actions/upload-artifact@v4
       with:
-        name: SL3000-Final-Firmware
+        name: SL3000-Firmware
         path: openwrt/bin/targets/mediatek/filogic/
