@@ -1,4 +1,4 @@
-name: SL3000-Full-Fixed-Build
+name: SL3000-Stable-Build
 
 on:
   workflow_dispatch:
@@ -7,42 +7,42 @@ jobs:
   build:
     runs-on: ubuntu-22.04
     steps:
-      - name: 检出仓库代码
+      - name: 检出仓库
         uses: actions/checkout@v4
 
-      - name: 环境初始化 (Ubuntu 22.04)
+      - name: 物理准备环境 (替换失效的 404 链接)
         run: |
           sudo -E apt-get -qq update
-          sudo -E apt-get -qq install $(curl -fsSL https://is.gd/depends_ubuntu_2204)
+          # 直接物理枚举所有 OpenWrt 编译必备包，不再通过 curl 下载脚本
+          sudo -E apt-get -qq install build-essential clang flex bison g++ gawk gettext git \
+            libncurses5-dev libssl-dev python3-distutils rsync unzip zlib1g-dev swig \
+            libpython3-dev libelf-dev antlr3 gperf makisofs toolchain-prefix-binutils
           sudo timedatectl set-timezone "Asia/Shanghai"
 
-      - name: 克隆 OpenWrt 源码 (6.6)
+      - name: 克隆源码 (openwrt-24.10-6.6)
         run: git clone https://github.com/ykm888/66.git -b openwrt-24.10-6.6 openwrt
 
-      - name: 执行物理修复脚本 (解决路径报错)
+      - name: 执行修复脚本 (延续 1024M 定义)
         run: |
-          # 物理锁定权限：确保根目录下的脚本可执行
           chmod +x scripts/sl3000-patch.sh
-          # 进入 openwrt 运行脚本修改内核源码
           cd openwrt
           bash ../scripts/sl3000-patch.sh
 
-      - name: 注入 8000行 Config 并安装 Feeds
+      - name: 注入 8000行 Config (custom-config/sl3000.config)
         run: |
-          # 物理拷贝仓库配置到编译目录
           cp custom-config/sl3000.config openwrt/.config
           cd openwrt
           ./scripts/feeds update -a && ./scripts/feeds install -a
-          # 静默审计：补全依赖并验证配置一致性
+          # 静默审计并补全配置
           make defconfig
 
-      - name: 编译固件 (MT7981 1024M)
+      - name: 编译 (物理全流程执行)
         run: |
           cd openwrt
           make -j$(nproc) || make -j1 V=s
 
-      - name: 收集编译产物
+      - name: 上传固件
         uses: actions/upload-artifact@v4
         with:
-          name: SL3000-eMMC-1024M-Firmware
+          name: SL3000-Final-Firmware
           path: openwrt/bin/targets/mediatek/filogic/*.bin
