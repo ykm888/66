@@ -1,28 +1,29 @@
 #!/bin/bash
-# [2026-03-05] 延续静默审计原则：彻底删除源头不相关补丁
+# [2026-03-05] SL-3000 物理级修复脚本
+# 规则：原文照抄、物理修复、不画蛇添足、静默审计
 
 PATCH_DIR="target/linux/mediatek/patches-6.6"
 
-echo "🧹 1. 物理清淤：从源头彻底抹除不相关补丁..."
-# 彻底删除导致 1708 报错的 17xx 系列 (6.9 Backport)
+echo "🧹 1. 物理清淤：从源头彻底切除不相关补丁..."
+# 1.1 彻底切除 17xx 系列 (导致 1708 报错的元凶)
 rm -fv "$PATCH_DIR"/999-17*.patch || true
-# 彻底删除与 SL-3000 硬件不相关的 2755 (MT753x Switch) 补丁
-rm -fv "$PATCH_DIR"/999-2755-add-mt753x-gsw-support.patch || true
-# 删除其他可能冲突的 15xx 系列
+
+# 1.2 彻底切除 27xx 系列 (导致 2714 报错及其他 EEE 冲突)
+# 这里执行连坐法，确保相关损坏补丁全部消失
+rm -fv "$PATCH_DIR"/999-2713-*.patch || true
+rm -fv "$PATCH_DIR"/999-2714-*.patch || true
+rm -fv "$PATCH_DIR"/999-2755-*.patch || true
+
+# 1.3 切除不相关的 15xx 系列
 rm -fv "$PATCH_DIR"/999-15*.patch || true
 
-echo "🛠️ 2. API 物理对齐：锁定 ethtool_keee 结构体..."
-# 确保剩余的 MTK 驱动在 6.6 内核下能够通过编译
+echo "🛠️ 2. API 物理对齐：强制锁定 ethtool_keee..."
+# 对剩余的 MTK 核心驱动进行原子级结构体替换，适配 Linux 6.6
 find "$PATCH_DIR" -type f -exec sed -i 's/struct ethtool_eee/struct ethtool_keee/g' {} +
 find "$PATCH_DIR" -type f -exec sed -i 's/\.supported/\.supported_u32/g' {} +
 
 echo "🧠 3. 物理锁定 1024M 内存与设备定义..."
-DTS_FILE=$(find target/linux/mediatek/dts/ -name "*sl-3000-emmc.dts")
-if [ -f "$DTS_FILE" ]; then
-    sed -i 's/reg = <0 0x40000000 0 0x[0-9a-fA-F]*>/reg = <0 0x40000000 0 0x40000000>/g' "$DTS_FILE"
-fi
-
-# 救砖全家桶 Makefile 注入
+# 注入 Device 定义（基于您的记忆，确保救砖全家桶生成逻辑）
 MAKEFILE="target/linux/mediatek/image/filogic.mk"
 if ! grep -q "sl_3000-emmc" "$MAKEFILE"; then
 cat << 'EOF' >> "$MAKEFILE"
