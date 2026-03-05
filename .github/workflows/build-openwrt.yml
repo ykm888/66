@@ -1,4 +1,4 @@
-name: SL3000 Final Fix
+name: SL3000 Final Immutable Build
 
 on:
   workflow_dispatch:
@@ -12,40 +12,65 @@ jobs:
   build:
     runs-on: ubuntu-22.04
     steps:
-    - name: Checkout
-      uses: actions/checkout@v4
+      - name: Checkout Scripts
+        uses: actions/checkout@v4
 
-    - name: Init
-      run: |
-        sudo -E apt-get -qq update
-        sudo -E apt-get -qq install $(curl -fsSL https://is.gd/depends_ubuntu_2204)
+      - name: Init Environment
+        run: |
+          sudo -E apt-get -qq update
+          sudo -E apt-get -qq install $(curl -fsSL https://is.gd/depends_ubuntu_2204)
 
-    - name: Clone
-      run: git clone $REPO_URL -b $REPO_BRANCH openwrt
+      - name: Clone Source
+        run: git clone $REPO_URL -b $REPO_BRANCH openwrt
 
-    - name: Patch & Generate Tool
-      run: |
-        chmod +x $DIY_SH
-        cd openwrt && $GITHUB_WORKSPACE/$DIY_SH
+      - name: Execute Patch
+        run: |
+          chmod +x $DIY_SH
+          cd openwrt && $GITHUB_WORKSPACE/$DIY_SH
 
-    - name: Feeds
-      run: cd openwrt && ./scripts/feeds update -a && ./scripts/feeds install -a
+      - name: Update Feeds
+        run: cd openwrt && ./scripts/feeds update -a && ./scripts/feeds install -a
 
-    - name: Config
-      run: cd openwrt && make defconfig
+      - name: Generate Config
+        run: cd openwrt && make defconfig
 
-    - name: Prepare Kernel & Run Atomic Fix
-      run: |
-        cd openwrt
-        make target/linux/prepare -j$(nproc) V=s
-        # 物理执行脚本生成的修复工具
-        python3 kernel_fix.py
+      - name: Prepare Kernel Source
+        run: |
+          cd openwrt
+          make download -j8
+          # 必须执行 prepare 以便后续物理注入
+          make target/linux/prepare -j$(nproc) V=s
 
-    - name: Final Build
-      run: cd openwrt && make -j$(nproc) || make -j1 V=s
+      - name: Forced Physical Injection (解决 undeclared 错误)
+        run: |
+          cd openwrt
+          echo "🔍 正在物理定位内核驱动源码..."
+          # 全盘动态搜索，规避路径哈希偏移
+          TARGET_H=$(find build_dir/ -name "mtk_eth_soc.h" | grep "mediatek/mtk_eth_soc.h" | head -n 1)
+          TARGET_C=$(find build_dir/ -name "mtk_eth_soc.c" | grep "mediatek/mtk_eth_soc.c" | head -n 1)
 
-    - name: Upload
-      uses: actions/upload-artifact@v4
-      with:
-        name: SL3000-Firmware
-        path: openwrt/bin/targets/mediatek/filogic/
+          if [ -f "$TARGET_H" ]; then
+            echo "🎯 物理命中: $TARGET_H"
+            # 1. 物理注入宏定义
+            sed -i '/#define MTK_ETH_SOC_H/a \
+            #define HIT_BIND_FORCE_TO_CPU 0x0b\n#define MTK_FE_START_RESET 0x01\n#define MTK_FE_RESET_DONE 0x02\n#define MTK_FE_RESET_NAT_DONE 0x03\n#define MTK_WIFI_RESET_DONE 0x04\n#define MTK_WIFI_CHIP_ONLINE 0x05\n#define MTK_WIFI_CHIP_OFFLINE 0x06' "$TARGET_H"
+            
+            # 2. 全局物理更名，适配内核 6.6 API
+            sed -i 's/ethtool_eee/ethtool_keee/g' "$TARGET_H"
+            sed -i 's/ethtool_eee/ethtool_keee/g' "$TARGET_C"
+            
+            echo "✅ 物理注入完成。"
+          else
+            echo "❌ 物理脱靶：未找到驱动文件" && exit 1
+          fi
+
+      - name: Final Build
+        run: |
+          cd openwrt
+          make -j$(nproc) || make -j1 V=s
+
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: SL3000-Firmware
+          path: openwrt/bin/targets/mediatek/filogic/
