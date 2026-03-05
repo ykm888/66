@@ -1,13 +1,12 @@
-name: SL3000 Physical Final Build
+name: SL3000 Final Immutable Build
 
 on:
-  repository_dispatch:
   workflow_dispatch:
 
 env:
   REPO_URL: https://github.com/ykm888/66.git
   REPO_BRANCH: openwrt-24.10-6.6
-  DIY_P1_SH: 'scripts/sl3000-patch.sh'
+  DIY_SH: 'scripts/sl3000-patch.sh'
   TZ: Asia/Shanghai
 
 jobs:
@@ -18,51 +17,57 @@ jobs:
     - name: Checkout Scripts
       uses: actions/checkout@v4
 
-    - name: Initialization Environment
-      env:
-        DEBIAN_FRONTEND: noninteractive
+    - name: Init Environment
       run: |
-        sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc
         sudo -E apt-get -qq update
         sudo -E apt-get -qq install $(curl -fsSL https://is.gd/depends_ubuntu_2204)
-        sudo -E apt-get -qq autoremove --purge
-        sudo -E apt-get -qq clean
         sudo timedatectl set-timezone "$TZ"
 
-    - name: Clone Your Private Source
-      run: |
-        df -hT $PWD
-        git clone $REPO_URL -b $REPO_BRANCH openwrt
+    - name: Clone Source
+      run: git clone $REPO_URL -b $REPO_BRANCH openwrt
 
-    - name: Execute Physical Patch
+    - name: Execute Script Patch
       run: |
-        chmod +x $DIY_P1_SH
-        cd openwrt
-        # 一次性处理 U-Boot 重定向、架构锁定、内核补丁修复
-        $GITHUB_WORKSPACE/$DIY_P1_SH
+        chmod +x $DIY_SH
+        cd openwrt && $GITHUB_WORKSPACE/$DIY_SH
 
-    - name: Update & Install Feeds
-      run: |
-        cd openwrt
-        ./scripts/feeds update -a
-        ./scripts/feeds install -a
+    - name: Update Feeds
+      run: cd openwrt && ./scripts/feeds update -a && ./scripts/feeds install -a
 
-    - name: Finalize Configuration
-      run: |
-        cd openwrt
-        # 强制清除可能存在的 x86 偏移配置
-        sed -i 's/CONFIG_TARGET_x86=y/# CONFIG_TARGET_x86 is not set/' .config
-        make defconfig
+    - name: Generate Config
+      run: cd openwrt && make defconfig
 
-    - name: Download & Compile
+    - name: Download Packages
+      run: cd openwrt && make download -j8
+
+    - name: Prepare Kernel & Physical Inject (物理补完)
       run: |
         cd openwrt
-        make download -j8
-        echo "Starting World Build..."
-        # 此时内核补丁已修复，编译将顺利通过 mtk_eth_soc.o
+        # 1. 强制解压内核源码并应用“存活”的补丁
+        make target/linux/prepare -j$(nproc) V=s
+        
+        # 2. 定位源码目录（物理锁定 linux-6.6.95）
+        K_DIR=$(find build_dir/ -name "linux-6.6.95" -type d | head -n 1)
+        ETH_H="$K_DIR/drivers/net/ethernet/mediatek/mtk_eth_soc.h"
+        ETH_C="$K_DIR/drivers/net/ethernet/mediatek/mtk_eth_soc.c"
+        
+        if [ -f "$ETH_H" ]; then
+            echo "正在执行物理源码手术：$ETH_H"
+            # 物理注入缺失的宏定义，确保编译不再 undeclared
+            sed -i '/#define MTK_ETH_SOC_H/a #define HIT_BIND_FORCE_TO_CPU 0x0b\n#define MTK_FE_START_RESET 0x01\n#define MTK_FE_RESET_DONE 0x02\n#define MTK_FE_RESET_NAT_DONE 0x03\n#define MTK_WIFI_RESET_DONE 0x04\n#define MTK_WIFI_CHIP_ONLINE 0x05\n#define MTK_WIFI_CHIP_OFFLINE 0x06' "$ETH_H"
+            
+            # 将冲突补丁没能完成的结构体替换，通过 sed 直接在源码完成
+            sed -i 's/ethtool_eee/ethtool_keee/g' "$ETH_C"
+            sed -i 's/ethtool_eee/ethtool_keee/g' "$ETH_H"
+            echo "源码手术完成。"
+        fi
+
+    - name: Final Build
+      run: |
+        cd openwrt
         make -j$(nproc) || make -j1 V=s
 
-    - name: Upload Artifacts
+    - name: Upload
       uses: actions/upload-artifact@v4
       with:
         name: SL3000-Firmware
