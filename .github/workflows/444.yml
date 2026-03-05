@@ -1,0 +1,58 @@
+name: SL-3000-源码补丁物理清理
+
+on:
+  workflow_dispatch: # 手动触发，一键清淤
+
+env:
+  REPO_URL: https://github.com/ykm888/66.git
+  REPO_BRANCH: openwrt-24.10-6.6
+  # 定义物理路径，确保精准打击
+  PATCH_PATH: target/linux/mediatek/patches-6.6
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: 1. 物理克隆仓库源
+        run: |
+          # 使用 --depth 1 快速抓取源头文件
+          git clone --depth 1 $REPO_URL -b $REPO_BRANCH openwrt
+
+      - name: 2. 彻底切除不相关补丁 (物理清淤)
+        working-directory: openwrt
+        run: |
+          cd ${{ env.PATCH_PATH }}
+          echo "🚫 正在从源头抹除冲突补丁..."
+          
+          # 物理删除：导致 1708 报错的 2.5G EEE 和 汽车以太网系列 (1700-1709)
+          rm -v 999-170*.patch || true
+          
+          # 物理删除：导致 mdio 冲突的 6.10 Backport 系列 (1500-1599)
+          rm -v 999-15*.patch || true
+          
+          # 物理删除：非路由核心的实验性网络补丁 (2xxx 系列)
+          rm -v 999-2*.patch || true
+          
+          echo "✅ 源头清理完成。"
+
+      - name: 3. 物理修复存量补丁 API (ethtool_keee)
+        working-directory: openwrt
+        run: |
+          # 即使删除了外来干扰，剩下的 MTK 驱动补丁也必须在物理上对齐 6.6 内核 API
+          cd ${{ env.PATCH_PATH }}
+          find . -type f -exec sed -i 's/struct ethtool_eee/struct ethtool_keee/g' {} +
+          find . -type f -exec sed -i 's/\.supported/\.supported_u32/g' {} +
+          echo "🛠️ 存量补丁 API 已完成物理对齐。"
+
+      - name: 4. 物理审计：输出最终补丁清单
+        working-directory: openwrt
+        run: |
+          echo "📋 --- 物理审计报告：当前源头保留的 999 系列补丁 ---"
+          ls -1 ${{ env.PATCH_PATH }} | grep "999-"
+          echo "----------------------------------------------------"
+
+      - name: 5. 导出纯净补丁包
+        uses: actions/upload-artifact@v4
+        with:
+          name: Clean-Router-Only-Patches
+          path: openwrt/${{ env.PATCH_PATH }}/*.patch
