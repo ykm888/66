@@ -1,4 +1,4 @@
-name: SL3000-6.6-Source-Fixed-Build
+name: Build-SL3000-Fixed
 
 on:
   workflow_dispatch:
@@ -7,36 +7,39 @@ jobs:
   build:
     runs-on: ubuntu-22.04
     steps:
-      - name: Checkout
+      - name: 检出代码
         uses: actions/checkout@v4
 
-      - name: Init
+      - name: 准备物理执行环境
         run: |
           sudo -E apt-get -qq update
           sudo -E apt-get -qq install $(curl -fsSL https://is.gd/depends_ubuntu_2204)
+          sudo timedatectl set-timezone "Asia/Shanghai"
 
-      - name: Clone OpenWrt
+      - name: 克隆 OpenWrt 源码 (6.6)
         run: git clone https://github.com/ykm888/66.git -b openwrt-24.10-6.6 openwrt
 
-      - name: Apply Physical Fixes
+      - name: 执行物理修复与静默审计
         run: |
-          chmod +x scripts/sl3000-patch.sh
-          cd openwrt && ../scripts/sl3000-patch.sh
+          chmod +x scripts/sl3000-master-fix.sh
+          cd openwrt && ../scripts/sl3000-master-fix.sh
 
-      - name: Update Feeds
+      - name: 更新插件包
         run: cd openwrt && ./scripts/feeds update -a && ./scripts/feeds install -a
 
-      - name: Generate Config
-        run: cd openwrt && make defconfig
+      - name: 注入 8000 行 Config
+        run: |
+          # 假设你的 main 分支有已经导出的 .config
+          cp config/sl3000.config openwrt/.config
+          cd openwrt && make defconfig
 
-      - name: Build Firmware
+      - name: 编译固件 (物理监控模式)
         run: |
           cd openwrt
-          # 第一次执行用多线程，失败则自动切单线程导出错误日志
           make -j$(nproc) || make -j1 V=s
 
-      - name: Upload Artifacts
+      - name: 上传产物
         uses: actions/upload-artifact@v4
         with:
-          name: SL3000-Fixed-Firmware
-          path: openwrt/bin/targets/mediatek/filogic/
+          name: SL3000-1024M-Firmware
+          path: openwrt/bin/targets/mediatek/filogic/*.bin
