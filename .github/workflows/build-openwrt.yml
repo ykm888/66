@@ -1,12 +1,7 @@
-name: SL3000 Ultimate Physical Fix
+name: SL3000-6.6-Source-Fixed-Build
 
 on:
   workflow_dispatch:
-
-env:
-  REPO_URL: https://github.com/ykm888/66.git
-  REPO_BRANCH: openwrt-24.10-6.6
-  DIY_SH: 'scripts/sl3000-patch.sh'
 
 jobs:
   build:
@@ -20,13 +15,13 @@ jobs:
           sudo -E apt-get -qq update
           sudo -E apt-get -qq install $(curl -fsSL https://is.gd/depends_ubuntu_2204)
 
-      - name: Clone
-        run: git clone $REPO_URL -b $REPO_BRANCH openwrt
+      - name: Clone OpenWrt
+        run: git clone https://github.com/ykm888/66.git -b openwrt-24.10-6.6 openwrt
 
-      - name: Execute DIY Script
+      - name: Apply Physical Fixes
         run: |
-          chmod +x $DIY_SH
-          cd openwrt && $GITHUB_WORKSPACE/$DIY_SH
+          chmod +x scripts/sl3000-patch.sh
+          cd openwrt && ../scripts/sl3000-patch.sh
 
       - name: Update Feeds
         run: cd openwrt && ./scripts/feeds update -a && ./scripts/feeds install -a
@@ -34,45 +29,14 @@ jobs:
       - name: Generate Config
         run: cd openwrt && make defconfig
 
-      - name: Prepare Kernel Source
+      - name: Build Firmware
         run: |
           cd openwrt
-          make download -j8
-          make target/linux/prepare -j$(nproc) V=s
-
-      - name: Dynamic Physical Surgery (特征码手术)
-        run: |
-          cd openwrt
-          echo "🔍 物理定位驱动源码..."
-          # 动态搜索文件路径
-          FILE_H=$(find build_dir/ -name "mtk_eth_soc.h" | grep "mediatek/mtk_eth_soc.h" | head -n 1)
-          FILE_C=$(find build_dir/ -name "mtk_eth_soc.c" | grep "mediatek/mtk_eth_soc.c" | head -n 1)
-
-          if [ -n "$FILE_H" ]; then
-            echo "🎯 命中：$FILE_H"
-            # 1. 注入宏定义：在 MTK_ETH_SOC_H 后面插入定义块，不管它在第几行
-            sed -i '/#define MTK_ETH_SOC_H/a \
-            #define HIT_BIND_FORCE_TO_CPU 0x0b\n#define MTK_FE_START_RESET 0x01\n#define MTK_FE_RESET_DONE 0x02\n#define MTK_FE_RESET_NAT_DONE 0x03\n#define MTK_WIFI_RESET_DONE 0x04\n#define MTK_WIFI_CHIP_ONLINE 0x05\n#define MTK_WIFI_CHIP_OFFLINE 0x06' "$FILE_H"
-            
-            # 2. 修复 API：物理替换 ethtool 结构体名
-            sed -i 's/ethtool_eee/ethtool_keee/g' "$FILE_H"
-            sed -i 's/ethtool_eee/ethtool_keee/g' "$FILE_C"
-            
-            # 3. 强制修复具体报错行（基于特征字符串匹配）
-            sed -i 's/HIT_BIND_FORCE_TO_CPU/0x0b/g' "$FILE_C"
-            
-            echo "✅ 物理手术完成。"
-          else
-            echo "❌ 未找到目标文件" && exit 1
-          fi
-
-      - name: Final Build
-        run: |
-          cd openwrt
+          # 第一次执行用多线程，失败则自动切单线程导出错误日志
           make -j$(nproc) || make -j1 V=s
 
-      - name: Upload
+      - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: SL3000-Final-Firmware
+          name: SL3000-Fixed-Firmware
           path: openwrt/bin/targets/mediatek/filogic/
