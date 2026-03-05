@@ -1,4 +1,4 @@
-name: SL3000 Final Immutable Build
+name: SL3000 Final Fix
 
 on:
   workflow_dispatch:
@@ -23,7 +23,7 @@ jobs:
     - name: Clone
       run: git clone $REPO_URL -b $REPO_BRANCH openwrt
 
-    - name: Patch
+    - name: Patch & Generate Tool
       run: |
         chmod +x $DIY_SH
         cd openwrt && $GITHUB_WORKSPACE/$DIY_SH
@@ -34,14 +34,14 @@ jobs:
     - name: Config
       run: cd openwrt && make defconfig
 
-    - name: Prepare Kernel
+    - name: Prepare Kernel & Run Atomic Fix
       run: |
         cd openwrt
         make target/linux/prepare -j$(nproc) V=s
-        # 物理调用脚本生成的 Python 手术刀
+        # 物理执行脚本生成的修复工具
         python3 kernel_fix.py
 
-    - name: Build
+    - name: Final Build
       run: cd openwrt && make -j$(nproc) || make -j1 V=s
 
     - name: Upload
