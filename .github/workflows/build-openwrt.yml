@@ -1,4 +1,4 @@
-name: SL3000-Stable-Build
+name: SL3000-Stable-Build-Final
 
 on:
   workflow_dispatch:
@@ -10,20 +10,22 @@ jobs:
       - name: 检出仓库
         uses: actions/checkout@v4
 
-      - name: 物理准备环境 (替换失效的 404 链接)
+      - name: 物理准备环境 (对齐 22.04 官方最稳依赖)
         run: |
           sudo -E apt-get -qq update
-          # 直接物理枚举所有 OpenWrt 编译必备包，不再通过 curl 下载脚本
-          sudo -E apt-get -qq install build-essential clang flex bison g++ gawk gettext git \
-            libncurses5-dev libssl-dev python3-distutils rsync unzip zlib1g-dev swig \
-            libpython3-dev libelf-dev antlr3 gperf makisofs toolchain-prefix-binutils
+          # 这一行是 OpenWrt 官方文档定义的“原文照抄”基础包，去掉了报错的过时包名
+          sudo -E apt-get -qq install build-essential clang flex bison g++ gawk \
+            gettext git libncurses5-dev libssl-dev python3-distutils rsync unzip \
+            zlib1g-dev swig libpython3-dev libelf-dev antlr3 gperf genisoimage \
+            device-tree-compiler
           sudo timedatectl set-timezone "Asia/Shanghai"
 
       - name: 克隆源码 (openwrt-24.10-6.6)
         run: git clone https://github.com/ykm888/66.git -b openwrt-24.10-6.6 openwrt
 
-      - name: 执行修复脚本 (延续 1024M 定义)
+      - name: 执行修复脚本 (延续 2026-03-02 核心设置)
         run: |
+          # 确保权限并执行你仓库里的 scripts/sl3000-patch.sh
           chmod +x scripts/sl3000-patch.sh
           cd openwrt
           bash ../scripts/sl3000-patch.sh
@@ -33,10 +35,10 @@ jobs:
           cp custom-config/sl3000.config openwrt/.config
           cd openwrt
           ./scripts/feeds update -a && ./scripts/feeds install -a
-          # 静默审计并补全配置
+          # 这一步非常重要：让 8000 行配置与 6.6 内核物理对齐
           make defconfig
 
-      - name: 编译 (物理全流程执行)
+      - name: 编译固件
         run: |
           cd openwrt
           make -j$(nproc) || make -j1 V=s
@@ -44,5 +46,5 @@ jobs:
       - name: 上传固件
         uses: actions/upload-artifact@v4
         with:
-          name: SL3000-Final-Firmware
+          name: SL3000-1024M-Firmware
           path: openwrt/bin/targets/mediatek/filogic/*.bin
