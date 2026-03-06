@@ -1,62 +1,80 @@
-name: 物理强删-源头彻底抹除不相关补丁
+name: Clean sl3000.config
 
 on:
-  workflow_dispatch: # 手动点击触发
+  workflow_dispatch:          # 允许手动触发
+  push:
+    paths:
+      - 'custom-config/sl3000.config'   # 当文件被推送时自动触发（可选，可按需启用）
 
 jobs:
-  permanent_delete:
+  clean-config:
     runs-on: ubuntu-latest
     permissions:
-      contents: write # 必须：授权回写权限
+      contents: write          # 允许向仓库推送更改
 
     steps:
-      - name: 1. 检出仓库 (带回写权限)
+      - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          ref: openwrt-24.10-6.6
-          fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }} # 显式使用令牌确保权限
+          token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: 2. 物理执行“外科手术”级删除
+      - name: Verify config file exists
         run: |
-          TARGET_DIR="target/linux/mediatek/patches-6.6"
-          echo "🔍 正在进入物理目录: $TARGET_DIR"
-          
-          if [ -d "$TARGET_DIR" ]; then
-            cd $TARGET_DIR
-            
-            # 物理删除所有冲突序号段补丁
-            echo "🧹 正在从源头物理抹除 1xxx/2xxx/3xxx/MT7988 系列..."
-            rm -fv 999-1*.patch
-            rm -fv 999-2*.patch
-            rm -fv 999-3*.patch
-            rm -fv *7988*.patch
-            rm -fv *mt753x*.patch
-            
-            echo "🛠️ 正在执行 API 物理对齐 (ethtool_keee)..."
-            # 即使删除了一部分，剩下的补丁也必须修改源码内容
-            find . -type f -name "*.patch" -exec sed -i 's/struct ethtool_eee/struct ethtool_keee/g' {} +
-            find . -type f -name "*.patch" -exec sed -i 's/\.supported/\.supported_u32/g' {} +
-
-            echo "📋 物理审计：当前剩余 999 系列补丁清单:"
-            ls -1
-          else
-            echo "❌ 错误：找不到物理路径 $TARGET_DIR"
+          if [ ! -f custom-config/sl3000.config ]; then
+            echo "❌ File custom-config/sl3000.config not found!"
             exit 1
           fi
+          echo "✅ Found custom-config/sl3000.config"
 
-      - name: 3. 物理回写 (强制推送)
+      - name: Clean up the config file
         run: |
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git config --global user.name "github-actions[bot]"
-          
-          # 强制同步所有删除和修改动作
-          git add -A target/linux/mediatek/patches-6.6/
-          
-          # 检查是否有改动并物理推送
-          if git commit -m "物理清淤：从源头彻底抹除 1xxx/2xxx/3xxx 冗余补丁并对齐 API"; then
-            echo "🚀 正在将删除操作强制推送到远程分支 openwrt-24.10-6.6..."
-            git push origin HEAD:openwrt-24.10-6.6 --force
+          CONFIG_FILE="custom-config/sl3000.config"
+          TMP_FILE=$(mktemp)
+
+          # 复制原始文件到临时文件
+          cp "$CONFIG_FILE" "$TMP_FILE"
+
+          # 1. 启用 mt7981 无线固件
+          sed -i 's/# CONFIG_PACKAGE_mt7981-wo-firmware is not set/CONFIG_PACKAGE_mt7981-wo-firmware=y/' "$TMP_FILE"
+
+          # 2. 关闭内核调试选项
+          sed -i 's/^CONFIG_KERNEL_DEBUG_INFO=y/# CONFIG_KERNEL_DEBUG_INFO is not set/' "$TMP_FILE"
+          sed -i 's/^CONFIG_KERNEL_DEBUG_KERNEL=y/# CONFIG_KERNEL_DEBUG_KERNEL is not set/' "$TMP_FILE"
+          sed -i 's/^CONFIG_KERNEL_DEBUG_INFO_REDUCED=y/# CONFIG_KERNEL_DEBUG_INFO_REDUCED is not set/' "$TMP_FILE"
+
+          # 3. 将 MTK Wi-Fi 驱动改为内置
+          sed -i 's/^CONFIG_MTK_MT_WIFI=m/CONFIG_MTK_MT_WIFI=y/' "$TMP_FILE"
+
+          # 4. （可选）移除所有注释的配置行，减小文件体积（需确认是否必要）
+          # sed -i '/^# CONFIG_/d' "$TMP_FILE"
+
+          # 5. 比较临时文件与原文件是否有变化
+          if cmp -s "$CONFIG_FILE" "$TMP_FILE"; then
+            echo "✅ No changes needed, file is already clean."
+            rm "$TMP_FILE"
+            exit 0
+          fi
+
+          # 6. 将更新后的文件写回原位置
+          cp "$TMP_FILE" "$CONFIG_FILE"
+          echo "✅ Cleaned config saved to $CONFIG_FILE"
+          rm "$TMP_FILE"
+
+          # 显示修改差异（便于查看）
+          echo "📋 Changes made:"
+          git diff "$CONFIG_FILE" || true
+
+      - name: Commit and push changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          git add custom-config/sl3000.config
+
+          if git diff --staged --quiet; then
+            echo "No changes to commit."
           else
-            echo "✨ 仓库已经是净化的，无需物理操作。"
+            git commit -m "chore(config): clean up sl3000.config"
+            git push
+            echo "✅ Changes pushed to repository."
           fi
