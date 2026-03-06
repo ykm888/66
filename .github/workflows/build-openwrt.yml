@@ -1,10 +1,9 @@
-name: SL-3000-1024M-eMMC-Build
+name: SL-3000-1024M-eMMC-Master-Build
 
 on:
   workflow_dispatch:
 
 env:
-  # 像素级对齐：锁死你的私有仓库源与分支
   REPO_URL: https://github.com/ykm888/66
   REPO_BRANCH: openwrt-24.10-6.6
   FEEDS_CONF: feeds.conf.default
@@ -17,16 +16,15 @@ jobs:
     runs-on: ubuntu-22.04
 
     steps:
-      - name: 1. 物理环境检出
+      - name: 1. 物理环境检出 (Checkout)
         uses: actions/checkout@v4
 
-      - name: 2. 初始化编译环境 (修复 404 依赖错误)
+      - name: 2. 初始化编译环境 (Initialization)
         env:
           DEBIAN_FRONTEND: noninteractive
         run: |
           sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc
           sudo -E apt-get -qq update
-          # 物理修复：替换失效链接，直接安装依赖
           sudo -E apt-get -qq install -y ack antlr3 asciidoc autoconf automake autopoint binutils bison build-essential bzip2 ccache cmake cpio curl device-tree-compiler fastjar flex gawk gettext gcc-multilib g++-multilib git gperf haveged help2man intltool libc6-dev-i386 libelf-dev libglib2.0-dev libgpgme11-dev libltdl-dev libmpc-dev libmpfr-dev libncurses5-dev libncursesw5-dev libreadline-dev libssl-dev libtool lrzsz mkisofs msmtp nano ninja-build p7zip p7zip-full patch pkgconf python3 python3-pip python3-pyelftools qemu-utils rsync scons squashfs-tools subversion swig texinfo uglifyjs upx-ucl unzip vim wget xmlto xxd zlib1g-dev
           sudo -E apt-get -qq autoremove --purge
           sudo -E apt-get -qq clean
@@ -34,46 +32,69 @@ jobs:
           sudo mkdir -p /workdir
           sudo chown $USER:$GROUPS /workdir
 
-      - name: 3. 克隆源码与同步 Feeds (锁死 ykm888/66 源)
+      - name: 3. 克隆源码仓库 (Clone Source)
         working-directory: /workdir
         run: |
-          df -hT $PWD
-          # 物理执行：克隆你指定的仓库与分支
           git clone $REPO_URL -b $REPO_BRANCH openwrt
           ln -sf /workdir/openwrt ${{ github.workspace }}/openwrt
+
+      - name: 4. 加载自定义 Feeds (Update & Install Feeds)
+        run: |
           cd openwrt
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
-      - name: 4. 注入 SL-3000 物理优化脚本
+      - name: 5. 延续修复补丁 (Apply Fixed Patches)
+        # 物理延续：将你修复好的补丁强制覆盖到内核，防止被冲掉
+        run: |
+          mkdir -p openwrt/target/linux/mediatek/patches-6.6/
+          [ -d patches ] && cp -f patches/*.patch openwrt/target/linux/mediatek/patches-6.6/ || echo "No custom patches found."
+
+      - name: 6. 物理注入 DIY 脚本 (Execute DIY Script)
         run: |
           [ -e $CONFIG_FILE ] && cp $CONFIG_FILE openwrt/.config
           chmod +x $DIY_P1_SH
+          ./$DIY_P1_SH
           cd openwrt
-          # 物理执行 1024M 内存注入与内核减脂逻辑
-          ../$DIY_P1_SH
           make defconfig
 
-      - name: 5. 像素级静默审计与内核编译
+      - name: 7. 下载编译依赖 (Download Library)
         run: |
           cd openwrt
-          echo -e "$(nproc) thread compile"
-          # 优先编译内核，验证补丁删除后的源码纯净度
+          make download -j8
+          find dl -size -1024c -exec ls -l {} \;
+          find dl -size -1024c -exec rm -f {} \;
+
+      - name: 8. 编译工具链 (Compile Toolchain)
+        run: |
+          cd openwrt
+          make tools/compile -j$(nproc) || make tools/compile -j1 V=s
+
+      - name: 9. 编译内核与驱动 (Compile Target/Linux)
+        run: |
+          cd openwrt
           make target/linux/compile -j$(nproc) || make target/linux/compile -j1 V=s
 
-      - name: 6. 完整构建全流程
+      - name: 10. 构建完整镜像 (Build Firmware)
         run: |
           cd openwrt
           make -j$(nproc) || make -j1 V=s
 
-      - name: 7. 物理产物整理与上传
+      - name: 11. 整理救砖全家桶 (Organize Artifacts)
         if: success()
         run: |
           cd openwrt/bin/targets/mediatek/filogic/
-          echo "FIRMWARE=$PWD" >> $GITHUB_ENV
+          mkdir -p recovery_kit
+          cp -f *emmc-gpt.bin recovery_kit/ 2>/dev/null || true
+          cp -f *emmc-preloader.bin recovery_kit/ 2>/dev/null || true
+          cp -f *emmc-bl31-uboot.fip recovery_kit/ 2>/dev/null || true
+          cp -f *-recovery.itb recovery_kit/ 2>/dev/null || true
+          cp -f *factory.img.gz recovery_kit/ 2>/dev/null || true
+          cp -f *sysupgrade.bin recovery_kit/ 2>/dev/null || true
+          echo "FIRMWARE_PACK=$PWD/recovery_kit" >> $GITHUB_ENV
 
-      - name: 8. 上传固件至 Artifacts
+      - name: 12. 上传物理产物 (Upload Artifacts)
         uses: actions/upload-artifact@v4
         with:
-          name: SL-3000-1024M-eMMC-Firmware
-          path: ${{ env.FIRMWARE }}/*
+          name: SL-3000-1024M-MASTER-KIT
+          path: ${{ env.FIRMWARE_PACK }}/*
