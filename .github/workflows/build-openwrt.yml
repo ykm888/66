@@ -49,7 +49,7 @@ jobs:
           mkdir -p openwrt/target/linux/mediatek/patches-6.6/
           [ -d patches ] && cp -f patches/*.patch openwrt/target/linux/mediatek/patches-6.6/ || echo "No custom patches found."
 
-      - name: 6. 物理注入 DIY 脚本 (基于 2版工作流延续)
+      - name: 6. 物理注入 DIY 脚本 (基于 3版工作流延续)
         run: |
           [ -e $CONFIG_FILE ] && cp $CONFIG_FILE openwrt/.config
           chmod +x $DIY_P1_SH
@@ -57,7 +57,7 @@ jobs:
           cd openwrt
           make defconfig
 
-      - name: 7. 下载编译依赖 (原文照抄 1版)
+      - name: 7. 下载编译依赖 (原文照抄)
         run: |
           cd openwrt
           make download -j8
@@ -65,23 +65,20 @@ jobs:
       - name: 8. 编译工具链与编译器 (强化物理修复)
         run: |
           cd openwrt
-          # 增加编译完整 toolchain 逻辑，确保 gcc 物理存在
           make tools/compile -j$(nproc) || make tools/compile -j1 V=s
           make toolchain/compile -j$(nproc) || make toolchain/compile -j1 V=s
 
       - name: 9. 编译内核与驱动 (内核 6.6 物理编译)
         run: |
           cd openwrt
-          # 将编译器路径加入环境变量
-          PATH=$PATH:$(pwd)/staging_dir/toolchain-aarch64_cortex-a53_gcc-13.3.0_musl/bin
           make target/linux/compile -j$(nproc) || make target/linux/compile -j1 V=s
 
-      - name: 10. 构建完整镜像 (原文照抄 1版)
+      - name: 10. 构建完整镜像 (解决 WARP 依赖后尝试全局构建)
         run: |
           cd openwrt
           make -j$(nproc) || make -j1 V=s
 
-      - name: 11. 整理救砖全家桶 (原文照抄 1版)
+      - name: 11. 整理救砖全家桶 (原文照抄)
         if: success()
         run: |
           cd openwrt/bin/targets/mediatek/filogic/
@@ -94,7 +91,7 @@ jobs:
           cp -f *sysupgrade.bin recovery_kit/ 2>/dev/null || true
           echo "FIRMWARE_PACK=$PWD/recovery_kit" >> $GITHUB_ENV
 
-      - name: 12. 上传物理产物 (原文照抄 1版)
+      - name: 12. 上传物理产物 (原文照抄)
         uses: actions/upload-artifact@v4
         with:
           name: SL-3000-1024M-MASTER-KIT
