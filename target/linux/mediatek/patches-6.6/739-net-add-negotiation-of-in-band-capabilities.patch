@@ -545,7 +545,7 @@ publishing the in-band capabilities from the BCM84881 PHY driver.
  	/* Always set the carrier off */
 @@ -2495,7 +2683,7 @@ int phylink_ethtool_ksettings_get(struct
  
- 	linkmode_copy(kset->link_modes.supported_u32_u32_u32_u32_u32, pl->supported);
+ 	linkmode_copy(kset->link_modes.supported_u32_u32_u32_u32_u32_u32, pl->supported);
  
 -	switch (pl->cur_link_an_mode) {
 +	switch (pl->act_link_an_mode) {
