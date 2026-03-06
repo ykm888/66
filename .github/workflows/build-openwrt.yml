@@ -1,4 +1,4 @@
-name: SL-3000-1024M-Final-Build
+name: SL-3000-1024M-Physical-Fix
 
 on:
   workflow_dispatch:
@@ -19,55 +19,48 @@ jobs:
           sudo -E apt-get -qq install $(curl -fsSL https://is.gd/depends_ubuntu_2204)
           sudo timedatectl set-timezone "$TZ"
 
-      - name: 3. 物理对齐配置文件 (锁定 custom-config 路径)
-        run: |
-          echo "🔍 正在从 custom-config 同步 sl3000.config..."
-          if [ -f "custom-config/sl3000.config" ]; then
-              cp -v custom-config/sl3000.config ${{ github.workspace }}/sl3000.config
-          else
-              echo "❌ 错误: 在 custom-config/ 目录下找不到 sl3000.config"
-              ls -R
-              exit 1
-          fi
-
-      - name: 4. 检出源码 (OpenWrt 6.6)
+      - name: 3. 检出源码 (OpenWrt 6.6)
         run: |
           git clone --depth 1 -b openwrt-24.10-6.6 https://github.com/ykm888/66 openwrt
 
-      - name: 5. 注入配置与执行核心优化 (静默审计执行)
+      - name: 4. 物理安装 Feeds 依赖 (解决 WARNING 关键步)
         run: |
-          # 物理移动配置到源码目录并重命名
-          cp -v ${{ github.workspace }}/sl3000.config ${{ github.workspace }}/openwrt/.config
+          cd openwrt
+          # 先更新索引，再强制安装，确保所有 libev/luci 等包物理存在
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
+
+      - name: 5. 注入 8000 行配置并执行优化脚本
+        run: |
+          # 从指定路径复制配置
+          cp -v custom-config/sl3000.config openwrt/.config
           
-          cd ${{ github.workspace }}/openwrt
-          # 执行内核优化、1024M 定义注入、以及 Error 255 物理修复
+          cd openwrt
+          # 执行内核瘦身、1024M 定义及架构纠偏
           chmod +x ../scripts/sl3000-patch.sh
           ../scripts/sl3000-patch.sh
 
-      - name: 6. 更新 Feeds 并下载包
+      - name: 6. 最终下载包与物理编译
         run: |
-          cd ${{ github.workspace }}/openwrt
-          ./scripts/feeds update -a && ./scripts/feeds install -a
+          cd openwrt
+          # 根据最终 .config 下载源码包
           make download -j$(nproc)
-
-      - name: 7. 物理级全流程编译
-        run: |
-          cd ${{ github.workspace }}/openwrt
+          # 开始全流程编译
           make -j$(nproc) || make -j1 V=s
 
-      - name: 8. 整理固件产物
+      - name: 7. 整理固件产物
         if: success()
         run: |
-          cd ${{ github.workspace }}/openwrt/bin/targets/mediatek/filogic/
+          cd openwrt/bin/targets/mediatek/filogic/
           mkdir -p /tmp/upload
           cp -v *sl_3000-emmc* /tmp/upload/ || true
           cp -v *emmc-gpt.bin *emmc-preloader.bin *emmc-bl31-uboot.fip /tmp/upload/ || true
 
-      - name: 9. 发布到 Release
+      - name: 8. 发布到 Release
         uses: softprops/action-gh-release@v1
         if: success()
         with:
-          tag_name: SL-3000-Final-v3
+          tag_name: SL-3000-V2026-Final
           files: /tmp/upload/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
