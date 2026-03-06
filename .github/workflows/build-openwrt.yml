@@ -4,7 +4,8 @@ on:
   workflow_dispatch:
 
 env:
-  REPO_URL: https://github.com/openwrt/openwrt
+  # 像素级对齐：锁死你的私有仓库源与分支
+  REPO_URL: https://github.com/ykm888/66
   REPO_BRANCH: openwrt-24.10-6.6
   FEEDS_CONF: feeds.conf.default
   CONFIG_FILE: custom-config/sl3000.config
@@ -25,6 +26,7 @@ jobs:
         run: |
           sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc
           sudo -E apt-get -qq update
+          # 物理修复：替换失效链接，直接安装依赖
           sudo -E apt-get -qq install -y ack antlr3 asciidoc autoconf automake autopoint binutils bison build-essential bzip2 ccache cmake cpio curl device-tree-compiler fastjar flex gawk gettext gcc-multilib g++-multilib git gperf haveged help2man intltool libc6-dev-i386 libelf-dev libglib2.0-dev libgpgme11-dev libltdl-dev libmpc-dev libmpfr-dev libncurses5-dev libncursesw5-dev libreadline-dev libssl-dev libtool lrzsz mkisofs msmtp nano ninja-build p7zip p7zip-full patch pkgconf python3 python3-pip python3-pyelftools qemu-utils rsync scons squashfs-tools subversion swig texinfo uglifyjs upx-ucl unzip vim wget xmlto xxd zlib1g-dev
           sudo -E apt-get -qq autoremove --purge
           sudo -E apt-get -qq clean
@@ -32,10 +34,11 @@ jobs:
           sudo mkdir -p /workdir
           sudo chown $USER:$GROUPS /workdir
 
-      - name: 3. 克隆源码与同步 Feeds
+      - name: 3. 克隆源码与同步 Feeds (锁死 ykm888/66 源)
         working-directory: /workdir
         run: |
           df -hT $PWD
+          # 物理执行：克隆你指定的仓库与分支
           git clone $REPO_URL -b $REPO_BRANCH openwrt
           ln -sf /workdir/openwrt ${{ github.workspace }}/openwrt
           cd openwrt
@@ -47,7 +50,7 @@ jobs:
           [ -e $CONFIG_FILE ] && cp $CONFIG_FILE openwrt/.config
           chmod +x $DIY_P1_SH
           cd openwrt
-          # 执行上一版已修复的 1024M 内存注入与内核瘦身逻辑
+          # 物理执行 1024M 内存注入与内核减脂逻辑
           ../$DIY_P1_SH
           make defconfig
 
@@ -55,7 +58,7 @@ jobs:
         run: |
           cd openwrt
           echo -e "$(nproc) thread compile"
-          # 延续物理修复原则，优先编译内核以确认补丁清淤结果
+          # 优先编译内核，验证补丁删除后的源码纯净度
           make target/linux/compile -j$(nproc) || make target/linux/compile -j1 V=s
 
       - name: 6. 完整构建全流程
