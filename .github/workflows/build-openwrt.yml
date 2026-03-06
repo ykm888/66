@@ -1,66 +1,76 @@
-name: SL-3000-1024M-Physical-Fix
+name: SL-3000-1024M-eMMC-Build
 
 on:
   workflow_dispatch:
 
 env:
+  REPO_URL: https://github.com/openwrt/openwrt
+  REPO_BRANCH: openwrt-24.10-6.6
+  FEEDS_CONF: feeds.conf.default
+  CONFIG_FILE: custom-config/sl3000.config
+  DIY_P1_SH: scripts/sl3000-patch.sh
   TZ: Asia/Shanghai
 
 jobs:
   build:
     runs-on: ubuntu-22.04
+
     steps:
-      - name: 1. 物理环境初始化
+      - name: 1. 物理环境检出
         uses: actions/checkout@v4
 
-      - name: 2. 安装编译依赖
+      - name: 2. 初始化编译环境 (修复 404 依赖错误)
+        env:
+          DEBIAN_FRONTEND: noninteractive
         run: |
+          sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc
           sudo -E apt-get -qq update
-          sudo -E apt-get -qq install $(curl -fsSL https://is.gd/depends_ubuntu_2204)
+          sudo -E apt-get -qq install -y ack antlr3 asciidoc autoconf automake autopoint binutils bison build-essential bzip2 ccache cmake cpio curl device-tree-compiler fastjar flex gawk gettext gcc-multilib g++-multilib git gperf haveged help2man intltool libc6-dev-i386 libelf-dev libglib2.0-dev libgpgme11-dev libltdl-dev libmpc-dev libmpfr-dev libncurses5-dev libncursesw5-dev libreadline-dev libssl-dev libtool lrzsz mkisofs msmtp nano ninja-build p7zip p7zip-full patch pkgconf python3 python3-pip python3-pyelftools qemu-utils rsync scons squashfs-tools subversion swig texinfo uglifyjs upx-ucl unzip vim wget xmlto xxd zlib1g-dev
+          sudo -E apt-get -qq autoremove --purge
+          sudo -E apt-get -qq clean
           sudo timedatectl set-timezone "$TZ"
+          sudo mkdir -p /workdir
+          sudo chown $USER:$GROUPS /workdir
 
-      - name: 3. 检出源码 (OpenWrt 6.6)
+      - name: 3. 克隆源码与同步 Feeds
+        working-directory: /workdir
         run: |
-          git clone --depth 1 -b openwrt-24.10-6.6 https://github.com/ykm888/66 openwrt
-
-      - name: 4. 物理安装 Feeds 依赖 (解决 WARNING 关键步)
-        run: |
+          df -hT $PWD
+          git clone $REPO_URL -b $REPO_BRANCH openwrt
+          ln -sf /workdir/openwrt ${{ github.workspace }}/openwrt
           cd openwrt
-          # 先更新索引，再强制安装，确保所有 libev/luci 等包物理存在
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
-      - name: 5. 注入 8000 行配置并执行优化脚本
+      - name: 4. 注入 SL-3000 物理优化脚本
         run: |
-          # 从指定路径复制配置
-          cp -v custom-config/sl3000.config openwrt/.config
-          
+          [ -e $CONFIG_FILE ] && cp $CONFIG_FILE openwrt/.config
+          chmod +x $DIY_P1_SH
           cd openwrt
-          # 执行内核瘦身、1024M 定义及架构纠偏
-          chmod +x ../scripts/sl3000-patch.sh
-          ../scripts/sl3000-patch.sh
+          # 执行上一版已修复的 1024M 内存注入与内核瘦身逻辑
+          ../$DIY_P1_SH
+          make defconfig
 
-      - name: 6. 最终下载包与物理编译
+      - name: 5. 像素级静默审计与内核编译
         run: |
           cd openwrt
-          # 根据最终 .config 下载源码包
-          make download -j$(nproc)
-          # 开始全流程编译
+          echo -e "$(nproc) thread compile"
+          # 延续物理修复原则，优先编译内核以确认补丁清淤结果
+          make target/linux/compile -j$(nproc) || make target/linux/compile -j1 V=s
+
+      - name: 6. 完整构建全流程
+        run: |
+          cd openwrt
           make -j$(nproc) || make -j1 V=s
 
-      - name: 7. 整理固件产物
+      - name: 7. 物理产物整理与上传
         if: success()
         run: |
           cd openwrt/bin/targets/mediatek/filogic/
-          mkdir -p /tmp/upload
-          cp -v *sl_3000-emmc* /tmp/upload/ || true
-          cp -v *emmc-gpt.bin *emmc-preloader.bin *emmc-bl31-uboot.fip /tmp/upload/ || true
+          echo "FIRMWARE=$PWD" >> $GITHUB_ENV
 
-      - name: 8. 发布到 Release
-        uses: softprops/action-gh-release@v1
-        if: success()
+      - name: 8. 上传固件至 Artifacts
+        uses: actions/upload-artifact@v4
         with:
-          tag_name: SL-3000-V2026-Final
-          files: /tmp/upload/*
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          name: SL-3000-1024M-eMMC-Firmware
+          path: ${{ env.FIRMWARE }}/*
