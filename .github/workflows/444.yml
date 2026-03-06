@@ -4,7 +4,7 @@ on:
   workflow_dispatch:          # 允许手动触发
   push:
     paths:
-      - 'custom-config/sl3000.config'   # 当文件被推送时自动触发（可选，可按需启用）
+      - 'custom-config/sl3000.config'   # 当文件被推送时自动触发
 
 jobs:
   clean-config:
@@ -28,24 +28,26 @@ jobs:
 
       - name: Clean up the config file
         run: |
+          set -e  # 遇到错误立即退出
           CONFIG_FILE="custom-config/sl3000.config"
           TMP_FILE=$(mktemp)
 
           # 复制原始文件到临时文件
           cp "$CONFIG_FILE" "$TMP_FILE"
 
-          # 1. 启用 mt7981 无线固件
-          sed -i 's/# CONFIG_PACKAGE_mt7981-wo-firmware is not set/CONFIG_PACKAGE_mt7981-wo-firmware=y/' "$TMP_FILE"
+          # 1. 启用 mt7981 无线固件（如果未启用）
+          sed -i 's/^# \(CONFIG_PACKAGE_mt7981-wo-firmware\) is not set/\1=y/' "$TMP_FILE"
 
-          # 2. 关闭内核调试选项
-          sed -i 's/^CONFIG_KERNEL_DEBUG_INFO=y/# CONFIG_KERNEL_DEBUG_INFO is not set/' "$TMP_FILE"
-          sed -i 's/^CONFIG_KERNEL_DEBUG_KERNEL=y/# CONFIG_KERNEL_DEBUG_KERNEL is not set/' "$TMP_FILE"
-          sed -i 's/^CONFIG_KERNEL_DEBUG_INFO_REDUCED=y/# CONFIG_KERNEL_DEBUG_INFO_REDUCED is not set/' "$TMP_FILE"
+          # 2. 关闭内核调试选项（如果已启用）
+          sed -i 's/^\(CONFIG_KERNEL_DEBUG_INFO\)=y/# \1 is not set/' "$TMP_FILE"
+          sed -i 's/^\(CONFIG_KERNEL_DEBUG_KERNEL\)=y/# \1 is not set/' "$TMP_FILE"
+          sed -i 's/^\(CONFIG_KERNEL_DEBUG_INFO_REDUCED\)=y/# \1 is not set/' "$TMP_FILE"
 
-          # 3. 将 MTK Wi-Fi 驱动改为内置
-          sed -i 's/^CONFIG_MTK_MT_WIFI=m/CONFIG_MTK_MT_WIFI=y/' "$TMP_FILE"
+          # 3. 将 MTK Wi-Fi 驱动改为内置（如果为模块）
+          sed -i 's/^\(CONFIG_MTK_MT_WIFI\)=m/\1=y/' "$TMP_FILE"
 
-          # 4. （可选）移除所有注释的配置行，减小文件体积（需确认是否必要）
+          # 4. 移除所有注释的配置行（可选，需确认是否必要）
+          # 若需要开启，请删除下一行的注释符号
           # sed -i '/^# CONFIG_/d' "$TMP_FILE"
 
           # 5. 比较临时文件与原文件是否有变化
