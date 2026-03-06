@@ -1,46 +1,54 @@
-name: 物理强删-从源头彻底抹除不相关补丁
+name: 物理强删-源头全量净化补丁
 
 on:
-  workflow_dispatch: # 手动点击触发
+  workflow_dispatch:
 
 jobs:
   permanent_delete:
     runs-on: ubuntu-latest
     permissions:
-      contents: write # 物理授权
+      contents: write
 
     steps:
-      - name: 1. 检出仓库
+      - name: 1. 检出仓库 (24.10-6.6 分支)
         uses: actions/checkout@v4
         with:
           ref: openwrt-24.10-6.6
           fetch-depth: 0
 
-      - name: 2. 物理执行“外科手术”级删除
+      - name: 2. 物理执行“补丁清淤”
         run: |
           TARGET_DIR="target/linux/mediatek/patches-6.6"
-          echo "🔍 正在进入物理目录: $TARGET_DIR"
+          echo "🔍 进入补丁目录: $TARGET_DIR"
           cd $TARGET_DIR
           
-          # 物理删除截图中的所有 17xx, 27xx 冲突源
-          echo "🧹 抹除截图中的 1xxx, 2xxx, 3xxx 系列垃圾补丁..."
+          # 物理删除：1xxx/2xxx/3xxx 系列 (Backport、EEE、MT7988 专有、漫游增强)
+          echo "🧹 抹除所有高风险 999 序号段补丁..."
           rm -fv 999-1*.patch
           rm -fv 999-2*.patch
           rm -fv 999-3*.patch
           
-          # 物理对齐 API，确保 998 等剩余补丁兼容 6.6 内核
-          echo "🛠️ 执行 API 物理对齐 (ethtool_keee)..."
+          # 额外补充：删除专门针对 MT7988 (不相关硬件) 的补丁
+          echo "🧹 抹除 MT7988 专有及冗余 Switch 补丁..."
+          rm -fv *7988*.patch
+          rm -fv *mt753x*.patch
+          
+          # 物理对齐 API：锁定 6.6 内核 struct ethtool_keee
+          echo "🛠️ 执行 API 物理对齐..."
           find . -type f -name "*.patch" -exec sed -i 's/struct ethtool_eee/struct ethtool_keee/g' {} +
           find . -type f -name "*.patch" -exec sed -i 's/\.supported/\.supported_u32/g' {} +
 
-      - name: 3. 物理提交并永久回写
+          echo "📋 剩余必要补丁清单:"
+          ls -1
+
+      - name: 3. 提交并永久推送
         run: |
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git config --global user.name "github-actions[bot]"
           git add target/linux/mediatek/patches-6.6/
-          if git commit -m "物理清淤：根据审计结果抹除 1xxx/2xxx/3xxx 冗余补丁"; then
+          if git commit -m "物理清淤：抹除 1xxx/2xxx/3xxx/MT7988 等不相关补丁"; then
             git push origin openwrt-24.10-6.6
-            echo "🚀 源码已净化，截图中的垃圾补丁已彻底消失。"
+            echo "🚀 源码已物理净化，仓库同步完成。"
           else
-            echo "✨ 源码已是纯净状态。"
+            echo "✨ 源码已是纯净状态，无需改动。"
           fi
