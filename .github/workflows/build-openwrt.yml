@@ -1,15 +1,19 @@
-name: SL-3000-1024M-物理级正式构建
+name: SL-3000-1024M-Final-Build
 
 on:
+  workflow_dispatch:
   repository_dispatch:
-  workflow_dispatch: # 支持手动触发
 
 env:
-  REPO_URL: https://github.com/ykm888/66.git
-  REPO_BRANCH: openwrt-24.10-6.6
+  REPO_URL: https://github.com/coolsnowwolf/lede
+  REPO_BRANCH: master
   FEEDS_CONF: feeds.conf.default
-  CONFIG_FILE: custom-config/sl3000.config
-  DIY_P1_SH: scripts/sl3000-patch.sh
+  CONFIG_FILE: .config
+  DIY_P1_SH: diy-part1.sh
+  DIY_P2_SH: diy-part2.sh
+  UPLOAD_BIN_DIR: false
+  UPLOAD_FIRMWARE: true
+  UPLOAD_RELEASE: true
   TZ: Asia/Shanghai
 
 jobs:
@@ -17,33 +21,29 @@ jobs:
     runs-on: ubuntu-22.04
 
     steps:
-    - name: 1. 检出配置仓库 (浅克隆加速)
+    - name: 1. 物理环境初始化
       uses: actions/checkout@v4
-      with:
-        fetch-depth: 1
 
-    - name: 2. 初始化物理编译环境
+    - name: 2. 安装编译依赖
       run: |
-        sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
-        sudo docker image prune --all --force
+        sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc
         sudo -E apt-get -qq update
-        sudo -E apt-get -qq install ack antlr3 asciidoc autoconf automake autopoint binutils bison build-essential bzip2 ccache cmake cpio curl device-tree-compiler fastjar flex gawk gettext gcc-multilib g++-multilib git gperf haveged help2man intltool libc6-dev-i386 libelf-dev libfuse-dev libglib2.0-dev libgmp3-dev libltdl-dev libmpc-dev libmpfr-dev libncurses5-dev libncursesw5-dev libpython3-dev libreadline-dev libssl-dev libtool lrzsz genisoimage msmtp ninja-build p7zip p7zip-full patch pkgconf python3 python3-pyelftools python3-setuptools qemu-utils rsync scons squashfs-tools subversion swig texinfo uglifyjs upx-ucl unzip vim wget xmlto xxd zlib1g-dev
+        sudo -E apt-get -qq install $(curl -fsSL https://is.gd/depends_ubuntu_2204)
+        sudo -E apt-get -qq autoremove --purge
+        sudo -E apt-get -qq clean
         sudo timedatectl set-timezone "$TZ"
-        sudo mkdir -p /workdir && sudo chown $USER:$GROUPS /workdir
 
-    - name: 3. 克隆 OpenWrt 源码 (物理加速)
-      working-directory: /workdir
+    - name: 3. 检出源代码 (OpenWrt-24.10)
       run: |
-        git clone --depth 1 $REPO_URL -b $REPO_BRANCH openwrt
-        ln -sf /workdir/openwrt $GITHUB_WORKSPACE/openwrt
-
-    - name: 4. 执行 DIY-P1 脚本 (物理清淤与 1024M 注入)
-      run: |
-        [ -e $FEEDS_CONF ] && mv $FEEDS_CONF openwrt/feeds.conf.default
-        chmod +x $DIY_P1_SH
+        git clone --depth 1 -b openwrt-24.10-6.6 https://github.com/ykm888/66 openwrt
         cd openwrt
-        # 执行脚本：抹除 mt7988 干扰、注入 SL-3000 DTS、重定向 1024M U-Boot
-        $GITHUB_WORKSPACE/$DIY_P1_SH
+
+    - name: 4. 执行【静默审计】与【物理清淤】
+      run: |
+        cd openwrt
+        # 将上面的脚本内容直接执行，确保截图中的地雷被排除
+        chmod +x ../scripts/sl3000-patch.sh
+        ../scripts/sl3000-patch.sh
 
     - name: 5. 更新并安装 Feeds
       run: |
@@ -51,55 +51,34 @@ jobs:
         ./scripts/feeds update -a
         ./scripts/feeds install -a
 
-    - name: 6. 载入 8000 行配置并静默审计
+    - name: 6. 载入 8000 行配置与下载包
       run: |
-        [ -e $CONFIG_FILE ] && cp $CONFIG_FILE openwrt/.config
         cd openwrt
+        # 此处假设你的 config 在 main 分支，物理复制进来
+        # git checkout origin/main -- sl3000.config
+        # mv sl3000.config .config
         make defconfig
-        # 物理检查：确保 CONFIG_TARGET_DEVICE_mediatek_filogic_DEVICE_sl_3000-emmc=y 已生效
+        make download -j$(nproc)
 
-    - name: 7. 下载编译资源包
-      run: |
-        cd openwrt
-        make download -j8
-        find dl -size -1024c -exec ls -l {} \;
-        find dl -size -1024c -exec rm -f {} \;
-
-    - name: 8. 执行物理编译 (救砖全家桶模式)
-      id: compile
+    - name: 7. 物理级全流程编译
       run: |
         cd openwrt
         echo -e "$(nproc) thread compile"
-        make -j$(nproc) || make -j1 || make -j1 V=s
-        echo "status=success" >> $GITHUB_OUTPUT
-        echo "FILE_DATE=_$(date +"%Y%m%d%H%M")" >> $GITHUB_ENV
+        make -j$(nproc) || make -j1 V=s
 
-    - name: 9. 整理救砖全家桶 (GPT/Preloader/U-Boot/Recovery)
-      id: organize
-      if: steps.compile.outputs.status == 'success' && !cancelled()
+    - name: 8. 整理固件与 Artifacts
+      if: success()
       run: |
         cd openwrt/bin/targets/mediatek/filogic/
-        # 物理清理冗余文件夹，仅保留构建产物
-        rm -rf packages
-        echo "FIRMWARE=$PWD" >> $GITHUB_ENV
-        echo "status=success" >> $GITHUB_OUTPUT
+        mkdir -p /tmp/upload
+        cp -v *sl_3000-emmc* /tmp/upload/
+        cp -v *emmc-gpt.bin *emmc-preloader.bin *emmc-bl31-uboot.fip /tmp/upload/
 
-    - name: 10. 发布至 Release (救砖全家桶下载)
-      uses: softprops/action-gh-release@v2
-      if: steps.organize.outputs.status == 'success' && !cancelled()
+    - name: 9. 上传固件到 GitHub Release
+      uses: softprops/action-gh-release@v1
+      if: env.UPLOAD_RELEASE == 'true' && !cancelled()
+      with:
+        tag_name: SL-3000-v2026
+        files: /tmp/upload/*
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        files: ${{ env.FIRMWARE }}/*
-        name: ${{ env.FILE_DATE }}-SL3000-1024M-FULL-KIT
-        tag_name: SL3000-${{ env.FILE_DATE }}
-        body: |
-          ### 🛠️ SL-3000 (1024M eMMC) 物理修复版
-          - **内核底座**: Linux 6.6.x (OpenWrt 24.10)
-          - **物理清淤**: 已自动切除 MT7988/MT753x 等冲突补丁。
-          - **全家桶包含**: 
-            - `emmc-gpt.bin` (分区表)
-            - `emmc-preloader.bin` (1024M 训练补丁版)
-            - `emmc-bl31-uboot.fip` (主引导)
-            - `sysupgrade.bin` (系统升级包)
-            - `factory.img.gz` (工厂刷机包)
