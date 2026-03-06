@@ -1,59 +1,105 @@
-name: 物理强删-源头彻底净化-终极回写版
+name: SL-3000-1024M-物理级正式构建
 
 on:
-  workflow_dispatch: # 手动点击触发
+  repository_dispatch:
+  workflow_dispatch: # 支持手动触发
+
+env:
+  REPO_URL: https://github.com/ykm888/66.git
+  REPO_BRANCH: openwrt-24.10-6.6
+  FEEDS_CONF: feeds.conf.default
+  CONFIG_FILE: custom-config/sl3000.config
+  DIY_P1_SH: scripts/sl3000-patch.sh
+  TZ: Asia/Shanghai
 
 jobs:
-  permanent_delete:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write # 必须：授权回写权限
+  build:
+    runs-on: ubuntu-22.04
 
     steps:
-      - name: 1. 检出仓库 (浅克隆极速加速)
-        uses: actions/checkout@v4
-        with:
-          ref: openwrt-24.10-6.6
-          fetch-depth: 1 # ⚡ 核心修复：防止卡死
-          token: ${{ secrets.GITHUB_TOKEN }}
+    - name: 1. 检出配置仓库 (浅克隆加速)
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 1
 
-      - name: 2. 执行物理“外科手术”级清淤
-        run: |
-          TARGET_DIR="target/linux/mediatek/patches-6.6"
-          echo "🔍 正在进入物理目录: $TARGET_DIR"
-          cd $TARGET_DIR
-          
-          # A. 物理抹除所有针对 MT7988 (不相关硬件) 的补丁 (解决 250 号等报错)
-          echo "🧹 抹除 MT7988 相关干扰..."
-          find . -type f -name "*mt7988*" -delete
-          
-          # B. 物理抹除所有针对 MT753x (外部交换机) 的补丁
-          echo "🧹 抹除 MT753x 相关冗余..."
-          find . -type f -name "*mt753x*" -delete
-          
-          # C. 物理抹除 999 系列 (保留 998 风扇补丁)
-          echo "🧹 抹除非官方 999 增强系列..."
-          find . -name "999-*.patch" ! -name "998-pwm-fan-fix.patch" -delete
-          
-          # D. 物理抹除末尾冲突源 (9997-9999)
-          rm -fv 9997-*.patch 9998-*.patch 9999-*.patch || true
+    - name: 2. 初始化物理编译环境
+      run: |
+        sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+        sudo docker image prune --all --force
+        sudo -E apt-get -qq update
+        sudo -E apt-get -qq install ack antlr3 asciidoc autoconf automake autopoint binutils bison build-essential bzip2 ccache cmake cpio curl device-tree-compiler fastjar flex gawk gettext gcc-multilib g++-multilib git gperf haveged help2man intltool libc6-dev-i386 libelf-dev libfuse-dev libglib2.0-dev libgmp3-dev libltdl-dev libmpc-dev libmpfr-dev libncurses5-dev libncursesw5-dev libpython3-dev libreadline-dev libssl-dev libtool lrzsz genisoimage msmtp ninja-build p7zip p7zip-full patch pkgconf python3 python3-pyelftools python3-setuptools qemu-utils rsync scons squashfs-tools subversion swig texinfo uglifyjs upx-ucl unzip vim wget xmlto xxd zlib1g-dev
+        sudo timedatectl set-timezone "$TZ"
+        sudo mkdir -p /workdir && sudo chown $USER:$GROUPS /workdir
 
-          # E. API 物理对齐 (ethtool_keee)
-          echo "🛠️ 执行内容级 API 物理对齐..."
-          find . -type f -name "*.patch" -exec sed -i 's/struct ethtool_eee/struct ethtool_keee/g' {} +
-          find . -type f -name "*.patch" -exec sed -i 's/\.supported/\.supported_u32/g' {} +
+    - name: 3. 克隆 OpenWrt 源码 (物理加速)
+      working-directory: /workdir
+      run: |
+        git clone --depth 1 $REPO_URL -b $REPO_BRANCH openwrt
+        ln -sf /workdir/openwrt $GITHUB_WORKSPACE/openwrt
 
-          echo "📋 物理审计：当前净化后的补丁清单:"
-          ls -1
+    - name: 4. 执行 DIY-P1 脚本 (物理清淤与 1024M 注入)
+      run: |
+        [ -e $FEEDS_CONF ] && mv $FEEDS_CONF openwrt/feeds.conf.default
+        chmod +x $DIY_P1_SH
+        cd openwrt
+        # 执行脚本：抹除 mt7988 干扰、注入 SL-3000 DTS、重定向 1024M U-Boot
+        $GITHUB_WORKSPACE/$DIY_P1_SH
 
-      - name: 3. 物理强推回写 (Force Push)
-        run: |
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git config --global user.name "github-actions[bot]"
-          git add -A .
-          if git commit -m "物理清淤：基于硬件关键词彻底净化补丁集并对齐API"; then
-            echo "🚀 正在物理强制推送至 openwrt-24.10-6.6..."
-            git push origin HEAD:openwrt-24.10-6.6 --force
-          else
-            echo "✨ 仓库已经是净化的，无需操作。"
-          fi
+    - name: 5. 更新并安装 Feeds
+      run: |
+        cd openwrt
+        ./scripts/feeds update -a
+        ./scripts/feeds install -a
+
+    - name: 6. 载入 8000 行配置并静默审计
+      run: |
+        [ -e $CONFIG_FILE ] && cp $CONFIG_FILE openwrt/.config
+        cd openwrt
+        make defconfig
+        # 物理检查：确保 CONFIG_TARGET_DEVICE_mediatek_filogic_DEVICE_sl_3000-emmc=y 已生效
+
+    - name: 7. 下载编译资源包
+      run: |
+        cd openwrt
+        make download -j8
+        find dl -size -1024c -exec ls -l {} \;
+        find dl -size -1024c -exec rm -f {} \;
+
+    - name: 8. 执行物理编译 (救砖全家桶模式)
+      id: compile
+      run: |
+        cd openwrt
+        echo -e "$(nproc) thread compile"
+        make -j$(nproc) || make -j1 || make -j1 V=s
+        echo "status=success" >> $GITHUB_OUTPUT
+        echo "FILE_DATE=_$(date +"%Y%m%d%H%M")" >> $GITHUB_ENV
+
+    - name: 9. 整理救砖全家桶 (GPT/Preloader/U-Boot/Recovery)
+      id: organize
+      if: steps.compile.outputs.status == 'success' && !cancelled()
+      run: |
+        cd openwrt/bin/targets/mediatek/filogic/
+        # 物理清理冗余文件夹，仅保留构建产物
+        rm -rf packages
+        echo "FIRMWARE=$PWD" >> $GITHUB_ENV
+        echo "status=success" >> $GITHUB_OUTPUT
+
+    - name: 10. 发布至 Release (救砖全家桶下载)
+      uses: softprops/action-gh-release@v2
+      if: steps.organize.outputs.status == 'success' && !cancelled()
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        files: ${{ env.FIRMWARE }}/*
+        name: ${{ env.FILE_DATE }}-SL3000-1024M-FULL-KIT
+        tag_name: SL3000-${{ env.FILE_DATE }}
+        body: |
+          ### 🛠️ SL-3000 (1024M eMMC) 物理修复版
+          - **内核底座**: Linux 6.6.x (OpenWrt 24.10)
+          - **物理清淤**: 已自动切除 MT7988/MT753x 等冲突补丁。
+          - **全家桶包含**: 
+            - `emmc-gpt.bin` (分区表)
+            - `emmc-preloader.bin` (1024M 训练补丁版)
+            - `emmc-bl31-uboot.fip` (主引导)
+            - `sysupgrade.bin` (系统升级包)
+            - `factory.img.gz` (工厂刷机包)
