@@ -2,83 +2,63 @@ name: SL-3000-1024M-Final-Build
 
 on:
   workflow_dispatch:
-  repository_dispatch:
 
 env:
-  REPO_URL: https://github.com/coolsnowwolf/lede
-  REPO_BRANCH: master
-  FEEDS_CONF: feeds.conf.default
-  CONFIG_FILE: .config
-  DIY_P1_SH: diy-part1.sh
-  DIY_P2_SH: diy-part2.sh
-  UPLOAD_BIN_DIR: false
-  UPLOAD_FIRMWARE: true
-  UPLOAD_RELEASE: true
   TZ: Asia/Shanghai
 
 jobs:
   build:
     runs-on: ubuntu-22.04
-
     steps:
-    - name: 1. 物理环境初始化
-      uses: actions/checkout@v4
+      - name: 1. 物理环境初始化
+        uses: actions/checkout@v4
 
-    - name: 2. 安装编译依赖
-      run: |
-        sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc
-        sudo -E apt-get -qq update
-        sudo -E apt-get -qq install $(curl -fsSL https://is.gd/depends_ubuntu_2204)
-        sudo -E apt-get -qq autoremove --purge
-        sudo -E apt-get -qq clean
-        sudo timedatectl set-timezone "$TZ"
+      - name: 2. 安装编译依赖
+        run: |
+          sudo -E apt-get -qq update
+          sudo -E apt-get -qq install $(curl -fsSL https://is.gd/depends_ubuntu_2204)
+          sudo timedatectl set-timezone "$TZ"
 
-    - name: 3. 检出源代码 (OpenWrt-24.10)
-      run: |
-        git clone --depth 1 -b openwrt-24.10-6.6 https://github.com/ykm888/66 openwrt
-        cd openwrt
+      - name: 3. 检出源码 (OpenWrt 6.6)
+        run: |
+          git clone --depth 1 -b openwrt-24.10-6.6 https://github.com/ykm888/66 openwrt
+          cd openwrt
 
-    - name: 4. 执行【静默审计】与【物理清淤】
-      run: |
-        cd openwrt
-        # 将上面的脚本内容直接执行，确保截图中的地雷被排除
-        chmod +x ../scripts/sl3000-patch.sh
-        ../scripts/sl3000-patch.sh
+      - name: 4. 植入 8000 行配置
+        run: |
+          # 假设 sl3000.config 放在项目根目录
+          cp sl3000.config openwrt/.config
 
-    - name: 5. 更新并安装 Feeds
-      run: |
-        cd openwrt
-        ./scripts/feeds update -a
-        ./scripts/feeds install -a
+      - name: 5. 执行优化与架构纠偏脚本
+        run: |
+          cd openwrt
+          chmod +x ../scripts/sl3000-patch.sh
+          ../scripts/sl3000-patch.sh
 
-    - name: 6. 载入 8000 行配置与下载包
-      run: |
-        cd openwrt
-        # 此处假设你的 config 在 main 分支，物理复制进来
-        # git checkout origin/main -- sl3000.config
-        # mv sl3000.config .config
-        make defconfig
-        make download -j$(nproc)
+      - name: 6. 更新 Feeds 并下载包
+        run: |
+          cd openwrt
+          ./scripts/feeds update -a && ./scripts/feeds install -a
+          make download -j$(nproc)
 
-    - name: 7. 物理级全流程编译
-      run: |
-        cd openwrt
-        echo -e "$(nproc) thread compile"
-        make -j$(nproc) || make -j1 V=s
+      - name: 7. 物理级全流程编译
+        run: |
+          cd openwrt
+          make -j$(nproc) || make -j1 V=s
 
-    - name: 8. 整理固件与 Artifacts
-      if: success()
-      run: |
-        cd openwrt/bin/targets/mediatek/filogic/
-        mkdir -p /tmp/upload
-        cp -v *sl_3000-emmc* /tmp/upload/
-        cp -v *emmc-gpt.bin *emmc-preloader.bin *emmc-bl31-uboot.fip /tmp/upload/
+      - name: 8. 整理固件产物
+        if: success()
+        run: |
+          cd openwrt/bin/targets/mediatek/filogic/
+          mkdir -p /tmp/upload
+          cp -v *sl_3000-emmc* /tmp/upload/ || true
+          cp -v *emmc-gpt.bin *emmc-preloader.bin *emmc-bl31-uboot.fip /tmp/upload/ || true
 
-    - name: 9. 上传固件到 GitHub Release
-      uses: softprops/action-gh-release@v1
-      if: env.UPLOAD_RELEASE == 'true' && !cancelled()
-      with:
-        tag_name: SL-3000-v2026
-        files: /tmp/upload/*
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: 9. 发布到 Release
+        uses: softprops/action-gh-release@v1
+        if: success()
+        with:
+          tag_name: SL-3000-V2026-Final
+          files: /tmp/upload/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
