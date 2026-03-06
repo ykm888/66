@@ -1,13 +1,13 @@
 #!/bin/bash
 
-# 2版修正：进入物理源码目录，确保后续 sed 和 cat 路径正确
+# 5版修正：进入物理源码目录
 cd openwrt || exit 1
 
-# 1. 物理拉取私有 U-Boot 源码 (锁死 sl3000-uboot-base，原文照抄)
+# 1. 物理拉取私有 U-Boot 源码 (原文照抄)
 rm -rf package/boot/uboot-mtk
 git clone https://github.com/ykm888/66 -b sl3000-uboot-base package/boot/uboot-mtk
 
-# 2. 【物理静默审计】全路径执行“设置删除” (原文照抄 1版)
+# 2. 【物理静默审计】全路径执行依赖项“设置删除” (原文照抄)
 find package/ -name "Makefile" | xargs sed -i 's/ +luci-lua-runtime//g' 2>/dev/null || true
 find package/ -name "Makefile" | xargs sed -i 's/ +luci-base\/host//g' 2>/dev/null || true
 find package/ -name "Makefile" | xargs sed -i 's/ +csstidy\/host//g' 2>/dev/null || true
@@ -22,8 +22,12 @@ find package/ -name "Makefile" | xargs sed -i 's/ +bc//g' 2>/dev/null || true
 find package/ -name "Makefile" | xargs sed -i 's/ +jq//g' 2>/dev/null || true
 find package/ -name "Makefile" | xargs sed -i 's/ +usbutils//g' 2>/dev/null || true
 
-# 3. 物理注入 Device 定义 (锁定 1024M 与救砖配置，原文照抄 1版)
-cat << 'EOF' >> target/linux/mediatek/image/filogic.mk
+# 3. 【精准修复：条件注入】 (原文照抄 4版)
+if grep -q "Device/sl_3000-emmc" target/linux/mediatek/image/filogic.mk; then
+    echo "检测到仓库源已包含 sl_3000-emmc 配置，执行物理对齐。"
+    sed -i 's/DEVICE_DRAM_SIZE := .*/DEVICE_DRAM_SIZE := 1024M/g' target/linux/mediatek/image/filogic.mk
+else
+    cat << 'EOF' >> target/linux/mediatek/image/filogic.mk
 
 define Device/sl_3000-emmc
   DEVICE_VENDOR := SL
@@ -51,12 +55,14 @@ define Device/sl_3000-emmc
 endef
 TARGET_DEVICES += sl_3000-emmc
 EOF
+fi
 
-# 4. 物理适配 1024M DRAM 变量 (原文照抄 1版)
+# 4. 物理适配全局 1024M DRAM 变量 (原文照抄)
 sed -i 's/DRAM_SIZE := 256M/DRAM_SIZE := 1024M/g' target/linux/mediatek/image/filogic.mk
 
-# 5. 内核调试瘦身 (原文照抄 1版)
+# 5. 【内核编译器物理修正】强制 .config 使用正确的工具链路径
+sed -i 's/CONFIG_EXTERNAL_TOOLCHAIN=y/# CONFIG_EXTERNAL_TOOLCHAIN is not set/g' .config
 sed -i 's/CONFIG_KERNEL_KALLSYMS=y/# CONFIG_KERNEL_KALLSYMS is not set/g' .config
 sed -i 's/CONFIG_KERNEL_DEBUG_INFO=y/# CONFIG_KERNEL_DEBUG_INFO is not set/g' .config
 
-echo "物理延续成功：2版脚本已修正路径，依赖抹除与配置注入已生效。"
+echo "物理延续成功：5版脚本已修正内核编译器配置。"
