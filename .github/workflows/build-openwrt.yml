@@ -21,35 +21,39 @@ jobs:
 
       - name: 3. 检出源码 (OpenWrt 6.6)
         run: |
+          # 物理隔离：将源码检出到 openwrt 文件夹
           git clone --depth 1 -b openwrt-24.10-6.6 https://github.com/ykm888/66 openwrt
-          cd openwrt
 
-      - name: 4. 植入 8000 行配置
+      - name: 4. 植入 8000 行配置 (路径修正)
         run: |
-          # 假设 sl3000.config 放在项目根目录
-          cp sl3000.config openwrt/.config
+          # 检查根目录文件是否存在
+          ls -lh ${{ github.workspace }}/sl3000.config
+          # 物理对齐：将根目录的配置复制到源码目录并重命名为 .config
+          cp -v ${{ github.workspace }}/sl3000.config ${{ github.workspace }}/openwrt/.config
 
       - name: 5. 执行优化与架构纠偏脚本
         run: |
-          cd openwrt
+          cd ${{ github.workspace }}/openwrt
+          # 赋予脚本执行权限
           chmod +x ../scripts/sl3000-patch.sh
+          # 执行物理级清淤与内核优化
           ../scripts/sl3000-patch.sh
 
       - name: 6. 更新 Feeds 并下载包
         run: |
-          cd openwrt
+          cd ${{ github.workspace }}/openwrt
           ./scripts/feeds update -a && ./scripts/feeds install -a
           make download -j$(nproc)
 
       - name: 7. 物理级全流程编译
         run: |
-          cd openwrt
+          cd ${{ github.workspace }}/openwrt
           make -j$(nproc) || make -j1 V=s
 
       - name: 8. 整理固件产物
         if: success()
         run: |
-          cd openwrt/bin/targets/mediatek/filogic/
+          cd ${{ github.workspace }}/openwrt/bin/targets/mediatek/filogic/
           mkdir -p /tmp/upload
           cp -v *sl_3000-emmc* /tmp/upload/ || true
           cp -v *emmc-gpt.bin *emmc-preloader.bin *emmc-bl31-uboot.fip /tmp/upload/ || true
