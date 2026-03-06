@@ -19,7 +19,7 @@ jobs:
       - name: 1. 物理环境检出 (Checkout)
         uses: actions/checkout@v4
 
-      - name: 2. 初始化编译环境 (补全编译必备 host 工具)
+      - name: 2. 初始化编译环境 (彻底补全物理依赖工具，原文照抄 1版)
         env:
           DEBIAN_FRONTEND: noninteractive
         run: |
@@ -49,8 +49,9 @@ jobs:
           mkdir -p openwrt/target/linux/mediatek/patches-6.6/
           [ -d patches ] && cp -f patches/*.patch openwrt/target/linux/mediatek/patches-6.6/ || echo "No custom patches found."
 
-      - name: 6. 物理注入 DIY 脚本 (Execute DIY Script)
+      - name: 6. 物理注入 DIY 脚本 (Execute DIY Script - 修正 2版路径逻辑)
         run: |
+          # 物理确保在脚本运行前，.config 已经预置到目标位置
           [ -e $CONFIG_FILE ] && cp $CONFIG_FILE openwrt/.config
           chmod +x $DIY_P1_SH
           ./$DIY_P1_SH
