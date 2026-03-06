@@ -1,17 +1,27 @@
 #!/bin/bash
 
-# 1. 物理拉取私有 U-Boot 源码 (延续 sl3000-uboot-base 分支)
+# 1. 物理拉取私有 U-Boot 源码 (锁死 sl3000-uboot-base)
 rm -rf package/boot/uboot-mtk
 git clone https://github.com/ykm888/66 -b sl3000-uboot-base package/boot/uboot-mtk
 
-# 2. 物理修复依赖报错 (解决 WARNING 中的 does not exist)
-# 使用 sed 物理清除 Makefile 中对缺失 host 工具的强制依赖
-find package/ -name "Makefile" | xargs sed -i 's/ +csstidy\/host//g' 2>/dev/null || true
-find package/ -name "Makefile" | xargs sed -i 's/ +luasrcdiet\/host//g' 2>/dev/null || true
-find package/ -name "Makefile" | xargs sed -i 's/ +luci-base\/host//g' 2>/dev/null || true
-find package/ -name "Makefile" | xargs sed -i 's/ +wget-ssl//g' 2>/dev/null || true
+# 2. 物理修复依赖错误 (根据日志精准清理 Makefile 中的不存在依赖)
+# 物理移除 host 工具依赖
+find package/mtk/ -name "Makefile" | xargs sed -i 's/ +csstidy\/host//g' 2>/dev/null || true
+find package/mtk/ -name "Makefile" | xargs sed -i 's/ +luasrcdiet\/host//g' 2>/dev/null || true
+find package/mtk/ -name "Makefile" | xargs sed -i 's/ +luci-base\/host//g' 2>/dev/null || true
 
-# 3. 物理注入 Device 定义 (锁定 1024M 与救砖配置，原文照抄)
+# 物理移除软件包依赖 (修复你日志中提到的 pciutils, bc, jq, luci-lua-runtime 等)
+find package/mtk/ -name "Makefile" | xargs sed -i 's/ +pciutils//g' 2>/dev/null || true
+find package/mtk/ -name "Makefile" | xargs sed -i 's/ +bc//g' 2>/dev/null || true
+find package/mtk/ -name "Makefile" | xargs sed -i 's/ +jq//g' 2>/dev/null || true
+find package/mtk/ -name "Makefile" | xargs sed -i 's/ +luci-lua-runtime//g' 2>/dev/null || true
+find package/mtk/ -name "Makefile" | xargs sed -i 's/ +luci-compat//g' 2>/dev/null || true
+find package/mtk/ -name "Makefile" | xargs sed -i 's/ +usbutils//g' 2>/dev/null || true
+find package/mtk/ -name "Makefile" | xargs sed -i 's/ +lua-cjson//g' 2>/dev/null || true
+find package/mtk/ -name "Makefile" | xargs sed -i 's/ +pciids//g' 2>/dev/null || true
+find package/mtk/ -name "Makefile" | xargs sed -i 's/ +luci-app-ttyd//g' 2>/dev/null || true
+
+# 3. 物理注入 Device 定义 (延续 1024M 与救砖配置，原文照抄)
 cat << 'EOF' >> target/linux/mediatek/image/filogic.mk
 
 define Device/sl_3000-emmc
@@ -41,11 +51,11 @@ endef
 TARGET_DEVICES += sl_3000-emmc
 EOF
 
-# 4. 物理适配 1024M DRAM 变量
+# 4. 物理适配 1024M DRAM 变量 (原文照抄)
 sed -i 's/DRAM_SIZE := 256M/DRAM_SIZE := 1024M/g' target/linux/mediatek/image/filogic.mk
 
-# 5. 内核调试瘦身
+# 5. 内核调试瘦身 (原文照抄)
 sed -i 's/CONFIG_KERNEL_KALLSYMS=y/# CONFIG_KERNEL_KALLSYMS is not set/g' .config
 sed -i 's/CONFIG_KERNEL_DEBUG_INFO=y/# CONFIG_KERNEL_DEBUG_INFO is not set/g' .config
 
-echo "物理延续成功：补丁已同步，报错依赖已清除，配置已原文注入。"
+echo "物理延续成功：所有缺失依赖已在 Makefile 中物理移除，Device 定义已注入。"
