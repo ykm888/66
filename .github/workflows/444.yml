@@ -1,65 +1,46 @@
 name: 物理强删-从源头彻底抹除不相关补丁
 
 on:
-  workflow_dispatch: # 手动触发，一次性清理
+  workflow_dispatch: # 手动点击触发
 
 jobs:
   permanent_delete:
     runs-on: ubuntu-latest
     permissions:
-      contents: write # 必须授权写权限，否则无法物理推送到仓库
+      contents: write # 物理授权
 
     steps:
-      - name: 1. 检出仓库 (带回写权限)
+      - name: 1. 检出仓库
         uses: actions/checkout@v4
         with:
           ref: openwrt-24.10-6.6
           fetch-depth: 0
 
-      - name: 2. 执行全量物理清淤
+      - name: 2. 物理执行“外科手术”级删除
         run: |
           TARGET_DIR="target/linux/mediatek/patches-6.6"
           echo "🔍 正在进入物理目录: $TARGET_DIR"
+          cd $TARGET_DIR
           
-          if [ -d "$TARGET_DIR" ]; then
-            cd $TARGET_DIR
-            
-            echo "🧹 正在从源头物理抹除 1xxx 系列 (Backport 冲突源)..."
-            rm -fv 999-1*.patch
-            
-            echo "🧹 正在物理抹除 2xxx 系列 (EEE/Enhance 冲突源，含 2714, 2903)..."
-            rm -fv 999-2*.patch
-            
-            echo "🧹 正在物理抹除 3xxx 系列 (Netfilter/Roaming 冲突源，含 3007)..."
-            rm -fv 999-3*.patch
+          # 物理删除截图中的所有 17xx, 27xx 冲突源
+          echo "🧹 抹除截图中的 1xxx, 2xxx, 3xxx 系列垃圾补丁..."
+          rm -fv 999-1*.patch
+          rm -fv 999-2*.patch
+          rm -fv 999-3*.patch
+          
+          # 物理对齐 API，确保 998 等剩余补丁兼容 6.6 内核
+          echo "🛠️ 执行 API 物理对齐 (ethtool_keee)..."
+          find . -type f -name "*.patch" -exec sed -i 's/struct ethtool_eee/struct ethtool_keee/g' {} +
+          find . -type f -name "*.patch" -exec sed -i 's/\.supported/\.supported_u32/g' {} +
 
-            echo "🧹 正在物理抹除 15xx 系列 (实验性网络补丁)..."
-            rm -fv 999-15*.patch
-            
-            echo "🛠️ 正在对剩余补丁执行 API 物理对齐 (ethtool_keee)..."
-            # 即使清理了大部分，也要确保存量的 MTK 核心补丁符合 6.6 内核 API
-            find . -type f -name "*.patch" -exec sed -i 's/struct ethtool_eee/struct ethtool_keee/g' {} +
-            find . -type f -name "*.patch" -exec sed -i 's/\.supported/\.supported_u32/g' {} +
-
-            echo "📋 物理审计：当前剩余补丁清单 (仅保留必要驱动):"
-            ls -1
-          else
-            echo "❌ 错误：找不到物理路径 $TARGET_DIR"
-            exit 1
-          fi
-
-      - name: 3. 物理提交更改回 GitHub
+      - name: 3. 物理提交并永久回写
         run: |
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git config --global user.name "github-actions[bot]"
-          
-          # 添加补丁目录的所有变动
           git add target/linux/mediatek/patches-6.6/
-          
-          # 物理回写仓库
-          if git commit -m "物理清淤：全量抹除 1xxx/2xxx/3xxx 系列冲突补丁并对齐 API"; then
-            echo "🚀 正在将删除操作物理推送到仓库源..."
+          if git commit -m "物理清淤：根据审计结果抹除 1xxx/2xxx/3xxx 冗余补丁"; then
             git push origin openwrt-24.10-6.6
+            echo "🚀 源码已净化，截图中的垃圾补丁已彻底消失。"
           else
-            echo "✨ 仓库已经是净化的，无需操作。"
+            echo "✨ 源码已是纯净状态。"
           fi
