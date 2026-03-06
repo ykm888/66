@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# 5版修正：进入物理源码目录
+# 6版修正：进入物理源码目录
 cd openwrt || exit 1
 
 # 1. 物理拉取私有 U-Boot 源码 (原文照抄)
@@ -22,9 +22,14 @@ find package/ -name "Makefile" | xargs sed -i 's/ +bc//g' 2>/dev/null || true
 find package/ -name "Makefile" | xargs sed -i 's/ +jq//g' 2>/dev/null || true
 find package/ -name "Makefile" | xargs sed -i 's/ +usbutils//g' 2>/dev/null || true
 
-# 3. 【精准修复：条件注入】 (原文照抄 4版)
+# 3. 【WARP 错误物理修复】
+# 逻辑：既然 WARP 找不到符号，我们需要在构建时强制禁用不兼容的 WARP 模块
+# 或者修正其依赖顺序。对于 24.10 稳定构建，若不强求硬件加速，建议暂时屏蔽 WARP 以跑通流程
+# 这里采取更稳妥的方法：在 .config 中物理关闭导致崩溃的组件，直到符号对齐
+sed -i 's/CONFIG_PACKAGE_kmod-mtk-warp=y/# CONFIG_PACKAGE_kmod-mtk-warp is not set/g' .config
+
+# 4. 【精准修复：条件注入】 (原文照抄 5版)
 if grep -q "Device/sl_3000-emmc" target/linux/mediatek/image/filogic.mk; then
-    echo "检测到仓库源已包含 sl_3000-emmc 配置，执行物理对齐。"
     sed -i 's/DEVICE_DRAM_SIZE := .*/DEVICE_DRAM_SIZE := 1024M/g' target/linux/mediatek/image/filogic.mk
 else
     cat << 'EOF' >> target/linux/mediatek/image/filogic.mk
@@ -57,12 +62,12 @@ TARGET_DEVICES += sl_3000-emmc
 EOF
 fi
 
-# 4. 物理适配全局 1024M DRAM 变量 (原文照抄)
+# 5. 物理适配全局 1024M DRAM 变量 (原文照抄)
 sed -i 's/DRAM_SIZE := 256M/DRAM_SIZE := 1024M/g' target/linux/mediatek/image/filogic.mk
 
-# 5. 【内核编译器物理修正】强制 .config 使用正确的工具链路径
+# 6. 【内核/工具链修正】 (原文照抄 5版)
 sed -i 's/CONFIG_EXTERNAL_TOOLCHAIN=y/# CONFIG_EXTERNAL_TOOLCHAIN is not set/g' .config
 sed -i 's/CONFIG_KERNEL_KALLSYMS=y/# CONFIG_KERNEL_KALLSYMS is not set/g' .config
 sed -i 's/CONFIG_KERNEL_DEBUG_INFO=y/# CONFIG_KERNEL_DEBUG_INFO is not set/g' .config
 
-echo "物理延续成功：5版脚本已修正内核编译器配置。"
+echo "物理延续成功：6版脚本已尝试通过屏蔽 WARP 模块解决符号未定义错误。"
