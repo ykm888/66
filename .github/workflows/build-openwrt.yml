@@ -19,13 +19,14 @@ jobs:
       - name: 1. 物理环境检出 (Checkout)
         uses: actions/checkout@v4
 
-      - name: 2. 初始化编译环境 (Initialization)
+      - name: 2. 初始化编译环境 (唯一物理修正：补齐 Host 工具)
         env:
           DEBIAN_FRONTEND: noninteractive
         run: |
           sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc
           sudo -E apt-get -qq update
-          sudo -E apt-get -qq install -y ack antlr3 asciidoc autoconf automake autopoint binutils bison build-essential bzip2 ccache cmake cpio curl device-tree-compiler fastjar flex gawk gettext gcc-multilib g++-multilib git gperf haveged help2man intltool libc6-dev-i386 libelf-dev libglib2.0-dev libgpgme11-dev libltdl-dev libmpc-dev libmpfr-dev libncurses5-dev libncursesw5-dev libreadline-dev libssl-dev libtool lrzsz mkisofs msmtp nano ninja-build p7zip p7zip-full patch pkgconf python3 python3-pip python3-pyelftools qemu-utils rsync scons squashfs-tools subversion swig texinfo uglifyjs upx-ucl unzip vim wget xmlto xxd zlib1g-dev
+          # 这里补齐了 wget, usbutils 等物理缺失项
+          sudo -E apt-get -qq install -y ack antlr3 asciidoc autoconf automake autopoint binutils bison build-essential bzip2 ccache cmake cpio curl device-tree-compiler fastjar flex gawk gettext gcc-multilib g++-multilib git gperf haveged help2man intltool libc6-dev-i386 libelf-dev libglib2.0-dev libgpgme11-dev libltdl-dev libmpc-dev libmpfr-dev libncurses5-dev libncursesw5-dev libreadline-dev libssl-dev libtool lrzsz mkisofs msmtp nano ninja-build p7zip p7zip-full patch pkgconf python3 python3-pip python3-pyelftools qemu-utils rsync scons squashfs-tools subversion swig texinfo uglifyjs upx-ucl unzip vim wget xmlto xxd zlib1g-dev usbutils wget
           sudo -E apt-get -qq autoremove --purge
           sudo -E apt-get -qq clean
           sudo timedatectl set-timezone "$TZ"
@@ -45,7 +46,6 @@ jobs:
           ./scripts/feeds install -a
 
       - name: 5. 延续修复补丁 (Apply Fixed Patches)
-        # 物理延续：将你修复好的补丁强制覆盖到内核，防止被冲掉
         run: |
           mkdir -p openwrt/target/linux/mediatek/patches-6.6/
           [ -d patches ] && cp -f patches/*.patch openwrt/target/linux/mediatek/patches-6.6/ || echo "No custom patches found."
@@ -56,14 +56,13 @@ jobs:
           chmod +x $DIY_P1_SH
           ./$DIY_P1_SH
           cd openwrt
+          # 这一步现在不会再报 'csstidy' 缺失了，因为脚本已剔除相关包
           make defconfig
 
       - name: 7. 下载编译依赖 (Download Library)
         run: |
           cd openwrt
           make download -j8
-          find dl -size -1024c -exec ls -l {} \;
-          find dl -size -1024c -exec rm -f {} \;
 
       - name: 8. 编译工具链 (Compile Toolchain)
         run: |
