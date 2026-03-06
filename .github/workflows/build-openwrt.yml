@@ -19,7 +19,7 @@ jobs:
       - name: 1. 物理环境检出 (Checkout)
         uses: actions/checkout@v4
 
-      - name: 2. 初始化编译环境 (彻底补全物理依赖工具)
+      - name: 2. 初始化编译环境 (补全编译必备 host 工具)
         env:
           DEBIAN_FRONTEND: noninteractive
         run: |
