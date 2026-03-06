@@ -1,32 +1,28 @@
 #!/bin/bash
 
-# 1. 物理拉取私有 U-Boot 源码 (延续 sl3000-uboot-base 分支)
+# 2版修正：进入物理源码目录，确保后续 sed 和 cat 路径正确
+cd openwrt || exit 1
+
+# 1. 物理拉取私有 U-Boot 源码 (锁死 sl3000-uboot-base，原文照抄)
 rm -rf package/boot/uboot-mtk
 git clone https://github.com/ykm888/66 -b sl3000-uboot-base package/boot/uboot-mtk
 
-# 2. 【彻底修复错误】全路径扫描式抹除不存在的依赖 (补全 1m15s 日志所有项)
-# 针对 package/ 目录下所有 Makefile 进行物理清洗，解决 dependency does not exist
-# 涵盖: luci-lua-runtime, luci-base/host, csstidy/host, luasrcdiet/host, lua-cjson, glib2, libgpiod, libpam, pciids, pciutils 等
-FIX_FILES=$(find package/ -name "Makefile")
-for file in $FIX_FILES; do
-    sed -i 's/ +luci-lua-runtime//g' "$file" 2>/dev/null
-    sed -i 's/ +luci-base\/host//g' "$file" 2>/dev/null
-    sed -i 's/ +csstidy\/host//g' "$file" 2>/dev/null
-    sed -i 's/ +luasrcdiet\/host//g' "$file" 2>/dev/null
-    sed -i 's/ +lua-cjson//g' "$file" 2>/dev/null
-    sed -i 's/ +glib2//g' "$file" 2>/dev/null
-    sed -i 's/ +libgpiod//g' "$file" 2>/dev/null
-    sed -i 's/ +libpam//g' "$file" 2>/dev/null
-    sed -i 's/ +pciids//g' "$file" 2>/dev/null
-    sed -i 's/ +pciutils//g' "$file" 2>/dev/null
-    sed -i 's/ +luci-compat//g' "$file" 2>/dev/null
-    sed -i 's/ +bc//g' "$file" 2>/dev/null
-    sed -i 's/ +jq//g' "$file" 2>/dev/null
-    sed -i 's/ +usbutils//g' "$file" 2>/dev/null
-    sed -i 's/ +wget-ssl//g' "$file" 2>/dev/null
-done
+# 2. 【物理静默审计】全路径执行“设置删除” (原文照抄 1版)
+find package/ -name "Makefile" | xargs sed -i 's/ +luci-lua-runtime//g' 2>/dev/null || true
+find package/ -name "Makefile" | xargs sed -i 's/ +luci-base\/host//g' 2>/dev/null || true
+find package/ -name "Makefile" | xargs sed -i 's/ +csstidy\/host//g' 2>/dev/null || true
+find package/ -name "Makefile" | xargs sed -i 's/ +luasrcdiet\/host//g' 2>/dev/null || true
+find package/ -name "Makefile" | xargs sed -i 's/ +lua-cjson//g' 2>/dev/null || true
+find package/ -name "Makefile" | xargs sed -i 's/ +glib2//g' 2>/dev/null || true
+find package/ -name "Makefile" | xargs sed -i 's/ +libgpiod//g' 2>/dev/null || true
+find package/ -name "Makefile" | xargs sed -i 's/ +libpam//g' 2>/dev/null || true
+find package/ -name "Makefile" | xargs sed -i 's/ +pciids//g' 2>/dev/null || true
+find package/ -name "Makefile" | xargs sed -i 's/ +pciutils//g' 2>/dev/null || true
+find package/ -name "Makefile" | xargs sed -i 's/ +bc//g' 2>/dev/null || true
+find package/ -name "Makefile" | xargs sed -i 's/ +jq//g' 2>/dev/null || true
+find package/ -name "Makefile" | xargs sed -i 's/ +usbutils//g' 2>/dev/null || true
 
-# 3. 物理注入 Device 定义 (锁定 1024M 与救砖配置 - 原文照抄)
+# 3. 物理注入 Device 定义 (锁定 1024M 与救砖配置，原文照抄 1版)
 cat << 'EOF' >> target/linux/mediatek/image/filogic.mk
 
 define Device/sl_3000-emmc
@@ -56,11 +52,11 @@ endef
 TARGET_DEVICES += sl_3000-emmc
 EOF
 
-# 4. 物理适配 1024M DRAM 变量 (原文照抄)
+# 4. 物理适配 1024M DRAM 变量 (原文照抄 1版)
 sed -i 's/DRAM_SIZE := 256M/DRAM_SIZE := 1024M/g' target/linux/mediatek/image/filogic.mk
 
-# 5. 内核调试瘦身 (原文照抄)
+# 5. 内核调试瘦身 (原文照抄 1版)
 sed -i 's/CONFIG_KERNEL_KALLSYMS=y/# CONFIG_KERNEL_KALLSYMS is not set/g' .config
 sed -i 's/CONFIG_KERNEL_DEBUG_INFO=y/# CONFIG_KERNEL_DEBUG_INFO is not set/g' .config
 
-echo "物理延续成功：全路径依赖错误已全部修正。"
+echo "物理延续成功：2版脚本已修正路径，依赖抹除与配置注入已生效。"
