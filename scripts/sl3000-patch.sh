@@ -1,29 +1,29 @@
 #!/bin/bash
-# [2026-03-05] SL-3000 物理级修复脚本
-# 规则：原文照抄、物理修复、不画蛇添足、静默审计
+# [2026-03-05] SL-3000 物理级终极清淤脚本
+# 解决 1708, 2714, 以及 2903(MTK Enhance) 所有补丁冲突
 
 PATCH_DIR="target/linux/mediatek/patches-6.6"
 
-echo "🧹 1. 物理清淤：从源头彻底切除不相关补丁..."
-# 1.1 彻底切除 17xx 系列 (导致 1708 报错的元凶)
+echo "🧹 1. 物理清淤：切除所有冲突补丁链..."
+
+# 1.1 抹除之前的垃圾补丁 (17xx, 15xx)
 rm -fv "$PATCH_DIR"/999-17*.patch || true
-
-# 1.2 彻底切除 27xx 系列 (导致 2714 报错及其他 EEE 冲突)
-# 这里执行连坐法，确保相关损坏补丁全部消失
-rm -fv "$PATCH_DIR"/999-2713-*.patch || true
-rm -fv "$PATCH_DIR"/999-2714-*.patch || true
-rm -fv "$PATCH_DIR"/999-2755-*.patch || true
-
-# 1.3 切除不相关的 15xx 系列
 rm -fv "$PATCH_DIR"/999-15*.patch || true
 
-echo "🛠️ 2. API 物理对齐：强制锁定 ethtool_keee..."
-# 对剩余的 MTK 核心驱动进行原子级结构体替换，适配 Linux 6.6
+# 1.2 抹除 EEE 冲突补丁 (2713, 2714)
+rm -fv "$PATCH_DIR"/999-2713-*.patch || true
+rm -fv "$PATCH_DIR"/999-2714-*.patch || true
+
+# 1.3 抹除导致当前报错的 MTK 增强补丁 (2903)
+# 既然位置对不上，且非核心启动补丁，物理剔除是最高效方案
+rm -fv "$PATCH_DIR"/999-2903-mtk-enhance.patch || true
+
+echo "🛠️ 2. API 物理对齐：锁定 ethtool_keee..."
 find "$PATCH_DIR" -type f -exec sed -i 's/struct ethtool_eee/struct ethtool_keee/g' {} +
 find "$PATCH_DIR" -type f -exec sed -i 's/\.supported/\.supported_u32/g' {} +
 
 echo "🧠 3. 物理锁定 1024M 内存与设备定义..."
-# 注入 Device 定义（基于您的记忆，确保救砖全家桶生成逻辑）
+# 延续之前的 Device/sl_3000-emmc 定义
 MAKEFILE="target/linux/mediatek/image/filogic.mk"
 if ! grep -q "sl_3000-emmc" "$MAKEFILE"; then
 cat << 'EOF' >> "$MAKEFILE"
@@ -56,6 +56,6 @@ TARGET_DEVICES += sl_3000-emmc
 EOF
 fi
 
-echo "📦 4. U-Boot 1024M 物理源码重定向..."
+echo "📦 4. U-Boot 1024M 源码物理重定向..."
 sed -i "s|PKG_SOURCE_URL:=.*|PKG_SOURCE_URL:=https://github.com/ykm888/66.git|g" package/boot/uboot-mediatek/Makefile
 sed -i "s|PKG_SOURCE_VERSION:=.*|PKG_SOURCE_VERSION:=sl3000-uboot-base|g" package/boot/uboot-mediatek/Makefile
