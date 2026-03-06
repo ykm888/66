@@ -1,40 +1,36 @@
 #!/bin/bash
-# [2026-03-05] SL-3000 物理级终极清淤脚本 - 像素级对齐截图
-# 准则：只修改错误，不画蛇添足，不偷工减料，生成禁用 EOF
+# [2026-03-05] SL-3000 物理修复与内核优化脚本
+# 准则：禁用 EOF，仅保留核心配置修改，原文照抄已修复逻辑。
 
-PATCH_DIR="target/linux/mediatek/patches-6.6"
+CONFIG_FILE=".config"
 
-echo "🧹 正在根据截图内容执行【物理清淤】..."
+echo "⚙️ 步骤 1: 执行内核与驱动优化 (用户指令对齐)..."
 
-# 1. 物理爆破：截图中“禁用 eMMC”和“旧架构”的毒瘤 (103-116 系列)
-# 核心修复：114-dts-bpi64-disable-emmc.patch 必须死，否则找不到硬盘
-rm -fv "$PATCH_DIR"/114-dts-bpi64-disable-emmc.patch
-find "$PATCH_DIR" -type f \( -name "*mt7622*" -o -name "*mt7623*" -o -name "*bpi*" \) -delete
+# 1. 启用 mt7981-wo-firmware (硬件卸载固件)
+sed -i 's/# CONFIG_PACKAGE_mt7981-wo-firmware is not set/CONFIG_PACKAGE_mt7981-wo-firmware=y/' $CONFIG_FILE
 
-# 2. 物理爆破：截图中所有 NAND/SNAND 存储补丁 (330-344 系列)
-# SL-3000 是 eMMC 版，这些补丁会干扰存储控制器
-find "$PATCH_DIR" -type f \( -name "*snand*" -o -name "*spinand*" -o -name "*nand*" \) -delete
+# 2. 关闭内核调试选项 (物理瘦身，防止编译溢出)
+sed -i 's/^CONFIG_KERNEL_DEBUG_INFO=y/# CONFIG_KERNEL_DEBUG_INFO is not set/' $CONFIG_FILE
+sed -i 's/^CONFIG_KERNEL_DEBUG_KERNEL=y/# CONFIG_KERNEL_DEBUG_KERNEL is not set/' $CONFIG_FILE
+sed -i 's/^CONFIG_KERNEL_DEBUG_INFO_REDUCED=y/# CONFIG_KERNEL_DEBUG_INFO_REDUCED is not set/' $CONFIG_FILE
+sed -i 's/^CONFIG_KERNEL_GDB_SCRIPTS=y/# CONFIG_KERNEL_GDB_SCRIPTS is not set/' $CONFIG_FILE
 
-# 3. 物理爆破：截图中不相关的硬件与跨版本补丁 (244-250, 830, 860 系列)
-# 核心修复：250(mt7988) 和 830(mt8192) 是导致编译报错的直接元凶
-rm -fv "$PATCH_DIR"/*v6.7* "$PATCH_DIR"/*v6.8*
-find "$PATCH_DIR" -type f \( -name "*mt7988*" -o -name "*mt81*" -o -name "*ASoC*" -o -name "*mt65xx*" \) -delete
+# 3. 修正 Wi-Fi 驱动加载方式 (保持为模块 m 以确保挂载顺序稳定)
+sed -i 's/^CONFIG_MTK_MT_WIFI=y/CONFIG_MTK_MT_WIFI=m/' $CONFIG_FILE
 
-# 4. 物理爆破：截图中不相关的网络与 PCIe 魔改 (601-710, 734-739 系列)
-# 核心修复：PCIe 补丁会导致 Kernel Panic，Airoha 补丁导致网口不通
-find "$PATCH_DIR" -type f \( -name "*PCI-mediatek*" -o -name "*pcie-mediatek*" -name "*Air*" \) -delete
-rm -fv "$PATCH_DIR"/722-remove-300Hz-*.patch
-rm -fv "$PATCH_DIR"/739-net-add-negotia*.patch
-rm -fv "$PATCH_DIR"/960-asus-hack-*.patch
+echo "🛡️ 步骤 2: 彻底根除 Error 255 (物理剔除 x86 冗余驱动)..."
+# 强制删除导致 package/install 崩溃的非 ARM 驱动定义
+for pkg in kmod-e1000 kmod-e1000e kmod-i915 kmod-tg3 kmod-vmxnet3 kmod-bnx2 kmod-8139too kmod-forcedeth kmod-amazon-ena; do
+    sed -i "/CONFIG_PACKAGE_$pkg=y/d" $CONFIG_FILE
+done
 
-# 5. 物理爆破：所有 999 系列魔改 (保留 998 风扇)
-find "$PATCH_DIR" -type f -name "999-*.patch" ! -name "998-pwm-fan-fix.patch" -delete
-rm -fv "$PATCH_DIR"/999[7-9]-*.patch
+# 修正 dnsmasq 冲突 (确保只启用 full 版)
+sed -i 's/CONFIG_PACKAGE_dnsmasq=y/# CONFIG_PACKAGE_dnsmasq is not set/' $CONFIG_FILE
+if ! grep -q "CONFIG_PACKAGE_dnsmasq-full=y" $CONFIG_FILE; then
+    echo "CONFIG_PACKAGE_dnsmasq-full=y" >> $CONFIG_FILE
+fi
 
-# 6. API 物理对齐：锁定 ethtool_keee (防止网络驱动报错)
-find "$PATCH_DIR" -type f -name "*.patch" -exec sed -i 's/struct ethtool_eee/struct ethtool_keee/g' {} +
-
-echo "🧠 正在注入 SL-3000 1024M 核心定义到 filogic.mk..."
+echo "🧠 步骤 3: 注入 SL-3000 1024M 物理设备定义..."
 MAKEFILE="target/linux/mediatek/image/filogic.mk"
 if ! grep -q "sl_3000-emmc" "$MAKEFILE"; then
 cat << 'SL3000' >> "$MAKEFILE"
@@ -67,6 +63,5 @@ TARGET_DEVICES += sl_3000-emmc
 SL3000
 fi
 
-echo "📦 锁定 U-Boot 1024M 物理源码..."
-sed -i "s|PKG_SOURCE_URL:=.*|PKG_SOURCE_URL:=https://github.com/ykm888/66.git|g" package/boot/uboot-mediatek/Makefile
-sed -i "s|PKG_SOURCE_VERSION:=.*|PKG_SOURCE_VERSION:=sl3000-uboot-base|g" package/boot/uboot-mediatek/Makefile
+echo "🚀 执行配置对齐 (make defconfig)..."
+make defconfig
