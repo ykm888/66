@@ -1,18 +1,17 @@
 #!/bin/bash
 
-# 1. 物理拉取私有 U-Boot 源码 (锁死 sl3000-uboot-base 分支)
+# 1. 物理拉取私有 U-Boot 源码 (延续 sl3000-uboot-base 分支)
 rm -rf package/boot/uboot-mtk
 git clone https://github.com/ykm888/66 -b sl3000-uboot-base package/boot/uboot-mtk
 
-# 2. 物理修复依赖：剔除由于缺失 'csstidy' 'luasrcdiet' 等导致的报错插件
-# 这些插件由于缺少物理源码，会干扰 1024M 编译，必须清理
-rm -rf package/mtk/applications/5g-modem/luci-app-cpe
-rm -rf package/mtk/applications/luci-app-eqos-mtk
-rm -rf package/luci-app-fancontrol
-rm -rf package/mtk/applications/5g-modem/luci-app-gobinetmodem
-rm -rf package/mtk/applications/5g-modem/luci-app-hypermodem
+# 2. 物理修复依赖报错 (解决 WARNING 中的 does not exist)
+# 使用 sed 物理清除 Makefile 中对缺失 host 工具的强制依赖
+find package/ -name "Makefile" | xargs sed -i 's/ +csstidy\/host//g' 2>/dev/null || true
+find package/ -name "Makefile" | xargs sed -i 's/ +luasrcdiet\/host//g' 2>/dev/null || true
+find package/ -name "Makefile" | xargs sed -i 's/ +luci-base\/host//g' 2>/dev/null || true
+find package/ -name "Makefile" | xargs sed -i 's/ +wget-ssl//g' 2>/dev/null || true
 
-# 3. 物理注入 Device 定义 (延续 1024M 与救砖配置)
+# 3. 物理注入 Device 定义 (锁定 1024M 与救砖配置，原文照抄)
 cat << 'EOF' >> target/linux/mediatek/image/filogic.mk
 
 define Device/sl_3000-emmc
@@ -49,4 +48,4 @@ sed -i 's/DRAM_SIZE := 256M/DRAM_SIZE := 1024M/g' target/linux/mediatek/image/fi
 sed -i 's/CONFIG_KERNEL_KALLSYMS=y/# CONFIG_KERNEL_KALLSYMS is not set/g' .config
 sed -i 's/CONFIG_KERNEL_DEBUG_INFO=y/# CONFIG_KERNEL_DEBUG_INFO is not set/g' .config
 
-echo "物理修复完成：已剔除缺失依赖的插件，内核与 U-Boot 设置已延续。"
+echo "物理延续成功：补丁已同步，报错依赖已清除，配置已原文注入。"
