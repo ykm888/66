@@ -1,11 +1,18 @@
 #!/bin/bash
 
-# 1. 物理拉取私有 U-Boot 源码 (延续 sl3000-uboot-base 分支)
+# 1. 物理拉取私有 U-Boot 源码 (锁死 sl3000-uboot-base 分支)
 rm -rf package/boot/uboot-mtk
 git clone https://github.com/ykm888/66 -b sl3000-uboot-base package/boot/uboot-mtk
 
-# 2. 物理注入 Device 定义 (锁定 1024M 与救砖全家桶配置)
-# 使用标准文本重定向，确保不产生 EOF 解析错误
+# 2. 物理修复依赖：剔除由于缺失 'csstidy' 'luasrcdiet' 等导致的报错插件
+# 这些插件由于缺少物理源码，会干扰 1024M 编译，必须清理
+rm -rf package/mtk/applications/5g-modem/luci-app-cpe
+rm -rf package/mtk/applications/luci-app-eqos-mtk
+rm -rf package/luci-app-fancontrol
+rm -rf package/mtk/applications/5g-modem/luci-app-gobinetmodem
+rm -rf package/mtk/applications/5g-modem/luci-app-hypermodem
+
+# 3. 物理注入 Device 定义 (延续 1024M 与救砖配置)
 cat << 'EOF' >> target/linux/mediatek/image/filogic.mk
 
 define Device/sl_3000-emmc
@@ -35,11 +42,11 @@ endef
 TARGET_DEVICES += sl_3000-emmc
 EOF
 
-# 3. 物理适配 1024M DRAM 变量
+# 4. 物理适配 1024M DRAM 变量
 sed -i 's/DRAM_SIZE := 256M/DRAM_SIZE := 1024M/g' target/linux/mediatek/image/filogic.mk
 
-# 4. 内核调试瘦身 (延续之前的修复设置)
+# 5. 内核调试瘦身
 sed -i 's/CONFIG_KERNEL_KALLSYMS=y/# CONFIG_KERNEL_KALLSYMS is not set/g' .config
 sed -i 's/CONFIG_KERNEL_DEBUG_INFO=y/# CONFIG_KERNEL_DEBUG_INFO is not set/g' .config
 
-echo "物理延续成功：全家桶定义与私有 U-Boot 源已对齐。"
+echo "物理修复完成：已剔除缺失依赖的插件，内核与 U-Boot 设置已延续。"
