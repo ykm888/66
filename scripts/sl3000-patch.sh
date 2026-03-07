@@ -1,45 +1,40 @@
 #!/bin/bash
 
-# 1. 进入物理源码目录
-cd openwrt || exit 1
+# 获取从工作流传来的 U-Boot 分支名
+UBOOT_BRANCH=$1
+[ -z "$UBOOT_BRANCH" ] && UBOOT_BRANCH="sl3000-uboot-base"
 
-# 2. 物理拉取 1024M U-Boot 源码
-rm -rf package/boot/uboot-mtk
-git clone https://github.com/ykm888/66 -b sl3000-uboot-base package/boot/uboot-mtk
+echo ">>> 开始执行 12 工序核心补丁 (含 U-Boot 构建) <<<"
 
-# 3. 物理注入 Device 定义 (延续 1 版原文照抄)
-if ! grep -q "Device/sl_3000-emmc" target/linux/mediatek/image/filogic.mk; then
-cat << 'STOP' >> target/linux/mediatek/image/filogic.mk
-
-define Device/sl_3000-emmc
-  DEVICE_VENDOR := SL
-  DEVICE_MODEL := 3000 eMMC
-  DEVICE_DTS := mt7981b-sl-3000-emmc
-  DEVICE_DTS_DIR := $(DTS_DIR)/mediatek
-  SUPPORTED_DEVICES := sl,3000-emmc
-  DEVICE_DRAM_SIZE := 1024M
-  DEVICE_PACKAGES := $(MT7981_USB_PKGS) f2fsck losetup mkf2fs kmod-fs-f2fs kmod-mmc \
-	luci-app-ksmbd luci-i18n-ksmbd-zh-cn ksmbd-utils
-  KERNEL_LOADADDR := 0x44000000
-  KERNEL := kernel-bin | lzma | fit lzma $$(KDIR)/image-$$(firstword $$(DEVICE_DTS)).dtb
-  KERNEL_INITRAMFS := kernel-bin | lzma | fit lzma $$(KDIR)/image-$$(firstword $$(DEVICE_DTS)).dtb with-initrd | pad-to 64k
-  KERNEL_INITRAMFS_SUFFIX := -recovery.itb
-  IMAGES := sysupgrade.bin factory.img.gz
-  IMAGE/sysupgrade.bin := sysupgrade-tar | append-metadata
-  ARTIFACTS := emmc-gpt.bin emmc-preloader.bin emmc-bl31-uboot.fip
-  ARTIFACT/emmc-gpt.bin := mt798x-gpt emmc
-  ARTIFACT/emmc-preloader.bin := mt7981-bl2 emmc-ddr3
-  ARTIFACT/emmc-bl31-uboot.fip := mt7981-bl31-uboot emmc-ddr3
-  IMAGE/factory.img.gz := mt798x-gpt emmc |\
-	pad-to 17k | mt7981-bl2 emmc-ddr3 |\
-	pad-to 6656k | mt7981-bl31-uboot emmc-ddr3 |\
-	pad-to 64M | append-image squashfs-sysupgrade.itb | gzip
-endef
-TARGET_DEVICES += sl_3000-emmc
-STOP
+# 1. 物理破除内核 1024M 内存识别限制
+# 延续之前针对 platform.sh 的 sed 修改逻辑
+TARGET_FILE="openwrt/target/linux/mediatek/filogic/base-files/lib/upgrade/platform.sh"
+if [ -f "$TARGET_FILE" ]; then
+    sed -i 's/256m/1024m/g' "$TARGET_FILE"
+    echo "✅ 内核 1024M 限制已物理破除"
 fi
 
-# 4. 物理强制全局 1024M 声明
-sed -i 's/DRAM_SIZE := 256M/DRAM_SIZE := 1024M/g' target/linux/mediatek/image/filogic.mk
+# 2. 修改默认主机名为 SL3000
+sed -i 's/OpenWrt/SL3000/g' openwrt/package/base-files/files/bin/config_generate
 
-echo "✅ 主脚本物理注入完成。"
+# 3. 物理构建救砖 U-Boot (全家桶核心)
+echo ">>> 正在从分支 $UBOOT_BRANCH 物理构建 U-Boot <<<"
+# 物理拉取 ykm888/66 仓库的指定分支到子目录
+git clone --depth 1 --single-branch -b $UBOOT_BRANCH https://github.com/ykm888/66.git uboot-build-dir
+
+cd uboot-build-dir
+# 延续你之前的 U-Boot 编译设置（如 mt7981_sl3000_defconfig）
+make mt7981_sl3000_defconfig
+make -j$(nproc)
+
+# 物理产物整理：将生成的 bin 移动到根目录，方便工作流第 10 步打包
+if [ -f "u-boot.bin" ]; then
+    cp u-boot.bin ../u-boot.bin
+    echo "✅ U-Boot 救砖引导编译成功"
+else
+    echo "❌ 错误: U-Boot 编译失败，请检查源码逻辑"
+    exit 1
+fi
+
+cd ..
+echo ">>> 全家桶脚本工序全部完成 <<<"
