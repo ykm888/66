@@ -23,47 +23,37 @@ jobs:
 
       - name: 物理拉取并注入魔改配置
         run: |
-          # 1. 物理拉取官方 MTK 源码全集
+          # 1. 物理拉取官方 MTK 源码全集 (深度为1)
           git clone --depth 1 -b mtksoc https://github.com/mtk-openwrt/u-boot.git u-boot-repo
           cd u-boot-repo
           
           # 2. 物理注入 SL-3000 1024M 配置文件
+          # 我们不再大规模删除，而是精准修改编译所需的配置文件
           if [ -f "configs/mt7981_emmc_rfb_defconfig" ]; then
               cp configs/mt7981_emmc_rfb_defconfig configs/mt7981_emmc_defconfig
+              # 关键修复：强制设置内存 Bank 为 1 适配 1024M 内存
               sed -i 's/CONFIG_NR_DRAM_BANKS=.*/CONFIG_NR_DRAM_BANKS=1/g' configs/mt7981_emmc_defconfig
+              echo "CONFIG_NR_DRAM_BANKS=1" >> configs/mt7981_emmc_defconfig
           fi
 
-          # 3. 执行物理脱水手术（精准保留编译环境）
-          echo "开始精准物理保留手术..."
-          
-          # 【核心修复】：根目录必须保留 Kconfig，否则 make 报错
-          find . -maxdepth 1 -type f ! -name "Makefile" ! -name "Kconfig" ! -name ".gitignore" ! -name "README" -delete
-          
-          # 【核心修复】：保留 scripts 目录（编译核心脚本）
-          # 除了以下目录，其他二级目录全部物理删除
-          find . -maxdepth 1 -type d ! -name "." ! -name "configs" ! -name "arch" ! -name "include" ! -name "scripts" ! -name ".git" -exec rm -rf {} +
-
-          # 保留 mt7981 相关配置
-          find configs/ -type f ! -name "*mt7981*" ! -name "sandbox*" -delete
-          
-          # 保留 mt7981 相关设备树及 Kconfig
-          find arch/arm/dts/ -type f ! -name "*mt7981*" ! -name "Makefile" ! -name "Kconfig" ! -name "*.dtsi" -delete
-          
-          # 【核心修复】：保留架构根 Kconfig
-          find arch/arm/ -maxdepth 1 -type f ! -name "Kconfig" ! -name "Makefile" -delete
-          
-          # 保留 mt7981 相关头文件
-          find include/configs/ -type f ! -name "mt7981.h" ! -name "mediatek.h" ! -name "mtk-common.h" -delete
+          # 3. 彻底解决：不再执行“粉碎手术”
+          # 仅仅移除 .git 目录以减小推送体积，保留所有源码结构以维持 Kconfig 引用链
+          rm -rf .git
+          echo ">>> 源码物理结构已完整保留，确保 Kconfig 链条不断裂。"
 
       - name: 物理创建并推送分支
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           cd u-boot-repo
-          git remote remove origin
+          # 初始化一个新的 git 仓库用于推送分支
+          git init
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.name "github-actions[bot]"
+          
           git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git"
           
           git checkout -b sl3000-uboot-base
           git add .
-          git commit -m "Initialize: SL-3000 1024M U-Boot (物理补全编译环境版)"
+          git commit -m "Initialize: SL-3000 1024M U-Boot (源头根治版：保留完整目录树)"
           git push -f origin sl3000-uboot-base
