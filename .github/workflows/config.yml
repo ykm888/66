@@ -1,10 +1,7 @@
-name: Clean sl3000.config (auto-fix)
+name: Clean sl3000.config (Final-Fix)
 
 on:
-  workflow_dispatch:          # 手动触发：一键物理洗白
-  push:
-    paths:
-      - 'custom-config/sl3000.config'
+  workflow_dispatch:
 
 jobs:
   pixel-fix:
@@ -15,72 +12,52 @@ jobs:
     steps:
       - name: 1. 物理检出仓库
         uses: actions/checkout@v4
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: 2. 物理洗白：Makefile 幽灵依赖
-        run: |
-          set -e
-          echo ">>> 正在执行 Makefile 像素级洗白 (解决缺失组件导致的编译中断)..."
-          # 针对 openwrt 24.10 内核 6.6 容易丢失的包进行物理剔除
-          GHOST_PKGS=("lua-cjson" "glib2" "libgpiod" "libpam" "pciids" "pciutils")
-          for pkg in "${GHOST_PKGS[@]}"; do
-            # 物理扫描并删除所有依赖列表中的这些幽灵包
-            find . -name "Makefile" -exec sed -i "s/+$pkg//g" {} + 2>/dev/null || true
-            find . -name "Makefile" -exec sed -i "s/ $pkg//g" {} + 2>/dev/null || true
-          done
-
-      - name: 3. 物理阻断：Warp & WED 驱动报错
-        run: |
-          set -e
-          echo ">>> 正在物理阻断引发崩溃的 Warp/WED 驱动路径..."
-          
-          # A. 处理 Warp 驱动 Makefile
-          WARP_MK="package/mtk/drivers/warp/Makefile"
-          if [ -f "$WARP_MK" ]; then
-            sed -i 's/default y/default n/g' "$WARP_MK" 2>/dev/null || true
-            sed -i 's/$(eval $(call BuildPackage,kmod-mtk-warp))/# $(eval $(call BuildPackage,kmod-mtk-warp))/g' "$WARP_MK" 2>/dev/null || true
-          fi
-          
-          # B. 物理移除引发内核 panic 或编译错误的 WED 相关组件
-          find package/mtk/drivers/ -name "Makefile" -exec sed -i 's/CONFIG_MTK_WED=y/CONFIG_MTK_WED=n/g' {} + 2>/dev/null || true
-
-      - name: 4. 物理锁定：sl3000.config (防二次勾选)
+      - name: 2. 物理彻底阻断 Warp (内核 6.6 兼容性对齐)
         run: |
           set -e
           CONFIG_FILE="custom-config/sl3000.config"
           if [ -f "$CONFIG_FILE" ]; then
-            echo ">>> 正在物理重构 sl3000.config..."
-            # A. 物理抹除所有引发冲突的符号
+            echo ">>> 正在物理切除 Warp/WED 冲突..."
+            # 删除所有旧的 warp/mtwifi-cfg 引用
             sed -i '/CONFIG_PACKAGE_kmod-mtk-warp/d' "$CONFIG_FILE"
             sed -i '/CONFIG_PACKAGE_mtwifi-cfg/d' "$CONFIG_FILE"
-            sed -i '/CONFIG_WARP_/d' "$CONFIG_FILE"
-            sed -i '/CONFIG_WED_/d' "$CONFIG_FILE"
+            sed -i '/CONFIG_MTK_WARP_SUPPORT/d' "$CONFIG_FILE"
             
-            # B. 物理注入硬禁用 (强制锁死，防止自动推导重新勾选)
+            # 物理注入你确认的锁死逻辑
             echo "CONFIG_PACKAGE_kmod-mtk-warp=n" >> "$CONFIG_FILE"
             echo "# CONFIG_PACKAGE_kmod-mtk-warp is not set" >> "$CONFIG_FILE"
             echo "# CONFIG_PACKAGE_mtwifi-cfg is not set" >> "$CONFIG_FILE"
             echo "CONFIG_MTK_WARP_SUPPORT=n" >> "$CONFIG_FILE"
-            
-            # C. 补全 1024M 必需的无线加速固件 (确保信号物理稳定)
-            if ! grep -q "CONFIG_PACKAGE_mt7981-wo-firmware=y" "$CONFIG_FILE"; then
-              echo "CONFIG_PACKAGE_mt7981-wo-firmware=y" >> "$CONFIG_FILE"
-            fi
           fi
-          echo "✅ Config 物理锁定与洗白完成。"
 
-      - name: 5. 物理回推修复后的仓库源
+      - name: 3. 物理注入磁盘工具 (1024M 增强包)
+        run: |
+          set -e
+          CONFIG_FILE="custom-config/sl3000.config"
+          echo ">>> 正在补全物理磁盘操作工具..."
+          DISK_PKGS=(
+            "CONFIG_PACKAGE_kmod-fs-ext4=y"
+            "CONFIG_PACKAGE_kmod-fs-vfat=y"
+            "CONFIG_PACKAGE_kmod-fs-ntfs3=y"
+            "CONFIG_PACKAGE_kmod-fs-exfat=y"
+            "CONFIG_PACKAGE_fdisk=y"
+            "CONFIG_PACKAGE_e2fsprogs=y"
+            "CONFIG_PACKAGE_lsblk=y"
+            "CONFIG_PACKAGE_block-mount=y"
+          )
+          for pkg in "${DISK_PKGS[@]}"; do
+            grep -q "${pkg%%=*}" "$CONFIG_FILE" || echo "$pkg" >> "$CONFIG_FILE"
+          done
+
+      - name: 4. 物理回推修复后的仓库
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          
           git add .
-          
           if git diff --staged --quiet; then
-            echo "所有物理文件已处于对齐状态，无需操作。"
+            echo "物理配置已对齐，无需重复推送。"
           else
-            git commit -m "fix(repo): 物理洗白依赖、阻断 Warp 编译并硬锁定 Config"
+            git commit -m "fix(sl3000): 彻底阻断 Warp 并注入物理磁盘工具"
             git push origin HEAD
-            echo "✅ 物理修复已推送到仓库，主编译工作流现在可以‘无毒’运行。"
           fi
