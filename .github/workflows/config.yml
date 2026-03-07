@@ -4,85 +4,94 @@ on:
   workflow_dispatch:          # 允许手动触发
   push:
     paths:
-      - 'custom-config/sl3000.config'   # 当文件被推送时自动触发
+      - 'custom-config/sl3000.config'   # 当 config 文件有更新时自动触发
 
 jobs:
   clean-config:
     runs-on: ubuntu-latest
     permissions:
-      contents: write          # 允许向仓库推送更改
+      contents: write          # 必须具备写权限以回推仓库
 
     steps:
-      - name: Checkout repository
+      - name: 1. 物理检出仓库
         uses: actions/checkout@v4
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Verify config file exists
+      - name: 2. 物理校验
         run: |
           if [ ! -f custom-config/sl3000.config ]; then
-            echo "❌ File custom-config/sl3000.config not found!"
+            echo "❌ 物理文件丢失: custom-config/sl3000.config"
             exit 1
           fi
-          echo "✅ Found custom-config/sl3000.config"
+          echo "✅ 目标配置已就位"
 
-      - name: Clean up the config file
+      - name: 3. 像素级洗白操作 (物理去冲突)
         run: |
-          set -e  # 遇到错误立即退出
+          set -e
           CONFIG_FILE="custom-config/sl3000.config"
           TMP_FILE=$(mktemp)
-
-          # 复制原始文件到临时文件
           cp "$CONFIG_FILE" "$TMP_FILE"
 
-          # 1. 启用 mt7981 无线固件（如果未启用）
-          sed -i 's/^# \(CONFIG_PACKAGE_mt7981-wo-firmware\) is not set/\1=y/' "$TMP_FILE"
+          echo "正在执行 12 版配置手术..."
 
-          # 2. 关闭内核调试选项（如果已启用）
+          # A. 物理切断：WARP 符号冲突修复 (解决 90% 处的 modpost 报错)
+          # 将所有开启状态改为禁用状态
+          sed -i 's/^CONFIG_PACKAGE_kmod-mtk-warp=y/# CONFIG_PACKAGE_kmod-mtk-warp is not set/' "$TMP_FILE"
+          sed -i 's/^CONFIG_PACKAGE_mtwifi-cfg=y/# CONFIG_PACKAGE_mtwifi-cfg is not set/' "$TMP_FILE"
+          
+          # 物理锁死相关联的 WED 和加速引擎配置行
+          sed -i '/^CONFIG_WARP_/ s/^CONFIG_/# CONFIG_/' "$TMP_FILE"
+          sed -i '/^CONFIG_WARP_/ s/=y/ is not set/' "$TMP_FILE"
+          sed -i '/^CONFIG_WED_/ s/^CONFIG_/# CONFIG_/' "$TMP_FILE"
+          sed -i '/^CONFIG_WED_/ s/=y/ is not set/' "$TMP_FILE"
+
+          # B. 物理对齐：开启 mt7981 必需的无线固件 (确保 1024M 运行正常)
+          if grep -q "CONFIG_PACKAGE_mt7981-wo-firmware is not set" "$TMP_FILE"; then
+            sed -i 's/^# CONFIG_PACKAGE_mt7981-wo-firmware is not set/CONFIG_PACKAGE_mt7981-wo-firmware=y/' "$TMP_FILE"
+          elif ! grep -q "CONFIG_PACKAGE_mt7981-wo-firmware=y" "$TMP_FILE"; then
+            echo "CONFIG_PACKAGE_mt7981-wo-firmware=y" >> "$TMP_FILE"
+          fi
+
+          # C. 物理脱水：关闭冗余的内核调试 (防止 8000 行带来的编译负担)
           sed -i 's/^\(CONFIG_KERNEL_DEBUG_INFO\)=y/# \1 is not set/' "$TMP_FILE"
           sed -i 's/^\(CONFIG_KERNEL_DEBUG_KERNEL\)=y/# \1 is not set/' "$TMP_FILE"
-          sed -i 's/^\(CONFIG_KERNEL_DEBUG_INFO_REDUCED\)=y/# \1 is not set/' "$TMP_FILE"
-
-          # 3. 将 MTK Wi-Fi 驱动改为内置（如果为模块）
+          sed -i 's/^\(CONFIG_KERNEL_KALLSYMS\)=y/# \1 is not set/' "$TMP_FILE"
+          
+          # D. 物理强转：将无线驱动从模块(m)改为内置(y)
           sed -i 's/^\(CONFIG_MTK_MT_WIFI\)=m/\1=y/' "$TMP_FILE"
 
-          # 4. 禁用 warp 驱动（解决编译错误）
-          sed -i 's/^CONFIG_PACKAGE_kmod-warp=y/# CONFIG_PACKAGE_kmod-warp is not set/' "$TMP_FILE"
-          # 注释所有以 CONFIG_WARP_ 和 CONFIG_WED_ 开头的行
-          sed -i '/^CONFIG_WARP_/ s/^/# /' "$TMP_FILE"
-          sed -i '/^CONFIG_WED_/ s/^/# /' "$TMP_FILE"
+          # E. 幽灵抹除：清理 Makefile 中不存在的依赖项
+          # 这些包会导致 WARNING 或编译中止
+          GHOST_PKGS=("lua-cjson" "glib2" "libgpiod" "libpam" "pciids" "pciutils")
+          for pkg in "${GHOST_PKGS[@]}"; do
+            sed -i "/$pkg/d" "$TMP_FILE"
+          done
 
-          # 5. （可选）移除所有注释的配置行，减小文件体积（默认不开启）
-          # 如果需要，取消下面一行的注释
-          # sed -i '/^# CONFIG_/d' "$TMP_FILE"
-
-          # 6. 比较临时文件与原文件是否有变化
+          # 4. 物理变更比对
           if cmp -s "$CONFIG_FILE" "$TMP_FILE"; then
-            echo "✅ No changes needed, file is already clean."
+            echo "✅ 配置物理状态良好，无需洗白。"
             rm "$TMP_FILE"
             exit 0
           fi
 
-          # 7. 将更新后的文件写回原位置
+          # 写回文件
           cp "$TMP_FILE" "$CONFIG_FILE"
-          echo "✅ Cleaned config saved to $CONFIG_FILE"
           rm "$TMP_FILE"
+          echo "✅ 物理修复完成，已生成洗白后的配置。"
 
-          # 显示修改差异（便于查看）
-          echo "📋 Changes made:"
-          git diff "$CONFIG_FILE" || true
-
-      - name: Commit and push changes
+      - name: 4. 物理推送更改至仓库
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-
+          
           git add custom-config/sl3000.config
-
+          
+          # 检查是否有实际变更提交
           if git diff --staged --quiet; then
-            echo "No changes to commit."
+            echo "没有需要推送的物理变更。"
           else
-            git commit -m "chore(config): auto-fix sl3000.config (enable wireless, disable warp)"
+            git commit -m "fix(config): 物理洗白 sl3000.config (强制禁用故障驱动 & 开启无线固件)"
             git push
-            echo "✅ Changes pushed to repository."
+            echo "✅ 洗白后的配置已回推。"
           fi
