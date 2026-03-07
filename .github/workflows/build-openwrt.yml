@@ -32,35 +32,62 @@ jobs:
           git clone $REPO_URL -b $REPO_BRANCH openwrt
           ln -sf /workdir/openwrt $GITHUB_WORKSPACE/openwrt
 
-      - name: 4. 更新并安装 Feeds
+      - name: 4. 加载自定义 Feeds
+        run: |
+          [ -e $FEEDS_CONF ] && cp $FEEDS_CONF openwrt/feeds.conf.default
+
+      - name: 5. 更新并安装 Feeds
         run: |
           cd openwrt
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
-      - name: 5. 运行 1024M 物理补丁脚本
+      - name: 6. 运行 1024M 物理补丁脚本
         run: |
           chmod +x scripts/sl3000-patch.sh
           ./scripts/sl3000-patch.sh ${{ env.UBOOT_BRANCH }}
 
-      - name: 6. 加载配置并编译
+      - name: 7. 加载已洗白配置并物理锁死
         run: |
           [ -e $CONFIG_FILE ] && cp $CONFIG_FILE openwrt/.config
           cd openwrt
+          # 执行配置对齐
           make defconfig
-          make -j$(nproc)
+          # 物理最后通牒：防止 make defconfig 自动反勾选 Warp
+          sed -i '/CONFIG_PACKAGE_kmod-mtk-warp/d' .config
+          echo "# CONFIG_PACKAGE_kmod-mtk-warp is not set" >> .config
+          echo "CONFIG_PACKAGE_kmod-mtk-warp=n" >> .config
+          # 刷新配置
+          make oldconfig
 
-      - name: 7. 物理整理并发布
+      - name: 8. 下载编译所需软件包
+        run: |
+          cd openwrt
+          make download -j8
+          find dl -size -1024c -exec rm -f {} \;
+
+      - name: 9. 物理启动固件编译
+        run: |
+          cd openwrt
+          make -j$(nproc) || make -j1 V=s
+
+      - name: 10. 物理整理编译产物
         run: |
           cd openwrt/bin/targets/*/*
           [ -f "$GITHUB_WORKSPACE/sl3000-uboot.bin" ] && cp "$GITHUB_WORKSPACE/sl3000-uboot.bin" .
           echo "FIRMWARE=$PWD" >> $GITHUB_ENV
 
-      - name: 8. 发布到 Release
+      - name: 11. 上传固件到 Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: OpenWrt_SL3000_1024M
+          path: ${{ env.FIRMWARE }}/*
+
+      - name: 12. 发布救砖全家桶到 Release
         uses: softprops/action-gh-release@v2
         if: env.UPLOAD_RELEASE == 'true'
         with:
-          tag_name: SL3000-Full-Kit-${{ github.run_id }}
+          tag_name: SL3000-FullKit-${{ github.run_id }}
           files: ${{ env.FIRMWARE }}/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
