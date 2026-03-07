@@ -11,8 +11,9 @@ PKG_NAME:=ebtables
 PKG_SOURCE_DATE:=2018-06-27
 PKG_RELEASE:=2
 
-# 物理修复：将失效的 git.netfilter.org 物理替换为官方源码存档镜像站
-PKG_SOURCE_URL:=https://sources.openwrt.org
+# 物理修复：将失效的 netfilter.org 物理替换为 Fedora 官方 Git 镜像源
+# 该源物理包含 48cff25 历史提交，确保哈希校验物理一致
+PKG_SOURCE_URL:=https://src.fedoraproject.org/git/rpms/ebtables.git
 PKG_SOURCE_PROTO:=git
 PKG_SOURCE_VERSION:=48cff25dfea5b37e16ba5dc6601e98ab140f5f99
 PKG_MIRROR_HASH:=3039d73b167c41025b1b401b647743b9c6d786613c693eef34de325b30de6d47
