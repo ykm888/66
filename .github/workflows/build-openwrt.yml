@@ -16,7 +16,7 @@ jobs:
     runs-on: ubuntu-22.04
 
     steps:
-      - name: 1. 物理环境检出 (Checkout)
+      - name: 1. 物理环境检出
         uses: actions/checkout@v4
 
       - name: 2. 初始化编译环境 (原文照抄 1版)
@@ -32,13 +32,13 @@ jobs:
           sudo mkdir -p /workdir
           sudo chown $USER:$GROUPS /workdir
 
-      - name: 3. 克隆源码仓库 (Clone Source)
+      - name: 3. 克隆源码仓库
         working-directory: /workdir
         run: |
           git clone $REPO_URL -b $REPO_BRANCH openwrt
           ln -sf /workdir/openwrt ${{ github.workspace }}/openwrt
 
-      - name: 4. 加载自定义 Feeds (Update & Install Feeds)
+      - name: 4. 加载自定义 Feeds
         run: |
           cd openwrt
           ./scripts/feeds update -a
@@ -49,36 +49,38 @@ jobs:
           mkdir -p openwrt/target/linux/mediatek/patches-6.6/
           [ -d patches ] && cp -f patches/*.patch openwrt/target/linux/mediatek/patches-6.6/ || echo "No custom patches found."
 
-      - name: 6. 物理注入 DIY 脚本 (基于 3版工作流延续)
+      - name: 6. 物理注入与配置锁死 (核心步骤)
         run: |
           [ -e $CONFIG_FILE ] && cp $CONFIG_FILE openwrt/.config
           chmod +x $DIY_P1_SH
+          # 运行脚本执行 8 版物理锁死逻辑
           ./$DIY_P1_SH
           cd openwrt
+          # 展开配置并自动清理冲突
           make defconfig
 
-      - name: 7. 下载编译依赖 (原文照抄)
+      - name: 7. 下载编译依赖
         run: |
           cd openwrt
           make download -j8
 
-      - name: 8. 编译工具链与编译器 (强化物理修复)
+      - name: 8. 编译工具链 (解决编译器缺失)
         run: |
           cd openwrt
           make tools/compile -j$(nproc) || make tools/compile -j1 V=s
           make toolchain/compile -j$(nproc) || make toolchain/compile -j1 V=s
 
-      - name: 9. 编译内核与驱动 (内核 6.6 物理编译)
+      - name: 9. 编译内核与驱动 (冲刺 90% 进度)
         run: |
           cd openwrt
           make target/linux/compile -j$(nproc) || make target/linux/compile -j1 V=s
 
-      - name: 10. 构建完整镜像 (解决 WARP 依赖后尝试全局构建)
+      - name: 10. 构建完整镜像 (完成最后 10%)
         run: |
           cd openwrt
           make -j$(nproc) || make -j1 V=s
 
-      - name: 11. 整理救砖全家桶 (原文照抄)
+      - name: 11. 整理救砖全家桶 (成功后物理收集)
         if: success()
         run: |
           cd openwrt/bin/targets/mediatek/filogic/
@@ -91,7 +93,7 @@ jobs:
           cp -f *sysupgrade.bin recovery_kit/ 2>/dev/null || true
           echo "FIRMWARE_PACK=$PWD/recovery_kit" >> $GITHUB_ENV
 
-      - name: 12. 上传物理产物 (原文照抄)
+      - name: 12. 上传物理产物 (Release Artifacts)
         uses: actions/upload-artifact@v4
         with:
           name: SL-3000-1024M-MASTER-KIT
