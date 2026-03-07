@@ -9,8 +9,6 @@ env:
   FEEDS_CONF: feeds.conf.default
   CONFIG_FILE: custom-config/sl3000.config
   UBOOT_BRANCH: sl3000-uboot-base
-  UPLOAD_BIN_DIR: false
-  UPLOAD_FIRMWARE: true
   UPLOAD_RELEASE: true
   TZ: Asia/Shanghai
 
@@ -23,14 +21,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: 2. 物理初始化编译环境
-        env:
-          DEBIAN_FRONTEND: noninteractive
         run: |
-          sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/share/powershell /usr/share/swift /usr/local/etc/vcpkg /usr/local/bin/terraform
-          sudo -E apt-get -qq update
-          sudo -E apt-get -qq install $(curl -fsSL https://raw.githubusercontent.com/ykm888/66/main/scripts/depends.txt)
-          sudo -E apt-get -qq autoremove --purge
-          sudo -E apt-get -qq clean
           sudo timedatectl set-timezone "$TZ"
           sudo mkdir -p /workdir
           sudo chown $USER:$GROUPS /workdir
@@ -38,65 +29,36 @@ jobs:
       - name: 3. 物理克隆 OpenWrt 源码
         working-directory: /workdir
         run: |
-          df -hT $PWD
           git clone $REPO_URL -b $REPO_BRANCH openwrt
           ln -sf /workdir/openwrt $GITHUB_WORKSPACE/openwrt
 
-      - name: 4. 加载自定义 Feeds
-        run: |
-          [ -e $FEEDS_CONF ] && cp $FEEDS_CONF openwrt/feeds.conf.default || echo "File not found"
-
-      - name: 5. 更新并安装 Feeds
+      - name: 4. 更新并安装 Feeds
         run: |
           cd openwrt
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
-      - name: 6. 运行 1024M 物理补丁脚本
+      - name: 5. 运行 1024M 物理补丁脚本
         run: |
-          PATCH_SH="scripts/sl3000-patch.sh"
-          chmod +x $PATCH_SH
-          ./$PATCH_SH ${{ env.UBOOT_BRANCH }}
+          chmod +x scripts/sl3000-patch.sh
+          ./scripts/sl3000-patch.sh ${{ env.UBOOT_BRANCH }}
 
-      - name: 7. 加载已洗白配置
+      - name: 6. 加载配置并编译
         run: |
-          [ -e $CONFIG_FILE ] && cp $CONFIG_FILE openwrt/.config || echo "File not found"
+          [ -e $CONFIG_FILE ] && cp $CONFIG_FILE openwrt/.config
           cd openwrt
           make defconfig
+          make -j$(nproc)
 
-      - name: 8. 下载编译所需软件包
-        id: package
-        run: |
-          cd openwrt
-          make download -j8
-          find dl -size -1024c -exec ls -l {} \;
-          find dl -size -1024c -exec rm -f {} \;
-
-      - name: 9. 物理启动固件编译
-        id: compile
-        run: |
-          cd openwrt
-          echo -e "$(nproc) thread compile"
-          make -j$(nproc) || make -j1 V=s || exit 1
-          echo "status=success" >> $GITHUB_OUTPUT
-
-      - name: 10. 物理整理编译产物
+      - name: 7. 物理整理并发布
         run: |
           cd openwrt/bin/targets/*/*
-          rm -rf packages
           [ -f "$GITHUB_WORKSPACE/sl3000-uboot.bin" ] && cp "$GITHUB_WORKSPACE/sl3000-uboot.bin" .
           echo "FIRMWARE=$PWD" >> $GITHUB_ENV
-          echo "status=success" >> $GITHUB_OUTPUT
 
-      - name: 11. 上传固件到 Artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: OpenWrt_firmware_sl3000
-          path: ${{ env.FIRMWARE }}
-
-      - name: 12. 发布救砖全家桶到 Release
+      - name: 8. 发布到 Release
         uses: softprops/action-gh-release@v2
-        if: env.UPLOAD_RELEASE == 'true' && !cancelled()
+        if: env.UPLOAD_RELEASE == 'true'
         with:
           tag_name: SL3000-Full-Kit-${{ github.run_id }}
           files: ${{ env.FIRMWARE }}/*
