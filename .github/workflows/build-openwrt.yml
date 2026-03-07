@@ -1,14 +1,24 @@
-name: SL-3000-1024M-eMMC-Master-Build
+name: Build SL3000 Firmware
 
 on:
-  workflow_dispatch:
+  workflow_dispatch:          # 手动触发构建
+  push:
+    branches:
+      - main                  # 当构建脚本或配置在 main 分支更新时触发
+    paths:
+      - 'scripts/**'
+      - 'custom-config/**'
 
 env:
-  REPO_URL: https://github.com/ykm888/66
-  REPO_BRANCH: openwrt-24.10-6.6
+  REPO_URL: https://github.com/coolsnowwolf/lede
+  REPO_BRANCH: master
   FEEDS_CONF: feeds.conf.default
   CONFIG_FILE: custom-config/sl3000.config
-  DIY_P1_SH: scripts/sl3000-patch.sh
+  DIY_P1_SH: scripts/diy-part1.sh
+  DIY_P2_SH: scripts/diy-part2.sh
+  UPLOAD_BIN_DIR: false
+  UPLOAD_FIRMWARE: true
+  UPLOAD_RELEASE: true
   TZ: Asia/Shanghai
 
 jobs:
@@ -16,85 +26,93 @@ jobs:
     runs-on: ubuntu-22.04
 
     steps:
-      - name: 1. 物理环境检出
+      - name: 1. 物理检出当前仓库 (Main 分支)
         uses: actions/checkout@v4
 
-      - name: 2. 初始化编译环境 (原文照抄 1版)
+      - name: 2. 物理初始化编译环境
         env:
           DEBIAN_FRONTEND: noninteractive
         run: |
-          sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc
+          sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/share/powershell /usr/share/swift /usr/local/etc/vcpkg /usr/local/bin/terraform
           sudo -E apt-get -qq update
-          sudo -E apt-get -qq install -y ack antlr3 asciidoc autoconf automake autopoint binutils bison build-essential bzip2 ccache cmake cpio curl device-tree-compiler fastjar flex gawk gettext gcc-multilib g++-multilib git gperf haveged help2man intltool libc6-dev-i386 libelf-dev libglib2.0-dev libgpgme11-dev libltdl-dev libmpc-dev libmpfr-dev libncurses5-dev libncursesw5-dev libreadline-dev libssl-dev libtool lrzsz mkisofs msmtp nano ninja-build p7zip p7zip-full patch pkgconf python3 python3-pip python3-pyelftools qemu-utils rsync scons squashfs-tools subversion swig texinfo uglifyjs upx-ucl unzip vim wget xmlto xxd zlib1g-dev usbutils wget bc jq pciutils
+          sudo -E apt-get -qq install $(curl -fsSL https://raw.githubusercontent.com/ykm888/66/main/scripts/depends.txt)
           sudo -E apt-get -qq autoremove --purge
           sudo -E apt-get -qq clean
           sudo timedatectl set-timezone "$TZ"
           sudo mkdir -p /workdir
           sudo chown $USER:$GROUPS /workdir
 
-      - name: 3. 克隆源码仓库
+      - name: 3. 物理克隆 OpenWrt 源码
         working-directory: /workdir
         run: |
+          df -hT $PWD
           git clone $REPO_URL -b $REPO_BRANCH openwrt
-          ln -sf /workdir/openwrt ${{ github.workspace }}/openwrt
+          ln -sf /workdir/openwrt $GITHUB_WORKSPACE/openwrt
 
       - name: 4. 加载自定义 Feeds
+        run: |
+          [ -e $FEEDS_CONF ] && cp $FEEDS_CONF openwrt/feeds.conf.default
+          chmod +x $DIY_P1_SH
+          cd openwrt
+          ../$DIY_P1_SH
+
+      - name: 5. 更新并安装 Feeds
         run: |
           cd openwrt
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
-      - name: 5. 延续修复补丁 (Apply Fixed Patches)
+      - name: 6. 运行 1024M 物理补丁脚本 (sl3000-patch.sh)
         run: |
-          mkdir -p openwrt/target/linux/mediatek/patches-6.6/
-          [ -d patches ] && cp -f patches/*.patch openwrt/target/linux/mediatek/patches-6.6/ || echo "No custom patches found."
+          chmod +x scripts/sl3000-patch.sh
+          ./scripts/sl3000-patch.sh
 
-      - name: 6. 物理注入与配置锁死 (核心步骤)
+      - name: 7. 加载 8000 行配置并执行静默审计 (make defconfig)
         run: |
+          # 物理移动仓库中已通过一键修复工作流洗白的配置
           [ -e $CONFIG_FILE ] && cp $CONFIG_FILE openwrt/.config
-          chmod +x $DIY_P1_SH
-          # 运行脚本执行 8 版物理锁死逻辑
-          ./$DIY_P1_SH
+          chmod +x $DIY_P2_SH
           cd openwrt
-          # 展开配置并自动清理冲突
+          ../$DIY_P2_SH
           make defconfig
+          # 检查物理配置是否包含必需的 1024M 无线固件包
+          grep "CONFIG_PACKAGE_mt7981-wo-firmware=y" .config || echo "CONFIG_PACKAGE_mt7981-wo-firmware=y" >> .config
 
-      - name: 7. 下载编译依赖
+      - name: 8. 下载编译所需软件包 (Download)
+        id: package
         run: |
           cd openwrt
           make download -j8
+          find dl -size -1024c -exec ls -l {} \;
+          find dl -size -1024c -exec rm -f {} \;
 
-      - name: 8. 编译工具链 (解决编译器缺失)
+      - name: 9. 物理启动固件编译
+        id: compile
         run: |
           cd openwrt
-          make tools/compile -j$(nproc) || make tools/compile -j1 V=s
-          make toolchain/compile -j$(nproc) || make toolchain/compile -j1 V=s
+          echo -e "$(nproc) thread compile"
+          # 首次编译建议使用单线程以捕捉准确物理错误
+          make -j$(nproc) || make -j1 || make -j1 V=s
+          echo "status=success" >> $GITHUB_OUTPUT
+          grep "STRIP" .config && echo "bin_dir=true" >> $GITHUB_ENV
 
-      - name: 9. 编译内核与驱动 (冲刺 90% 进度)
+      - name: 10. 物理整理编译产物
         run: |
-          cd openwrt
-          make target/linux/compile -j$(nproc) || make target/linux/compile -j1 V=s
+          cd openwrt/bin/targets/*/*
+          rm -rf packages
+          echo "FIRMWARE=$PWD" >> $GITHUB_ENV
 
-      - name: 10. 构建完整镜像 (完成最后 10%)
-        run: |
-          cd openwrt
-          make -j$(nproc) || make -j1 V=s
-
-      - name: 11. 整理救砖全家桶 (成功后物理收集)
-        if: success()
-        run: |
-          cd openwrt/bin/targets/mediatek/filogic/
-          mkdir -p recovery_kit
-          cp -f *emmc-gpt.bin recovery_kit/ 2>/dev/null || true
-          cp -f *emmc-preloader.bin recovery_kit/ 2>/dev/null || true
-          cp -f *emmc-bl31-uboot.fip recovery_kit/ 2>/dev/null || true
-          cp -f *-recovery.itb recovery_kit/ 2>/dev/null || true
-          cp -f *factory.img.gz recovery_kit/ 2>/dev/null || true
-          cp -f *sysupgrade.bin recovery_kit/ 2>/dev/null || true
-          echo "FIRMWARE_PACK=$PWD/recovery_kit" >> $GITHUB_ENV
-
-      - name: 12. 上传物理产物 (Release Artifacts)
+      - name: 11. 上传固件到 GitHub Actions
         uses: actions/upload-artifact@v4
         with:
-          name: SL-3000-1024M-MASTER-KIT
-          path: ${{ env.FIRMWARE_PACK }}/*
+          name: OpenWrt_firmware_sl3000_1024M
+          path: ${{ env.FIRMWARE }}
+
+      - name: 12. 物理发布到 Release
+        uses: softprops/action-gh-release@v2
+        if: env.UPLOAD_RELEASE == 'true' && !cancelled()
+        with:
+          tag_name: SL3000-1024M-${{ github.run_id }}
+          files: ${{ env.FIRMWARE }}/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
