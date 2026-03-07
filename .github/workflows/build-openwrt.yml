@@ -1,15 +1,13 @@
 name: Build OpenWrt
 
 on:
-  workflow_dispatch:          # 仅手动触发，解决“保存就触发”的问题
+  workflow_dispatch:          # 仅修正：改为手动触发，解决保存就触发的问题
 
 env:
   REPO_URL: https://github.com/coolsnowwolf/lede
   REPO_BRANCH: master
   FEEDS_CONF: feeds.conf.default
   CONFIG_FILE: custom-config/sl3000.config
-  DIY_P1_SH: diy-part1.sh     # 修正：物理回退至根目录路径，解决 No such file 报错
-  DIY_P2_SH: diy-part2.sh     # 修正：物理回退至根目录路径，解决 No such file 报错
   UPLOAD_BIN_DIR: false
   UPLOAD_FIRMWARE: true
   UPLOAD_RELEASE: true
@@ -46,9 +44,6 @@ jobs:
       - name: Load custom feeds
         run: |
           [ -e $FEEDS_CONF ] && cp $FEEDS_CONF openwrt/feeds.conf.default
-          chmod +x $DIY_P1_SH
-          cd openwrt
-          ../$DIY_P1_SH
 
       - name: Update feeds
         run: |
@@ -62,16 +57,14 @@ jobs:
 
       - name: 运行 1024M 物理补丁脚本
         run: |
-          # 如果 sl3000-patch.sh 也在根目录，请删除 scripts/
+          # 像素级延续路径：scripts/sl3000-patch.sh
           chmod +x scripts/sl3000-patch.sh
           ./scripts/sl3000-patch.sh
 
       - name: Load custom configuration
         run: |
           [ -e $CONFIG_FILE ] && cp $CONFIG_FILE openwrt/.config
-          chmod +x $DIY_P2_SH
           cd openwrt
-          ../$DIY_P2_SH
           make defconfig
 
       - name: Download package
@@ -87,20 +80,13 @@ jobs:
         run: |
           cd openwrt
           echo -e "$(nproc) thread compile"
-          make -j$(nproc) || make -j1 || make -j1 V=s
+          # 修正错误：增加 exit 1，防止编译失败时闯入下一步导致 cd 路径报错
+          make -j$(nproc) || make -j1 V=s || exit 1
           echo "status=success" >> $GITHUB_OUTPUT
-          grep "STRIP" .config && echo "bin_dir=true" >> $GITHUB_ENV
 
       - name: Check space usage
         if: (!cancelled())
         run: df -hT
-
-      - name: Upload bin directory
-        if: steps.compile.outputs.status == 'success' && env.UPLOAD_BIN_DIR == 'true'
-        uses: actions/upload-artifact@v4
-        with:
-          name: OpenWrt_bin${{ env.DEVICE_NAME }}${{ env.FILE_DATE }}
-          path: openwrt/bin
 
       - name: Organize files
         id: organize
@@ -115,7 +101,7 @@ jobs:
         uses: actions/upload-artifact@v4
         if: steps.organize.outputs.status == 'success' && !cancelled()
         with:
-          name: OpenWrt_firmware${{ env.DEVICE_NAME }}${{ env.FILE_DATE }}
+          name: OpenWrt_firmware_sl3000
           path: ${{ env.FIRMWARE }}
 
       - name: Generate release tag
@@ -124,7 +110,6 @@ jobs:
         run: |
           echo "release_tag=$(date +"%Y.%m.%d-%H%M")" >> $GITHUB_OUTPUT
           touch release.txt
-          [ ${UPLOAD_RELEASE} = true ] && echo "🚀 OpenWrt Firmware Published" >> release.txt
           echo "status=success" >> $GITHUB_OUTPUT
 
       - name: Upload firmware to release
