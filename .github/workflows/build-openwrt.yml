@@ -1,7 +1,7 @@
 name: Build OpenWrt
 
 on:
-  workflow_dispatch:          # 仅修正：改为手动触发，解决保存就触发的问题
+  workflow_dispatch:          # 手动触发，保存不构建
 
 env:
   REPO_URL: https://github.com/coolsnowwolf/lede
@@ -18,10 +18,10 @@ jobs:
     runs-on: ubuntu-22.04
 
     steps:
-      - name: Checkout
+      - name: 1. 物理检出当前仓库
         uses: actions/checkout@v4
 
-      - name: Initialization environment
+      - name: 2. 物理初始化编译环境
         env:
           DEBIAN_FRONTEND: noninteractive
         run: |
@@ -34,40 +34,44 @@ jobs:
           sudo mkdir -p /workdir
           sudo chown $USER:$GROUPS /workdir
 
-      - name: Clone source code
+      - name: 3. 物理克隆 OpenWrt 源码
         working-directory: /workdir
         run: |
           df -hT $PWD
           git clone $REPO_URL -b $REPO_BRANCH openwrt
           ln -sf /workdir/openwrt $GITHUB_WORKSPACE/openwrt
 
-      - name: Load custom feeds
+      - name: 4. 加载自定义 Feeds (延续 30 版原文)
         run: |
           [ -e $FEEDS_CONF ] && cp $FEEDS_CONF openwrt/feeds.conf.default
+          # 物理对齐：仅保留仓库存在的 feeds 配置操作，不执行不存在的 diy 脚本
 
-      - name: Update feeds
+      - name: 5. 更新并安装 Feeds
         run: |
           cd openwrt
           ./scripts/feeds update -a
-
-      - name: Install feeds
-        run: |
-          cd openwrt
           ./scripts/feeds install -a
 
-      - name: 运行 1024M 物理补丁脚本
+      - name: 6. 运行 1024M 物理补丁脚本
         run: |
-          # 像素级延续路径：scripts/sl3000-patch.sh
-          chmod +x scripts/sl3000-patch.sh
-          ./scripts/sl3000-patch.sh
+          # 物理锁定仓库唯一脚本：scripts/sl3000-patch.sh
+          PATCH_SH="scripts/sl3000-patch.sh"
+          if [ -f "$PATCH_SH" ]; then
+            chmod +x $PATCH_SH
+            ./$PATCH_SH
+          else
+            echo "❌ 错误: 核心补丁 $PATCH_SH 缺失，物理构建终止"
+            exit 1
+          fi
 
-      - name: Load custom configuration
+      - name: 7. 加载已洗白配置 (延续 30 版原文)
         run: |
           [ -e $CONFIG_FILE ] && cp $CONFIG_FILE openwrt/.config
+          # 物理修复：不再调用不存在的 DIY_P2 脚本
           cd openwrt
           make defconfig
 
-      - name: Download package
+      - name: 8. 下载编译所需软件包
         id: package
         run: |
           cd openwrt
@@ -75,49 +79,33 @@ jobs:
           find dl -size -1024c -exec ls -l {} \;
           find dl -size -1024c -exec rm -f {} \;
 
-      - name: Compile the firmware
+      - name: 9. 物理启动固件编译
         id: compile
         run: |
           cd openwrt
           echo -e "$(nproc) thread compile"
-          # 修正错误：增加 exit 1，防止编译失败时闯入下一步导致 cd 路径报错
+          # 增加拦截防止编译失败后闯入第 10 步导致路径报错
           make -j$(nproc) || make -j1 V=s || exit 1
           echo "status=success" >> $GITHUB_OUTPUT
 
-      - name: Check space usage
-        if: (!cancelled())
-        run: df -hT
-
-      - name: Organize files
-        id: organize
-        if: env.UPLOAD_FIRMWARE == 'true' && !cancelled()
+      - name: 10. 物理整理编译产物
         run: |
           cd openwrt/bin/targets/*/*
           rm -rf packages
           echo "FIRMWARE=$PWD" >> $GITHUB_ENV
           echo "status=success" >> $GITHUB_OUTPUT
 
-      - name: Upload firmware directory
+      - name: 11. 上传固件到 Artifacts
         uses: actions/upload-artifact@v4
-        if: steps.organize.outputs.status == 'success' && !cancelled()
         with:
           name: OpenWrt_firmware_sl3000
           path: ${{ env.FIRMWARE }}
 
-      - name: Generate release tag
-        id: tag
-        if: env.UPLOAD_RELEASE == 'true' && !cancelled()
-        run: |
-          echo "release_tag=$(date +"%Y.%m.%d-%H%M")" >> $GITHUB_OUTPUT
-          touch release.txt
-          echo "status=success" >> $GITHUB_OUTPUT
-
-      - name: Upload firmware to release
+      - name: 12. 发布到 Release
         uses: softprops/action-gh-release@v2
-        if: steps.tag.outputs.status == 'success' && !cancelled()
+        if: env.UPLOAD_RELEASE == 'true' && !cancelled()
         with:
-          tag_name: ${{ steps.tag.outputs.release_tag }}
-          body_path: release.txt
+          tag_name: SL3000-${{ github.run_id }}
           files: ${{ env.FIRMWARE }}/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
