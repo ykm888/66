@@ -4,7 +4,7 @@ on:
   workflow_dispatch:          # 手动触发
   push:
     paths:
-      - 'custom-config/**'    # 当配置更新时自动修复
+      - 'custom-config/sl3000.config'
 
 jobs:
   pixel-fix:
@@ -18,34 +18,34 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: 2. 物理洗白：Makefile 幽灵依赖 (解决 1m 12s 报错)
+      - name: 2. 物理洗白：Makefile 幽灵依赖 (解决报错核心)
         run: |
           set -e
-          echo "正在从仓库源码中物理切除不存在的依赖..."
-          
-          # 定义那 8 个导致报错的包名
+          echo "正在物理切除仓库源码中的幽灵依赖..."
           GHOST_PKGS=("lua-cjson" "glib2" "libgpiod" "libpam" "pciids" "pciutils")
-
           for pkg in "${GHOST_PKGS[@]}"; do
-            # 物理扫描仓库内的所有 Makefile 并删除依赖定义
+            # 物理扫描并抹除
             find . -name "Makefile" | xargs sed -i "s/+$pkg//g" 2>/dev/null || true
             find . -name "Makefile" | xargs sed -i "s/ $pkg//g" 2>/dev/null || true
           done
-          echo "✅ 仓库 Makefile 物理清理完成。"
+          echo "✅ Makefile 物理清理完成。"
 
-      - name: 3. 物理洗白：sl3000.config (锁定 1024M 状态)
+      - name: 3. 物理洗白：sl3000.config (锁定编译状态)
         run: |
           set -e
           CONFIG_FILE="custom-config/sl3000.config"
-          [ ! -f "$CONFIG_FILE" ] && exit 0
+          if [ ! -f "$CONFIG_FILE" ]; then
+            echo "❌ 配置文件不存在，跳过"
+            exit 0
+          fi
           
-          # 锁死禁用项（修复 90% 处的 WARP 报错）
+          # 物理锁死禁用项 (解决 WARP 符号冲突)
           sed -i 's/^CONFIG_PACKAGE_kmod-mtk-warp=y/# CONFIG_PACKAGE_kmod-mtk-warp is not set/' "$CONFIG_FILE"
           sed -i 's/^CONFIG_PACKAGE_mtwifi-cfg=y/# CONFIG_PACKAGE_mtwifi-cfg is not set/' "$CONFIG_FILE"
           sed -i '/^CONFIG_WARP_/ s/^CONFIG_/# CONFIG_/' "$CONFIG_FILE"
           sed -i '/^CONFIG_WED_/ s/^CONFIG_/# CONFIG_/' "$CONFIG_FILE"
           
-          # 补全必需项
+          # 物理确保开启无线固件 (1024M 必需)
           if ! grep -q "CONFIG_PACKAGE_mt7981-wo-firmware=y" "$CONFIG_FILE"; then
             echo "CONFIG_PACKAGE_mt7981-wo-firmware=y" >> "$CONFIG_FILE"
           fi
@@ -59,9 +59,9 @@ jobs:
           git add .
           
           if git diff --staged --quiet; then
-            echo "物理状态一致，无需操作。"
+            echo "物理状态已对齐，无需推送。"
           else
-            git commit -m "fix(repo): 像素级修复 Makefile 依赖并锁定 Config"
+            git commit -m "fix(repo): 物理洗白依赖并锁定 Config (24版)"
             git push
-            echo "✅ 修复已推送到仓库源，主构建任务现在可以安全运行。"
+            echo "✅ 修复已推送到仓库源。"
           fi
