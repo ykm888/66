@@ -6,7 +6,6 @@ on:
 env:
   REPO_URL: https://github.com/ykm888/66
   REPO_BRANCH: openwrt-24.10-6.6
-  FEEDS_CONF: feeds.conf.default
   CONFIG_FILE: custom-config/sl3000.config
   UBOOT_BRANCH: sl3000-uboot-base
   UPLOAD_RELEASE: true
@@ -32,14 +31,14 @@ jobs:
           git clone $REPO_URL -b $REPO_BRANCH openwrt
           ln -sf /workdir/openwrt $GITHUB_WORKSPACE/openwrt
 
-      - name: 4. 加载自定义 Feeds
-        run: |
-          [ -e $FEEDS_CONF ] && cp $FEEDS_CONF openwrt/feeds.conf.default
-
-      - name: 5. 更新并安装 Feeds
+      - name: 4. 更新 Feeds
         run: |
           cd openwrt
           ./scripts/feeds update -a
+
+      - name: 5. 安装 Feeds
+        run: |
+          cd openwrt
           ./scripts/feeds install -a
 
       - name: 6. 运行 1024M 物理补丁脚本
@@ -47,17 +46,15 @@ jobs:
           chmod +x scripts/sl3000-patch.sh
           ./scripts/sl3000-patch.sh ${{ env.UBOOT_BRANCH }}
 
-      - name: 7. 加载已洗白配置并物理锁死
+      - name: 7. 加载已洗白配置并物理锁死 Warp
         run: |
-          [ -e $CONFIG_FILE ] && cp $CONFIG_FILE openwrt/.config
+          cp "$CONFIG_FILE" openwrt/.config
           cd openwrt
-          # 执行配置对齐
           make defconfig
-          # 物理最后通牒：防止 make defconfig 自动反勾选 Warp
+          # 物理执行锁死：确保掐死 Warp
           sed -i '/CONFIG_PACKAGE_kmod-mtk-warp/d' .config
           echo "# CONFIG_PACKAGE_kmod-mtk-warp is not set" >> .config
           echo "CONFIG_PACKAGE_kmod-mtk-warp=n" >> .config
-          # 刷新配置
           make oldconfig
 
       - name: 8. 下载编译所需软件包
@@ -87,7 +84,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         if: env.UPLOAD_RELEASE == 'true'
         with:
-          tag_name: SL3000-FullKit-${{ github.run_id }}
+          tag_name: SL3000-1024M-${{ github.run_id }}
           files: ${{ env.FIRMWARE }}/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
