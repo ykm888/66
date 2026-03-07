@@ -18,40 +18,53 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: 2. 物理洗白：Makefile 幽灵依赖 (解决报错核心)
+      - name: 2. 物理洗白：Makefile 幽灵依赖 (解决 1m 12s 报错)
         run: |
           set -e
-          echo "正在物理切除仓库源码中的幽灵依赖..."
+          echo "正在物理抹除仓库源码中的幽灵依赖..."
           GHOST_PKGS=("lua-cjson" "glib2" "libgpiod" "libpam" "pciids" "pciutils")
           for pkg in "${GHOST_PKGS[@]}"; do
-            # 物理扫描并抹除
+            # 物理扫描并删除所有 Makefile 中的缺失依赖
             find . -name "Makefile" | xargs sed -i "s/+$pkg//g" 2>/dev/null || true
             find . -name "Makefile" | xargs sed -i "s/ $pkg//g" 2>/dev/null || true
           done
-          echo "✅ Makefile 物理清理完成。"
 
-      - name: 3. 物理洗白：sl3000.config (锁定编译状态)
+      - name: 3. 物理阻断：Warp 驱动报错 (解决 WED 编译错误)
+        run: |
+          set -e
+          echo "正在物理阻断引发崩溃的 Warp 驱动..."
+          WARP_MK="package/mtk/drivers/warp/Makefile"
+          if [ -f "$WARP_MK" ]; then
+            # 像素级修改：将 Warp 驱动默认状态强制设为 n，防止被其他包强行勾选
+            sed -i 's/default y/default n/g' "$WARP_MK" 2>/dev/null || true
+            # 物理注释掉编译目标
+            sed -i 's/$(eval $(call BuildPackage,kmod-mtk-warp))/# $(eval $(call BuildPackage,kmod-mtk-warp))/g' "$WARP_MK" 2>/dev/null || true
+          fi
+
+      - name: 4. 物理洗白：sl3000.config (锁定物理开关)
         run: |
           set -e
           CONFIG_FILE="custom-config/sl3000.config"
-          if [ ! -f "$CONFIG_FILE" ]; then
-            echo "❌ 配置文件不存在，跳过"
-            exit 0
-          fi
-          
-          # 物理锁死禁用项 (解决 WARP 符号冲突)
-          sed -i 's/^CONFIG_PACKAGE_kmod-mtk-warp=y/# CONFIG_PACKAGE_kmod-mtk-warp is not set/' "$CONFIG_FILE"
-          sed -i 's/^CONFIG_PACKAGE_mtwifi-cfg=y/# CONFIG_PACKAGE_mtwifi-cfg is not set/' "$CONFIG_FILE"
-          sed -i '/^CONFIG_WARP_/ s/^CONFIG_/# CONFIG_/' "$CONFIG_FILE"
-          sed -i '/^CONFIG_WED_/ s/^CONFIG_/# CONFIG_/' "$CONFIG_FILE"
-          
-          # 物理确保开启无线固件 (1024M 必需)
-          if ! grep -q "CONFIG_PACKAGE_mt7981-wo-firmware=y" "$CONFIG_FILE"; then
-            echo "CONFIG_PACKAGE_mt7981-wo-firmware=y" >> "$CONFIG_FILE"
+          if [ -f "$CONFIG_FILE" ]; then
+            # A. 物理抹除引发冲突的符号
+            sed -i '/CONFIG_PACKAGE_kmod-mtk-warp/d' "$CONFIG_FILE"
+            sed -i '/CONFIG_PACKAGE_mtwifi-cfg/d' "$CONFIG_FILE"
+            sed -i '/CONFIG_WARP_/d' "$CONFIG_FILE"
+            sed -i '/CONFIG_WED_/d' "$CONFIG_FILE"
+            
+            # B. 物理注入硬禁用 (锁死状态)
+            echo "CONFIG_PACKAGE_kmod-mtk-warp=n" >> "$CONFIG_FILE"
+            echo "# CONFIG_PACKAGE_kmod-mtk-warp is not set" >> "$CONFIG_FILE"
+            echo "# CONFIG_PACKAGE_mtwifi-cfg is not set" >> "$CONFIG_FILE"
+            
+            # C. 补全 1024M 必需无线固件
+            if ! grep -q "CONFIG_PACKAGE_mt7981-wo-firmware=y" "$CONFIG_FILE"; then
+              echo "CONFIG_PACKAGE_mt7981-wo-firmware=y" >> "$CONFIG_FILE"
+            fi
           fi
           echo "✅ Config 物理锁定完成。"
 
-      - name: 4. 物理回推修复后的仓库源
+      - name: 5. 物理回推修复后的仓库源
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
@@ -59,9 +72,9 @@ jobs:
           git add .
           
           if git diff --staged --quiet; then
-            echo "物理状态已对齐，无需推送。"
+            echo "所有物理文件已处于修复后的对齐状态，无需推送。"
           else
-            git commit -m "fix(repo): 物理洗白依赖并锁定 Config (24版)"
+            git commit -m "fix(repo): 物理洗白依赖、阻断 Warp 驱动并锁定 Config"
             git push
-            echo "✅ 修复已推送到仓库源。"
+            echo "✅ 物理修复已推送到仓库源，主构建任务现在可以安全运行。"
           fi
