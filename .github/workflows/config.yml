@@ -1,10 +1,10 @@
-name: Clean sl3000.config (Final-Fix)
+name: Source-Fix (SL-3000 6.6 Root)
 
 on:
   workflow_dispatch:
 
 jobs:
-  pixel-fix:
+  source-healing:
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -13,51 +13,69 @@ jobs:
       - name: 1. 物理检出仓库
         uses: actions/checkout@v4
 
-      - name: 2. 物理彻底阻断 Warp (内核 6.6 兼容性对齐)
+      - name: 2. 物理修复 ebtables Makefile (404 彻底解决)
         run: |
-          set -e
-          CONFIG_FILE="custom-config/sl3000.config"
-          if [ -f "$CONFIG_FILE" ]; then
-            echo ">>> 正在物理切除 Warp/WED 冲突..."
-            # 删除所有旧的 warp/mtwifi-cfg 引用
-            sed -i '/CONFIG_PACKAGE_kmod-mtk-warp/d' "$CONFIG_FILE"
-            sed -i '/CONFIG_PACKAGE_mtwifi-cfg/d' "$CONFIG_FILE"
-            sed -i '/CONFIG_MTK_WARP_SUPPORT/d' "$CONFIG_FILE"
-            
-            # 物理注入你确认的锁死逻辑
-            echo "CONFIG_PACKAGE_kmod-mtk-warp=n" >> "$CONFIG_FILE"
-            echo "# CONFIG_PACKAGE_kmod-mtk-warp is not set" >> "$CONFIG_FILE"
-            echo "# CONFIG_PACKAGE_mtwifi-cfg is not set" >> "$CONFIG_FILE"
-            echo "CONFIG_MTK_WARP_SUPPORT=n" >> "$CONFIG_FILE"
+          EBT_PATH="package/network/utils/ebtables/Makefile"
+          if [ -f "$EBT_PATH" ]; then
+            echo ">>> 正在物理重定向 ebtables 至 Fedora 镜像源..."
+            sed -i 's|https://git.netfilter.org/ebtables|https://src.fedoraproject.org/git/rpms/ebtables.git|g' "$EBT_PATH"
           fi
 
-      - name: 3. 物理注入磁盘工具 (1024M 增强包)
+      - name: 3. 物理注入 mt_wifi 6.6 内核兼容补丁
         run: |
-          set -e
-          CONFIG_FILE="custom-config/sl3000.config"
-          echo ">>> 正在补全物理磁盘操作工具..."
-          DISK_PKGS=(
-            "CONFIG_PACKAGE_kmod-fs-ext4=y"
-            "CONFIG_PACKAGE_kmod-fs-vfat=y"
-            "CONFIG_PACKAGE_kmod-fs-ntfs3=y"
-            "CONFIG_PACKAGE_kmod-fs-exfat=y"
-            "CONFIG_PACKAGE_fdisk=y"
-            "CONFIG_PACKAGE_e2fsprogs=y"
-            "CONFIG_PACKAGE_lsblk=y"
-            "CONFIG_PACKAGE_block-mount=y"
-          )
-          for pkg in "${DISK_PKGS[@]}"; do
-            grep -q "${pkg%%=*}" "$CONFIG_FILE" || echo "$pkg" >> "$CONFIG_FILE"
-          done
+          # 针对之前报错的 WFDMA 寄存器宏定义进行代码级物理注入
+          WHNAT_HDR="package/mtk/drivers/mt_wifi/files/mt_wifi/embedded/plug_in/whnat/woe_mt7981.h"
+          WHNAT_MAIN="package/mtk/drivers/mt_wifi/files/mt_wifi/embedded/plug_in/whnat/woe_main.c"
+          
+          if [ -f "$WHNAT_HDR" ]; then
+            echo ">>> 正在物理注入 6.6 内核缺失的 PCI_BASE 宏..."
+            sed -i '1i #ifndef WF_WFDMA_EXT_WRAP_CSR_PCI_BASE\n#define WF_WFDMA_EXT_WRAP_CSR_PCI_BASE(p) (p)\n#endif' "$WHNAT_HDR"
+          fi
+          
+          if [ -f "$WHNAT_MAIN" ]; then
+            echo ">>> 正在物理切除过时的 MODULE_SUPPORTED_DEVICE..."
+            sed -i 's/MODULE_SUPPORTED_DEVICE/\/\/MODULE_SUPPORTED_DEVICE/g' "$WHNAT_MAIN"
+          fi
 
-      - name: 4. 物理回推修复后的仓库
+      - name: 4. 物理清理 sl3000.config (阻断 Warp + 锁定交换机/磁盘)
+        run: |
+          CONFIG_FILE="custom-config/sl3000.config"
+          if [ -f "$CONFIG_FILE" ]; then
+            echo ">>> 正在物理对齐 .config 关键项..."
+            # A. 物理切除 Warp 冲突
+            sed -i '/CONFIG_PACKAGE_kmod-mtk-warp/d' "$CONFIG_FILE"
+            sed -i '/CONFIG_MTK_WARP_SUPPORT/d' "$CONFIG_FILE"
+            echo "CONFIG_PACKAGE_kmod-mtk-warp=n" >> "$CONFIG_FILE"
+            echo "CONFIG_MTK_WARP_SUPPORT=n" >> "$CONFIG_FILE"
+
+            # B. 物理锁定 MT7531 交换机与 HNAT
+            echo "CONFIG_PACKAGE_kmod-mediatek_eth=y" >> "$CONFIG_FILE"
+            echo "CONFIG_PACKAGE_kmod-mediatek_hnat=y" >> "$CONFIG_FILE"
+            echo "CONFIG_PACKAGE_kmod-mt7531=y" >> "$CONFIG_FILE"
+            echo "CONFIG_PACKAGE_bridge=y" >> "$CONFIG_FILE"
+            echo "CONFIG_PACKAGE_kmod-bridge=y" >> "$CONFIG_FILE"
+
+            # C. 物理注入磁盘工具 (1024M 增强)
+            DISK_PKGS=(
+              "CONFIG_PACKAGE_kmod-fs-ext4=y"
+              "CONFIG_PACKAGE_kmod-fs-vfat=y"
+              "CONFIG_PACKAGE_fdisk=y"
+              "CONFIG_PACKAGE_lsblk=y"
+              "CONFIG_PACKAGE_block-mount=y"
+            )
+            for pkg in "${DISK_PKGS[@]}"; do
+              grep -q "${pkg%%=*}" "$CONFIG_FILE" || echo "$pkg" >> "$CONFIG_FILE"
+            done
+          fi
+
+      - name: 5. 物理回推修复后的仓库
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add .
           if git diff --staged --quiet; then
-            echo "物理配置已对齐，无需重复推送。"
+            echo "物理源头已是最新修复态，无需推送。"
           else
-            git commit -m "fix(sl3000): 彻底阻断 Warp 并注入物理磁盘工具"
+            git commit -m "fix(sl3000): 物理合一修复 (ebtables/wifi-6.6/mt7531/warp)"
             git push origin HEAD
           fi
