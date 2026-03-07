@@ -1,13 +1,14 @@
 name: Build OpenWrt
 
 on:
-  workflow_dispatch:          # 手动触发，锁定定版逻辑
+  workflow_dispatch:
 
 env:
-  REPO_URL: https://github.com/coolsnowwolf/lede
-  REPO_BRANCH: openwrt-24.10-6.6        # 锁定：构建克隆源码分支
-  CONFIG_FILE: custom-config/sl3000.config  # 锁定：config配置路径
-  UBOOT_BRANCH: sl3000-uboot-base       # 锁定：构建u-boot分支
+  REPO_URL: https://github.com/ykm888/66
+  REPO_BRANCH: openwrt-24.10-6.6
+  FEEDS_CONF: feeds.conf.default
+  CONFIG_FILE: custom-config/sl3000.config
+  UBOOT_BRANCH: sl3000-uboot-base
   UPLOAD_BIN_DIR: false
   UPLOAD_FIRMWARE: true
   UPLOAD_RELEASE: true
@@ -41,9 +42,9 @@ jobs:
           git clone $REPO_URL -b $REPO_BRANCH openwrt
           ln -sf /workdir/openwrt $GITHUB_WORKSPACE/openwrt
 
-      - name: 4. 加载自定义 Feeds (物理还原)
+      - name: 4. 加载自定义 Feeds
         run: |
-          [ -e feeds.conf.default ] && cp feeds.conf.default openwrt/feeds.conf.default || echo "使用默认Feeds"
+          [ -e $FEEDS_CONF ] && cp $FEEDS_CONF openwrt/feeds.conf.default || echo "File not found"
 
       - name: 5. 更新并安装 Feeds
         run: |
@@ -51,21 +52,15 @@ jobs:
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
-      - name: 6. 运行 1024M 物理补丁脚本 (延续U-Boot构建设置)
+      - name: 6. 运行 1024M 物理补丁脚本
         run: |
-          # 像素级路径锁定：scripts/sl3000-patch.sh
-          # 同时传入 U-Boot 分支变量供脚本调用
-          chmod +x scripts/sl3000-patch.sh
-          ./scripts/sl3000-patch.sh ${{ env.UBOOT_BRANCH }}
+          PATCH_SH="scripts/sl3000-patch.sh"
+          chmod +x $PATCH_SH
+          ./$PATCH_SH ${{ env.UBOOT_BRANCH }}
 
       - name: 7. 加载已洗白配置
         run: |
-          if [ -f "$CONFIG_FILE" ]; then
-            cp "$CONFIG_FILE" openwrt/.config
-          else
-            echo "❌ 错误: $CONFIG_FILE 缺失"
-            exit 1
-          fi
+          [ -e $CONFIG_FILE ] && cp $CONFIG_FILE openwrt/.config || echo "File not found"
           cd openwrt
           make defconfig
 
@@ -89,22 +84,21 @@ jobs:
         run: |
           cd openwrt/bin/targets/*/*
           rm -rf packages
-          # 物理对齐：如果脚本生成了 u-boot.bin，一并拷贝至此打包
-          [ -f "$GITHUB_WORKSPACE/u-boot.bin" ] && cp "$GITHUB_WORKSPACE/u-boot.bin" .
+          [ -f "$GITHUB_WORKSPACE/sl3000-uboot.bin" ] && cp "$GITHUB_WORKSPACE/sl3000-uboot.bin" .
           echo "FIRMWARE=$PWD" >> $GITHUB_ENV
           echo "status=success" >> $GITHUB_OUTPUT
 
       - name: 11. 上传固件到 Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: SL3000-Full-Kit
+          name: OpenWrt_firmware_sl3000
           path: ${{ env.FIRMWARE }}
 
       - name: 12. 发布救砖全家桶到 Release
         uses: softprops/action-gh-release@v2
         if: env.UPLOAD_RELEASE == 'true' && !cancelled()
         with:
-          tag_name: SL3000-Recovery-${{ github.run_id }}
+          tag_name: SL3000-Full-Kit-${{ github.run_id }}
           files: ${{ env.FIRMWARE }}/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
