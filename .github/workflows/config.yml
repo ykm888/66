@@ -18,50 +18,40 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: 2. 物理执行像素级洗白 (内置 8 项缺失修复)
+      - name: 2. 物理执行像素级洗白
         run: |
           set -e
           CONFIG_FILE="custom-config/sl3000.config"
-          [ ! -f "$CONFIG_FILE" ] && exit 1
+          if [ ! -f "$CONFIG_FILE" ]; then
+            echo "❌ 配置文件不存在"
+            exit 1
+          fi
           
-          # 创建临时文件
           TMP_FILE=$(mktemp)
           cp "$CONFIG_FILE" "$TMP_FILE"
 
-          echo "开始针对 8 项缺失依赖执行物理手术..."
+          echo "正在物理抹除幽灵依赖..."
+          # 修复 8 项物理缺失依赖
+          sed -i '/lua-cjson/d' "$TMP_FILE"
+          sed -i '/glib2/d' "$TMP_FILE"
+          sed -i '/libgpiod/d' "$TMP_FILE"
+          sed -i '/libpam/d' "$TMP_FILE"
+          sed -i '/pciids/d' "$TMP_FILE"
+          sed -i '/pciutils/d' "$TMP_FILE"
+          sed -i '/luci-lua-runtime/d' "$TMP_FILE"
+          sed -i '/luasrcdiet/d' "$TMP_FILE"
 
-          # 【物理删除逻辑】针对报错中 does not exist 的项
-          # 留着注释也没用，直接从 8000 行中抹除相关定义行
-          GHOST_PKGS=(
-            "lua-cjson" 
-            "glib2" 
-            "libgpiod" 
-            "libpam" 
-            "pciids" 
-            "pciutils"
-            "luci-lua-runtime"
-            "luasrcdiet"
-          )
-
-          for pkg in "${GHOST_PKGS[@]}"; do
-            echo "正在物理抹除幽灵依赖: $pkg"
-            sed -i "/$pkg/d" "$TMP_FILE"
-          done
-
-          # 【物理注释逻辑】针对 WARP 符号冲突
-          echo "正在物理锁死 WARP 驱动禁用状态..."
+          echo "正在物理锁死 WARP 禁用状态..."
           sed -i 's/^CONFIG_PACKAGE_kmod-mtk-warp=y/# CONFIG_PACKAGE_kmod-mtk-warp is not set/' "$TMP_FILE"
           sed -i 's/^CONFIG_PACKAGE_mtwifi-cfg=y/# CONFIG_PACKAGE_mtwifi-cfg is not set/' "$TMP_FILE"
-          # 禁用相关硬件加速符号
           sed -i '/^CONFIG_WARP_/ s/^CONFIG_/# CONFIG_/' "$TMP_FILE"
           sed -i '/^CONFIG_WED_/ s/^CONFIG_/# CONFIG_/' "$TMP_FILE"
 
-          # 【物理注入逻辑】确保无线固件开启
+          echo "正在物理补全无线固件..."
           if ! grep -q "CONFIG_PACKAGE_mt7981-wo-firmware=y" "$TMP_FILE"; then
             echo "CONFIG_PACKAGE_mt7981-wo-firmware=y" >> "$TMP_FILE"
           fi
 
-          # 3. 物理覆盖与清理
           cp "$TMP_FILE" "$CONFIG_FILE"
           rm "$TMP_FILE"
 
@@ -71,9 +61,10 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add custom-config/sl3000.config
           
+          # 物理检查是否有变更
           if git diff --staged --quiet; then
-            echo "物理状态已是最新，无需推送。"
+            echo "物理状态一致，无需推送。"
           else
-            git commit -m "fix(config): 物理抹除 8 项缺失依赖并禁用 WARP"
+            git commit -m "fix(config): 修复 Syntax Error 并物理抹除依赖"
             git push
-            echo "✅ 修复已从源头彻底解决，请开始构建固件。"
+          fi
