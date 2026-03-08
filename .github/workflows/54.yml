@@ -1,0 +1,67 @@
+name: SL3000-Padavan-2410-Sync
+
+on:
+  workflow_dispatch:
+
+jobs:
+  sync-and-patch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: 1. 物理检出当前仓库
+        uses: actions/checkout@v4
+
+      - name: 2. 物理拉取 padavanonly 专属源
+        run: |
+          # 物理锁定该成功案例的仓库与分支
+          git clone --depth 1 -b 2410 https://github.com/padavanonly/immortalwrt-mt798x-24.10 source-code
+          cd source-code
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
+
+      - name: 3. 执行物理魔改手术 (1024M 内存注入)
+        run: |
+          cd source-code
+          
+          # A. 物理注入 1024M 内存识别 (SL-3000 核心魔改)
+          PLAT_SH="target/linux/mediatek/filogic/base-files/lib/upgrade/platform.sh"
+          if [ -f "$PLAT_SH" ]; then
+            sed -i 's/256m/1024m/g' "$PLAT_SH"
+            echo ">>> 1024M 物理注入完成"
+          fi
+
+          # B. 验证驱动补丁 (该源理论上已修复，此处做物理确认)
+          # 如果源码中仍存在过时宏，执行物理切除
+          find package/ -name "woe_main.c" -exec sed -i 's/MODULE_SUPPORTED_DEVICE/\/\/MODULE_SUPPORTED_DEVICE/g' {} +
+
+          # C. 物理生成基础 .config (禁用 EOF)
+          echo "CONFIG_TARGET_mediatek=y" > .config
+          echo "CONFIG_TARGET_mediatek_filogic=y" >> .config
+          echo "CONFIG_TARGET_mediatek_filogic_DEVICE_mediatek_mt7981-rfb=y" >> .config
+          echo "CONFIG_PACKAGE_kmod-mt7531=y" >> .config
+          echo "CONFIG_PACKAGE_kmod-mediatek_hnat=y" >> .config
+          echo "CONFIG_PACKAGE_fdisk=y" >> .config
+          echo "CONFIG_PACKAGE_lsblk=y" >> .config
+          
+          # 物理执行配置预对齐，确保依赖完整
+          make defconfig
+
+      - name: 4. 物理推送到你的专属分支
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cd source-code
+          # 物理脱离原厂 Git 历史，保持仓库轻量
+          rm -rf .git
+          git init
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add .
+          git commit -m "feat(sl3000): 物理拉起 padavanonly 2410 专属魔改源"
+          
+          # 物理强制推送到你的仓库新分支
+          REMOTE_URL="https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git"
+          git remote add origin "$REMOTE_URL"
+          git push -f origin master:refs/heads/sl3000-padavan-2410
