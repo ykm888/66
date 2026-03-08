@@ -1,19 +1,32 @@
-name: SL3000-1024M-Final-Config-V9  # 确保 n 是小写，冒号后有空格
+name: "SL3000-1024M-Final-V10"
 
 on:
   workflow_dispatch:
 
 jobs:
-  generate-and-push:
+  generate-config:
     runs-on: ubuntu-22.04
     steps:
-      - name: 物理注入全家桶 (使用单引号隔离)
+      - name: 1. 物理环境与源码准备
         run: |
+          # 物理清理并克隆
+          rm -rf openwrt
+          git clone --depth 1 -b sl3000-padavan-2410 https://github.com/ykm888/66 openwrt
+          
+          # 物理检查：如果克隆失败直接中断
+          if [ ! -d "openwrt" ]; then
+            echo "错误：源码克隆失败，物理路径不存在！"
+            exit 1
+          fi
+
+      - name: 2. 物理注入全家桶配置 (Makefile + Mk + DTS)
+        run: |
+          # 物理定位
           cd openwrt
+          
+          # --- A. 注入 U-Boot Makefile ---
           UBOOT_MK="package/boot/uboot-mediatek/Makefile"
           mkdir -p $(dirname $UBOOT_MK)
-          
-          # 使用单引号写入，物理规避所有 Shell 解析错误
           echo 'include $(TOPDIR)/rules.mk' > $UBOOT_MK
           echo 'include $(INCLUDE_DIR)/kernel.mk' >> $UBOOT_MK
           echo 'PKG_VERSION:=2024.10' >> $UBOOT_MK
@@ -40,11 +53,50 @@ jobs:
           echo 'endef' >> $UBOOT_MK
           echo 'UBOOT_TARGETS := mt7981_sl_3000-emmc' >> $UBOOT_MK
           echo 'define Package/u-boot/install/default' >> $UBOOT_MK
-          
-          # 物理注入 Tab 键
           echo $'\t''$(CP) $(patsubst %,$(PKG_BUILD_DIR)/%,$(UBOOT_IMAGE)) $(1)/' >> $UBOOT_MK
           echo $'\t''[ -f $(PKG_BUILD_DIR)/bl2.bin ] && $(CP) $(PKG_BUILD_DIR)/bl2.bin $(1)/mt7981-emmc-ddr4-bl2.bin' >> $UBOOT_MK
           echo $'\t''[ -f $(PKG_BUILD_DIR)/u-boot.fip ] && $(CP) $(PKG_BUILD_DIR)/u-boot.fip $(1)/' >> $UBOOT_MK
-          
           echo 'endef' >> $UBOOT_MK
           echo '$(eval $(call BuildPackage/U-Boot))' >> $UBOOT_MK
+
+          # --- B. 注入 mt7981.mk ---
+          DEVICE_MK="target/linux/mediatek/image/mt7981.mk"
+          echo 'KERNEL_LOADADDR := 0x48080000' > $DEVICE_MK
+          echo 'MT7981_USB_PKGS := automount blkid blockdev fdisk kmod-nls-cp437 kmod-nls-iso8859-1 kmod-usb2 kmod-usb3 luci-app-usb-printer luci-i18n-usb-printer-zh-cn kmod-usb-net-rndis usbutils kmod-usb-net-qmi-wwan autoksmbd' >> $DEVICE_MK
+          echo 'define Device/sl_3000-emmc' >> $DEVICE_MK
+          echo '  DEVICE_VENDOR := SL' >> $DEVICE_MK
+          echo '  DEVICE_MODEL := 3000' >> $DEVICE_MK
+          echo '  DEVICE_VARIANT := eMMC-1024M-Recovery' >> $DEVICE_MK
+          echo '  DEVICE_DTS := mt7981-sl-3000-emmc' >> $DEVICE_MK
+          echo '  DEVICE_DTS_DIR := $(DTS_DIR)/mediatek' >> $DEVICE_MK
+          echo '  SUPPORTED_DEVICES := sl,3000-emmc' >> $DEVICE_MK
+          echo '  IMAGES := factory.bin sysupgrade.bin' >> $DEVICE_MK
+          echo '  IMAGE_SIZE := 120M' >> $DEVICE_MK
+          echo '  IMAGE/factory.bin := append-kernel | append-rootfs | pad-to $(IMAGE_SIZE)' >> $DEVICE_MK
+          echo '  IMAGE/sysupgrade.bin := sysupgrade-tar | append-metadata' >> $DEVICE_MK
+          echo '  DEVICE_PACKAGES := $(MT7981_USB_PKGS) kmod-mmc-mtk mkf2fs e2fsprogs kmod-fs-f2fs kmod-fs-ext4 kmod-fs-vfat u-boot-mt7981_sl_3000-emmc' >> $DEVICE_MK
+          echo 'endef' >> $DEVICE_MK
+          echo 'TARGET_DEVICES += sl_3000-emmc' >> $DEVICE_MK
+
+          # --- C. 注入 DTS ---
+          DTS_FILE="target/linux/mediatek/files-5.4/arch/arm64/boot/dts/mediatek/mt7981-sl-3000-emmc.dts"
+          mkdir -p $(dirname $DTS_FILE)
+          echo '/dts-v1/;' > $DTS_FILE
+          echo '#include "mt7981.dtsi"' >> $DTS_FILE
+          echo '/ { model = "SL-3000 eMMC 1024M Recovery Version"; compatible = "sl,3000-emmc", "mediatek,mt7981";' >> $DTS_FILE
+          echo 'memory { device_type = "memory"; reg = <0 0x40000000 0 0x40000000>; };' >> $DTS_FILE
+          echo '};' >> $DTS_FILE
+          
+          echo ">>> 物理配置注入成功！"
+
+      - name: 3. 物理配置生成
+        run: |
+          cd openwrt
+          ./scripts/feeds update -a && ./scripts/feeds install -a
+          echo "CONFIG_TARGET_mediatek=y" > .config
+          echo "CONFIG_TARGET_mediatek_mt7981=y" >> .config
+          echo "CONFIG_TARGET_mediatek_mt7981_DEVICE_sl_3000-emmc=y" >> .config
+          make defconfig
+          echo "CONFIG_TARGET_IMAGE_uboot_mediatek_mt7981_sl_3000_emmc=y" >> .config
+          echo "CONFIG_MTK_BOOT_PARTITION=y" >> .config
+          make oldconfig < /dev/null
