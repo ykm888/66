@@ -1,81 +1,68 @@
-name: "SL3000-1024M-ImmortalWrt-V30-Push"
+name: "SL3000-Create-New-Clean-Branch-V32"
 
 on:
   workflow_dispatch:
 
 jobs:
-  build:
+  create-branch:
     runs-on: ubuntu-22.04
     permissions:
       contents: write
 
     steps:
-      - name: 1. 物理环境初始化
+      - name: 1. 物理检出环境并拉取官方源码
         run: |
-          sudo -E apt-get -qq update
-          sudo -E apt-get -qq install build-essential flex bison g++ gawk gettext git libncurses5-dev libssl-dev python3-distutils rsync unzip zlib1g-dev swig
-          rm -rf openwrt
-
-      - name: 2. 物理拉取 ImmortalWrt 官方源
-        run: |
-          # 物理隔离，拉取最干净的官方 Master
-          git clone --depth 1 https://github.com/immortalwrt/immortalwrt.git openwrt
-
-      - name: 3. 物理同步 Feeds
-        run: |
-          cd openwrt
+          # 物理隔离：从官方 ImmortalWrt 镜像拉取最纯净的代码
+          git clone --depth 1 https://github.com/immortalwrt/immortalwrt.git source-code
+          cd source-code
+          # 物理同步 Feeds，确保依赖 Makefile 完整
           ./scripts/feeds update -a
           ./scripts/feeds install -a
-          # 物理补齐必要的 WiFi 核心包
-          ./scripts/feeds install datconf-lua ucode-mod-digest luci-base
 
-      - name: 4. 物理注入 SL3000 救砖核心 (1024M 内存定义)
+      - name: 2. 物理注入 1024M 硬件补丁 (SL3000 专属)
         run: |
-          cd openwrt
-          # 物理锁定 1024M DTS 路径
+          cd source-code
+          # 修改 DTS 以物理支持 1024M 内存
           DTS_PATH="target/linux/mediatek/files-5.4/arch/arm64/boot/dts/mediatek/mt7981-sl-3000-emmc.dts"
           mkdir -p $(dirname $DTS_PATH)
           cat <<EOF > $DTS_PATH
           /dts-v1/;
           #include "mt7981.dtsi"
-          / { model = "SL-3000 1024M ImmortalWrt"; compatible = "sl,3000-emmc", "mediatek,mt7981";
+          / { model = "SL-3000 1024M ImmortalWrt Clean"; compatible = "sl,3000-emmc", "mediatek,mt7981";
           memory { device_type = "memory"; reg = <0 0x40000000 0 0x40000000>; }; };
           EOF
 
-      - name: 5. 物理生成并焊死最终配置
+      - name: 3. 物理初始化 .config 基准
         run: |
-          cd openwrt
-          # 初始化物理架构
+          cd source-code
+          # 设定物理目标架构
           echo "CONFIG_TARGET_mediatek=y" > .config
           echo "CONFIG_TARGET_mediatek_filogic=y" >> .config
           echo "CONFIG_TARGET_mediatek_filogic_DEVICE_sl_3000-emmc=y" >> .config
+          # 开启核心救砖功能
+          echo "CONFIG_MTK_BOOT_PARTITION=y" >> .config
+          echo "CONFIG_MTK_WEB_FAILSAFE=y" >> .config
           
-          # 物理开启 Web 救砖和 eMMC 支持
-          {
-            echo "CONFIG_MTK_BOOT_PARTITION=y"
-            echo "CONFIG_MTK_WEB_FAILSAFE=y"
-            echo "CONFIG_MTK_BOOTMENU_MMC=y"
-          } >> .config
-          
-          make defconfig
-          make oldconfig < /dev/null
+          # 物理对齐依赖
+          make defconfig || true
 
-      - name: 6. 物理【强制】推送到你的仓库
+      - name: 4. 物理创建并推送新分支
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # 克隆你自己的仓库 main 分支用于存放生成的配置
-          git clone -b main https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/ykm888/66.git repo-main
-          mkdir -p repo-main/custom-config/
+          cd source-code
+          # 彻底切断官方 Git 历史，建立你自己的物理存档点
+          rm -rf .git
+          git init
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
           
-          # 物理覆盖
-          cp openwrt/.config repo-main/custom-config/sl3000.config
+          git add .
+          git commit -m "feat(sl3000): 物理初始化 ImmortalWrt 纯净源分支 (1024M)"
           
-          cd repo-main
-          git config --global user.email "bot@github.com"
-          git config --global user.name "SL3000-Bot"
+          # 【核心操作】物理推送到一个全新的分支名
+          REMOTE_URL="https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git"
+          git remote add origin "$REMOTE_URL"
           
-          # 物理记录当前时间戳，确保 Git 认定为有变化
-          echo "# Generated at $(date)" >> custom-config/sl3000.config
-          
-          git add custom-config/sl3000.config
-          git commit -m "feat: 物理同步 ImmortalWrt 官方 1024M 救砖配置"
-          git push origin main
+          # 物理强制推送到 sl3000-immortalwrt-clean 分支
+          git push -f origin master:refs/heads/sl3000-immortalwrt-clean
