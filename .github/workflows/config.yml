@@ -1,4 +1,4 @@
-name: "SL3000-Total-Fix-V38"
+name: "SL3000-Total-Fix-V39"
 
 on:
   workflow_dispatch:
@@ -16,8 +16,8 @@ jobs:
       - name: 2. 源码物理克隆 (工序二)
         run: git clone --depth 1 -b sl3000-immortalwrt-bootstrap https://github.com/ykm888/66 openwrt
 
-      - name: 3. 物理彻底覆写 Makefile (工序三 - 终极修复)
-        # 这一步直接将修复好的完整代码物理写入文件，确保 100% 拥有标准 Tab 缩进
+      - name: 3. 物理彻底覆写 Makefile (工序三 - 强制格式校准)
+        # 强制生成包含标准 Tab 缩进的 Makefile，确保 1024M 物理目标被识别
         run: |
           cd openwrt
           cat <<'EOF' > package/boot/arm-trusted-firmware-mediatek/Makefile
@@ -66,15 +66,14 @@ jobs:
           $(eval $(call BuildPackage/Trusted-Firmware-A))
           EOF
 
-      - name: 4. 强制物理重置缓存 (工序四)
-        # 彻底删除 tmp 目录是让系统识别新 Makefile 的唯一物理手段
+      - name: 4. 物理重置索引 (工序四)
         run: |
           cd openwrt
           rm -rf tmp
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
-      - name: 5. 物理注入 1024M 强锁参数 (工序五)
+      - name: 5. 物理注入 1024M 参数并生成配置 (工序五)
         run: |
           cd openwrt
           cat <<EOF > .config
@@ -85,19 +84,23 @@ jobs:
           CONFIG_PACKAGE_uboot-mediatek-mt7981_sl_3000-nor=y
           EOF
           make defconfig
-          # 物理核验：如果这里报错，说明系统依然拒绝识别，请检查工序三的 EOF
+          # 物理检查
           grep "CONFIG_PACKAGE_trusted-firmware-a-mt7981-nor-ddr4=y" .config
 
-      - name: 6. 物理同步回 GitHub 仓库 (工序六)
+      - name: 6. 物理同步回 GitHub 仓库 (工序六 - 修复路径缺失)
         run: |
           git clone -b main https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/ykm888/66.git repo
-          # 物理同步：修复好的配置文件和源代码 Makefile
+          # 物理关键：递归创建目录，解决 "No such file or directory" 报错
+          mkdir -p repo/package/boot/arm-trusted-firmware-mediatek/
+          mkdir -p repo/custom-config/
+          
+          # 物理执行覆盖
           cp openwrt/.config repo/custom-config/sl3000.config
           cp openwrt/package/boot/arm-trusted-firmware-mediatek/Makefile repo/package/boot/arm-trusted-firmware-mediatek/Makefile
           
           cd repo
-          git config user.name "SL3000-Ultimate-Bot"
+          git config user.name "SL3000-Final-Repair-Bot"
           git config user.email "bot@github.com"
           git add .
-          git commit -m "fix: 物理彻底解决 Makefile 缩进与依赖断路问题" || exit 0
+          git commit -m "fix: 物理修复 Makefile 路径并更新全量配置" || exit 0
           git push origin main
