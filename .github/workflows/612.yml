@@ -1,0 +1,75 @@
+name: SL3000-Immortal-612-Exclusive
+
+on:
+  workflow_dispatch:
+
+jobs:
+  sync-and-patch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: 1. 物理检出当前仓库
+        uses: actions/checkout@v4
+
+      - name: 2. 物理拉取 ImmortalWrt 24.10 源码
+        run: |
+          # 物理隔离：只拉取 openwrt-24.10 分支
+          git clone --depth 1 -b openwrt-24.10 https://github.com/immortalwrt/immortalwrt source-code
+          cd source-code
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
+
+      - name: 3. 执行物理魔改手术 (6.12 内核对齐版)
+        run: |
+          cd source-code
+          
+          # A. 物理强制锁定 Linux 6.12 内核
+          # 在 target Makefile 中物理修改默认内核版本
+          sed -i 's/KERNEL_PATCHVER:=.*/KERNEL_PATCHVER:=6.12/g' target/linux/mediatek/Makefile
+          
+          # B. 物理修复 ebtables 404 镜像源
+          EBT_PATH="package/network/utils/ebtables/Makefile"
+          if [ -f "$EBT_PATH" ]; then
+            sed -i 's|https://git.netfilter.org/ebtables|https://src.fedoraproject.org/git/rpms/ebtables.git|g' "$EBT_PATH"
+          fi
+          
+          # C. 物理注入 1024M 内存识别 (针对 Filogic 架构)
+          PLAT_SH="target/linux/mediatek/filogic/base-files/lib/upgrade/platform.sh"
+          [ -f "$PLAT_SH" ] && sed -i 's/256m/1024m/g' "$PLAT_SH"
+          
+          # D. 物理切除 6.x 内核废弃宏 (MODULE_SUPPORTED_DEVICE)
+          # 物理逻辑：递归处理所有可能导致 6.12 报错的私有驱动源码
+          find package/ -name "woe_main.c" -exec sed -i 's/MODULE_SUPPORTED_DEVICE/\/\/MODULE_SUPPORTED_DEVICE/g' {} +
+          
+          # E. 物理锁定专属 .config (禁用 EOF)
+          echo "CONFIG_TARGET_mediatek=y" > .config
+          echo "CONFIG_TARGET_mediatek_filogic=y" >> .config
+          echo "CONFIG_TARGET_mediatek_filogic_DEVICE_mediatek_mt7981-rfb=y" >> .config
+          echo "CONFIG_PACKAGE_kmod-mt7531=y" >> .config
+          echo "CONFIG_PACKAGE_kmod-mediatek_hnat=y" >> .config
+          echo "CONFIG_PACKAGE_kmod-net-mediatek-mdio=y" >> .config
+          echo "CONFIG_PACKAGE_fdisk=y" >> .config
+          echo "CONFIG_PACKAGE_lsblk=y" >> .config
+          echo "CONFIG_PACKAGE_block-mount=y" >> .config
+          echo "CONFIG_PACKAGE_kmod-fs-ext4=y" >> .config
+          echo "CONFIG_PACKAGE_kmod-fs-exfat=y" >> .config
+          
+          # 执行物理预对齐
+          make defconfig
+
+      - name: 4. 物理推送到专属分支
+        run: |
+          cd source-code
+          rm -rf .git
+          git init
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add .
+          git commit -m "feat(sl3000): 拉起 Immortal 24.10 魔改版 (内核 6.12/MT7531)"
+          git remote add origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git
+          git push -f origin master:sl3000-exclusive-612
+
+      - name: 5. 任务总结
+        run: echo ">>> 专属 6.12 魔改源已物理同步至分支: sl3000-exclusive-612"
