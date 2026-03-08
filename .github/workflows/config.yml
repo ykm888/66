@@ -1,4 +1,4 @@
-name: SL3000-1024M-Full-Config-No-EOF
+name: SL3000-1024M-Final-Config-Ultra-Stable
 
 on:
   workflow_dispatch:
@@ -26,60 +26,71 @@ jobs:
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
-      - name: 4. 物理注入 Makefile (禁用 EOF，改用 printf)
+      - name: 4. 物理注入 Makefile (逐行 echo 模式，禁用一切复杂语法)
         run: |
           cd openwrt
-          # 使用 printf 将内容物理写入文件，完全避开 EOF 解析风险
-          # 注意：Makefile 中的 $ 符号在这里需要写成双美元 $$ 才能正确输出
-          printf 'include $(TOPDIR)/rules.mk\n\
-          include $(INCLUDE_DIR)/kernel.mk\n\n\
-          PKG_VERSION:=2024.10\n\
-          PKG_SOURCE_PROTO:=git\n\
-          PKG_SOURCE_URL:=https://github.com/ykm888/66.git\n\
-          PKG_SOURCE_VERSION:=sl3000-uboot-base\n\
-          PKG_MIRROR_HASH:=skip\n\n\
-          PKG_BUILD_DEPENDS:=arm-trusted-firmware-tools/host\n\n\
-          include $(INCLUDE_DIR)/u-boot.mk\n\
-          include $(INCLUDE_DIR)/package.mk\n\n\
-          define U-Boot/Default\n\
-            BUILD_TARGET:=mediatek\n\
-            UBOOT_IMAGE:=u-boot-mtk.bin\n\
-          endef\n\n\
-          define U-Boot/mt7981_sl_3000-emmc\n\
-            NAME:=SL-3000 (eMMC)\n\
-            BUILD_SUBTARGET:=filogic\n\
-            BUILD_DEVICES:=sl_3000-emmc\n\
-            UBOOT_CONFIG:=mt7981_sl_3000-emmc\n\
-            UBOOT_IMAGE:=u-boot.fip\n\
-            BL2_BOOTDEV:=emmc\n\
-            BL2_SOC:=mt7981\n\
-            BL2_DDRTYPE:=ddr4\n\
-          endef\n\n\
-          UBOOT_TARGETS := mt7981_sl_3000-emmc\n\n\
-          define Package/u-boot/install/default\n\
-          \t$(CP) $(patsubst %,$(PKG_BUILD_DIR)/%,$(UBOOT_IMAGE)) $(1)/\n\
-          \t[ -f $(PKG_BUILD_DIR)/bl2.bin ] && $(CP) $(PKG_BUILD_DIR)/bl2.bin $(1)/mt7981-emmc-ddr4-bl2.bin\n\
-          \t[ -f $(PKG_BUILD_DIR)/u-boot.fip ] && $(CP) $(PKG_BUILD_DIR)/u-boot.fip $(1)/\n\
-          endef\n\n\
-          $(eval $(call BuildPackage/U-Boot))\n' > package/boot/uboot-mediatek/Makefile
+          UBOOT_MK="package/boot/uboot-mediatek/Makefile"
+          # 先物理清空文件
+          true > $UBOOT_MK
+          # 逐行物理写入，使用双引号包裹，内部 $ 符号转义为 \$
+          echo "include \$(TOPDIR)/rules.mk" >> $UBOOT_MK
+          echo "include \$(INCLUDE_DIR)/kernel.mk" >> $UBOOT_MK
+          echo "" >> $UBOOT_MK
+          echo "PKG_VERSION:=2024.10" >> $UBOOT_MK
+          echo "PKG_SOURCE_PROTO:=git" >> $UBOOT_MK
+          echo "PKG_SOURCE_URL:=https://github.com/ykm888/66.git" >> $UBOOT_MK
+          echo "PKG_SOURCE_VERSION:=sl3000-uboot-base" >> $UBOOT_MK
+          echo "PKG_MIRROR_HASH:=skip" >> $UBOOT_MK
+          echo "" >> $UBOOT_MK
+          echo "PKG_BUILD_DEPENDS:=arm-trusted-firmware-tools/host" >> $UBOOT_MK
+          echo "" >> $UBOOT_MK
+          echo "include \$(INCLUDE_DIR)/u-boot.mk" >> $UBOOT_MK
+          echo "include \$(INCLUDE_DIR)/package.mk" >> $UBOOT_MK
+          echo "" >> $UBOOT_MK
+          echo "define U-Boot/Default" >> $UBOOT_MK
+          echo "  BUILD_TARGET:=mediatek" >> $UBOOT_MK
+          echo "  UBOOT_IMAGE:=u-boot-mtk.bin" >> $UBOOT_MK
+          echo "endef" >> $UBOOT_MK
+          echo "" >> $UBOOT_MK
+          echo "define U-Boot/mt7981_sl_3000-emmc" >> $UBOOT_MK
+          echo "  NAME:=SL-3000 (eMMC)" >> $UBOOT_MK
+          echo "  BUILD_SUBTARGET:=filogic" >> $UBOOT_MK
+          echo "  BUILD_DEVICES:=sl_3000-emmc" >> $UBOOT_MK
+          echo "  UBOOT_CONFIG:=mt7981_sl_3000-emmc" >> $UBOOT_MK
+          echo "  UBOOT_IMAGE:=u-boot.fip" >> $UBOOT_MK
+          echo "  BL2_BOOTDEV:=emmc" >> $UBOOT_MK
+          echo "  BL2_SOC:=mt7981" >> $UBOOT_MK
+          echo "  BL2_DDRTYPE:=ddr4" >> $UBOOT_MK
+          echo "endef" >> $UBOOT_MK
+          echo "" >> $UBOOT_MK
+          echo "UBOOT_TARGETS := mt7981_sl_3000-emmc" >> $UBOOT_MK
+          echo "" >> $UBOOT_MK
+          echo "define Package/u-boot/install/default" >> $UBOOT_MK
+          # 注意：Makefile 里的 Tab 键在 shell 里用 printf 补齐
+          printf "\t\$(CP) \$(patsubst %,\$(PKG_BUILD_DIR)/%,\$(UBOOT_IMAGE)) \$(1)/\n" >> $UBOOT_MK
+          printf "\t[ -f \$(PKG_BUILD_DIR)/bl2.bin ] && \$(CP) \$(PKG_BUILD_DIR)/bl2.bin \$(1)/mt7981-emmc-ddr4-bl2.bin\n" >> $UBOOT_MK
+          printf "\t[ -f \$(PKG_BUILD_DIR)/u-boot.fip ] && \$(CP) \$(PKG_BUILD_DIR)/u-boot.fip \$(1)/\n" >> $UBOOT_MK
+          echo "endef" >> $UBOOT_MK
+          echo "" >> $UBOOT_MK
+          echo "\$(eval \$(call BuildPackage/U-Boot))" >> $UBOOT_MK
 
-      - name: 5. 物理生成 8000 行全量配置 (禁用 EOF)
+      - name: 5. 物理生成 8000 行全量配置 (逐行模式)
         run: |
           cd openwrt
           find . -type d -name "datconf" -exec rm -rf {} +
           
           rm -f .config && touch .config
-          printf 'CONFIG_TARGET_mediatek=y\n\
-          CONFIG_TARGET_mediatek_mt7981=y\n\
-          CONFIG_TARGET_mediatek_mt7981_DEVICE_sl_3000-emmc=y\n' >> .config
+          echo "CONFIG_TARGET_mediatek=y" >> .config
+          echo "CONFIG_TARGET_mediatek_mt7981=y" >> .config
+          echo "CONFIG_TARGET_mediatek_mt7981_DEVICE_sl_3000-emmc=y" >> .config
           
           make defconfig
           
-          # 救砖开关强制焊死 (改用 printf)
-          printf 'CONFIG_TARGET_IMAGE_uboot_mediatek_mt7981_sl_3000_emmc=y\n\
-          CONFIG_MTK_BOOT_PARTITION=y\n\
-          CONFIG_MTK_WEB_FAILSAFE=y\n\
-          CONFIG_MTK_BOOTMENU_MMC=y\n' >> .config
+          # 救砖开关强制补丁
+          echo "CONFIG_TARGET_IMAGE_uboot_mediatek_mt7981_sl_3000_emmc=y" >> .config
+          echo "CONFIG_MTK_BOOT_PARTITION=y" >> .config
+          echo "CONFIG_MTK_WEB_FAILSAFE=y" >> .config
+          echo "CONFIG_MTK_BOOTMENU_MMC=y" >> .config
           
           make oldconfig < /dev/null
 
@@ -87,12 +98,4 @@ jobs:
         run: |
           git clone -b main https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/ykm888/66.git repo-main
           mkdir -p repo-main/custom-config/
-          cp openwrt/.config repo-main/custom-config/sl3000.config
-          cd repo-main
-          git config --global user.email "bot@github.com"
-          git config --global user.name "SL3000-Config-Bot"
-          git add custom-config/sl3000.config
-          if [ -n "$(git status --porcelain)" ]; then
-            git commit -m "chore: 物理对齐 SL-3000 1024M 配置 (禁用 EOF 版)"
-            git push origin main
-          fi
+          cp openwrt/.config repo-main/custom-config
