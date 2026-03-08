@@ -1,97 +1,93 @@
-name: "SL3000-1024M-Full-Recovery-Suite-V35-Final"
+name: "SL3000-Makefile-Fix-and-Push-Config-V36"
 
 on:
   workflow_dispatch:
 
 jobs:
-  build:
+  sync_and_push:
     runs-on: ubuntu-22.04
     permissions:
       contents: write
 
     steps:
       - name: 1. 物理环境初始化 (工序一)
-        run: |
-          sudo -E apt-get -qq update
-          sudo -E apt-get -qq install build-essential clang flex bison g++ gawk gcc-multilib g++-multilib gettext git libncurses5-dev libssl-dev python3-distutils rsync unzip zlib1g-dev swig libpython3-dev qemu-utils libncursesw5-dev liblzma-dev
-          sudo timedatectl set-timezone "Asia/Shanghai"
+        run: sudo apt-get update && sudo apt-get install build-essential git libncurses5-dev libssl-dev swig -y
 
-      - name: 2. 物理克隆源码 (工序二)
+      - name: 2. 源码物理克隆 (工序二)
         run: |
           git clone --depth 1 -b sl3000-immortalwrt-bootstrap https://github.com/ykm888/66 openwrt
 
-      - name: 3. 物理手术：强制修正 Makefile 结构 (工序三)
-        # 这是解决 "does not exist" 和 "无法生成配置" 的核心步骤
+      - name: 3. 物理手术：修复并重构 Makefile (工序三)
+        # 这一步直接在内存中修正 Makefile 的物理结构
         run: |
           cd openwrt
           TARGET_MAKEFILE="package/boot/arm-trusted-firmware-mediatek/Makefile"
-          # A. 物理修正缩进：将所有行首空格转为 Tab
+          
+          # A. 物理修正缩进：2空格转1个Tab (OpenWrt 解析核心)
           sed -i 's/^  /\t/g' $TARGET_MAKEFILE
+          
           # B. 物理修复截断：修复 mt7988-spim-nand- 并确保其闭合
           sed -i 's/mt7988-spim-nand-$/mt7988-spim-nand-comb/g' $TARGET_MAKEFILE
-          # C. 物理插入目标：如果清单里没写，强行把 ddr4 目标插进去
+          
+          # C. 物理目标注入：确保 1024M DDR4 目标在 TFA_TARGETS 清单中
           if ! grep -q "mt7981-nor-ddr4" $TARGET_MAKEFILE; then
             sed -i '/mt7981-nor-ddr3/a \\tmt7981-nor-ddr4 \\' $TARGET_MAKEFILE
           fi
-          # D. 物理闭合：确保文件末尾有 eval 调用，否则 define 块无效
+          
+          # D. 物理闭合：确保文件末尾有 eval 调用逻辑
           if ! grep -q "BuildPackage/Trusted-Firmware-A" $TARGET_MAKEFILE; then
             echo -e "\n\$(eval \$(call BuildPackage/Trusted-Firmware-A))" >> $TARGET_MAKEFILE
           fi
 
-      - name: 4. 彻底物理清理索引 (工序四)
-        # 必须删除 tmp，否则系统会由于旧缓存而拒绝看到新目标
+      - name: 4. 强制物理清理索引 (工序四)
         run: |
           cd openwrt
           rm -rf tmp
           ./scripts/feeds update -a
           ./scripts/feeds install -a
-          ./scripts/feeds install -a
 
-      - name: 5. 物理种子注入与全量对齐 (工序五)
+      - name: 5. 物理注入 1024M 种子并生成全量配置 (工序五)
         run: |
           cd openwrt
-          # 1. 拉取远程配置
-          curl -fLo .config https://raw.githubusercontent.com/ykm888/66/main/custom-config/sl3000.config
-          # 2. 物理强锁 1024M 物理参数
-          {
-            echo "CONFIG_TARGET_mediatek=y"
-            echo "CONFIG_TARGET_mediatek_filogic=y"
-            echo "CONFIG_TARGET_mediatek_filogic_DEVICE_sl_3000-emmc=y"
-            echo "CONFIG_PACKAGE_trusted-firmware-a-mt7981-nor-ddr4=y"
-            echo "CONFIG_PACKAGE_uboot-mediatek-mt7981_sl_3000-nor=y"
-          } >> .config
-          # 3. 物理执行对齐
+          # 物理注入强锁参数
+          cat <<EOF > .config
+          CONFIG_TARGET_mediatek=y
+          CONFIG_TARGET_mediatek_filogic=y
+          CONFIG_TARGET_mediatek_filogic_DEVICE_sl_3000-emmc=y
+          CONFIG_PACKAGE_trusted-firmware-a-mt7981-nor-ddr4=y
+          CONFIG_PACKAGE_uboot-mediatek-mt7981_sl_3000-nor=y
+          EOF
+          # 物理全量推导
           make defconfig
-          # 4. 物理验证：如果此时 grep 不到，工作流会在这里报错停止
-          grep "CONFIG_PACKAGE_trusted-firmware-a-mt7981-nor-ddr4=y" .config || (echo "物理报警：Makefile 修复失败，目标仍未被识别！" && exit 1)
+          # 物理验证：如果失败则停止，防止推送坏配置
+          grep "CONFIG_PACKAGE_trusted-firmware-a-mt7981-nor-ddr4=y" .config
 
-      - name: 6. 物理下载源码包 (工序六)
+      - name: 6. 物理提取产物 (工序六)
         run: |
-          cd openwrt
-          make download -j$(nproc)
-          find dl -size -1024c -exec rm -f {} \;
+          mkdir -p sync_out
+          cp openwrt/.config sync_out/sl3000.config
+          cp openwrt/package/boot/arm-trusted-firmware-mediatek/Makefile sync_out/Makefile.fixed
 
-      - name: 7. 物理全量构建 (工序七)
+      - name: 7. 准备同步到 GitHub 仓库 (工序七)
         run: |
-          cd openwrt
-          make -j$(nproc) || make -j1 V=s
+          git clone -b main https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/ykm888/66.git repo-main
+          # 物理同步一：更新全量配置
+          cp sync_out/sl3000.config repo-main/custom-config/sl3000.config
+          # 物理同步二：反向推送修复后的 Makefile
+          cp sync_out/Makefile.fixed repo-main/package/boot/arm-trusted-firmware-mediatek/Makefile
+          
+          cd repo-main
+          git config user.name "SL3000-Sync-Bot"
+          git config user.email "bot@github.com"
 
-      - name: 8. 物理搜集“1024M 救砖全家桶” (工序八)
+      - name: 8. 物理提交并推送到 main 分支 (工序八)
         run: |
-          cd openwrt
-          mkdir -p out_images
-          # 精准抓取 1024M 物理产物
-          find bin/targets/mediatek/filogic/ -name "*nor-ddr4-bl2.img*" -exec cp -v {} out_images/ \;
-          find bin/targets/mediatek/filogic/ -name "*fip.bin*" -exec cp -v {} out_images/ \;
-          find bin/targets/mediatek/filogic/ -name "*sl_3000-emmc-sysupgrade.itb*" -exec cp -v {} out_images/ \;
-
-      - name: 9. 物理生成指纹校验 (工序九)
-        run: |
-          cd openwrt/out_images
-          sha256sum * > sha256sums-sl3000-1024M-DDR4.txt
-
-      - name: 10. 上传救砖产物 (工序十)
-        uses: actions/upload-artifact@v4
-        with:
-          name: SL3000-1024M-Final-Pro-Pack
-          path: openwrt/out_images/
+          cd repo-main
+          git add .
+          # 检查是否有变化
+          if [ -n "$(git status --porcelain)" ]; then
+            git commit -m "chore: 物理修复 Makefile 缩进并同步全量 1024M 配置"
+            git push origin main
+          else
+            echo "物理结构无变化，跳过推送。"
+          fi
