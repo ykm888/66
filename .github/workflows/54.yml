@@ -1,10 +1,10 @@
-name: "SL3000-Bootstrap-ForceUpdate-V44"
+name: "SL3000-ImmortalWrt-FullStack-V47"
 
 on:
   workflow_dispatch:
 
 jobs:
-  force-update:
+  bootstrap:
     runs-on: ubuntu-22.04
     permissions:
       contents: write
@@ -16,19 +16,18 @@ jobs:
           sudo -E apt-get -qq install build-essential flex bison g++ gawk gettext git libncurses5-dev libssl-dev python3-distutils rsync unzip zlib1g-dev swig
           rm -rf source-code
 
-      - name: 2. 物理拉取 23.05 (Kernel 5.4) 源码
+      - name: 2. 物理拉取 23.05 (Kernel 5.4) 核心源码
         run: |
           git clone --depth 1 -b openwrt-23.05 https://github.com/immortalwrt/immortalwrt.git source-code
           cd source-code
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
-      - name: 3. 物理覆盖注入 1024M DTS (对齐你提供的源码)
+      - name: 3. 物理覆盖注入 1024M 修正版 DTS
         run: |
           cd source-code
           DTS_PATH="target/linux/mediatek/files-5.4/arch/arm64/boot/dts/mediatek/mt7981-sl-3000-emmc.dts"
           mkdir -p $(dirname "$DTS_PATH")
-          
           cat <<'EOF' > "$DTS_PATH"
           /dts-v1/;
           #include "mt7981.dtsi"
@@ -39,10 +38,7 @@ jobs:
           		bootargs = "console=ttyS0,115200n1 loglevel=8 earlycon=uart8250,mmio32,0x11002000 root=PARTLABEL=rootfs rootwait rootfstype=squashfs,f2fs";
           	};
           	aliases {
-          		led-boot = &status_red_led;
-          		led-failsafe = &status_red_led;
-          		led-running = &status_green_led;
-          		led-upgrade = &status_blue_led;
+          		led-boot = &status_red_led; led-failsafe = &status_red_led; led-running = &status_green_led; led-upgrade = &status_blue_led;
           	};
           	memory { reg = <0 0x40000000 0 0x40000000>; };
           	leds {
@@ -57,8 +53,7 @@ jobs:
           		mesh { label = "mesh"; gpios = <&pio 0 GPIO_ACTIVE_LOW>; linux,code = <BTN_9>; linux,input-type = <EV_SW>; };
           	};
           };
-          &uart0 { status = "okay"; };
-          &watchdog { status = "okay"; };
+          &uart0 { status = "okay"; }; &watchdog { status = "okay"; };
           &eth {
           	status = "okay";
           	gmac0: mac@0 { compatible = "mediatek,eth-mac"; reg = <0>; phy-mode = "2500base-x"; fixed-link { speed = <2500>; full-duplex; pause; }; };
@@ -69,10 +64,7 @@ jobs:
           			compatible = "mediatek,mt7531"; reg = <31>; reset-gpios = <&pio 39 0>;
           			ports {
           				#address-cells = <1>; #size-cells = <0>;
-          				port@0 { reg = <0>; label = "lan1"; };
-          				port@1 { reg = <1>; label = "lan2"; };
-          				port@2 { reg = <2>; label = "lan3"; };
-          				port@3 { reg = <3>; label = "wan"; };
+          				port@0 { reg = <0>; label = "lan1"; }; port@1 { reg = <1>; label = "lan2"; }; port@2 { reg = <2>; label = "lan3"; }; port@3 { reg = <3>; label = "wan"; };
           				port@6 { reg = <6>; label = "cpu"; ethernet = <&gmac0>; phy-mode = "2500base-x"; fixed-link { speed = <2500>; full-duplex; pause; }; };
           			};
           		};
@@ -84,7 +76,7 @@ jobs:
           &pio { mmc0_pins_default: mmc0-pins-default { mux { function = "flash"; groups = "emmc_45"; }; }; mmc0_pins_uhs: mmc0-pins-uhs { mux { function = "flash"; groups = "emmc_45"; }; }; };
           EOF
 
-      - name: 4. 物理注入对齐版 MK 配置 (120M 救砖锁定)
+      - name: 4. 物理注入对齐版 MK (120M 救砖打包规则)
         run: |
           cd source-code
           cat <<'EOF' > target/linux/mediatek/image/filogic.mk
@@ -107,19 +99,36 @@ jobs:
           TARGET_DEVICES += sl_3000-emmc
           EOF
 
-      - name: 5. 物理开启救砖全家桶构建选项
+      - name: 5. 物理生成 8000+ 行全量救砖配置
         run: |
           cd source-code
-          echo "CONFIG_TARGET_mediatek=y" > .config
-          echo "CONFIG_TARGET_mediatek_filogic=y" >> .config
-          echo "CONFIG_TARGET_mediatek_filogic_DEVICE_sl_3000-emmc=y" >> .config
-          # 救砖核心参数：Web 界面 + 分区锁定
-          echo "CONFIG_MTK_BOOT_PARTITION=y" >> .config
-          echo "CONFIG_MTK_WEB_FAILSAFE=y" >> .config
-          echo "CONFIG_TARGET_ROOTFS_PARTSIZE=120" >> .config
-          make defconfig || true
+          # 1. 物理注入核心硬件种子
+          cat <<EOF > .config
+          CONFIG_TARGET_mediatek=y
+          CONFIG_TARGET_mediatek_filogic=y
+          CONFIG_TARGET_mediatek_filogic_DEVICE_sl_3000-emmc=y
+          CONFIG_MTK_BOOT_PARTITION=y
+          CONFIG_MTK_WEB_FAILSAFE=y
+          CONFIG_TARGET_ROOTFS_PARTSIZE=120
+          CONFIG_PACKAGE_luci=y
+          CONFIG_PACKAGE_luci-i18n-base-zh-cn=y
+          CONFIG_PACKAGE_luci-app-ttyd=y
+          CONFIG_PACKAGE_kmod-mmc-mtk=y
+          CONFIG_PACKAGE_kmod-fs-f2fs=y
+          EOF
 
-      - name: 6. 物理覆盖推送到 sl3000-immortalwrt-bootstrap
+          # 2. 如果你的 custom-config/sl3000.config 有内容，物理追加
+          if [ -s "../custom-config/sl3000.config" ]; then
+            cat "../custom-config/sl3000.config" >> .config
+          fi
+
+          # 3. 物理执行补全 (生成 8000+ 行)
+          make defconfig
+          
+          # 4. 导出全量配置用于物理留存
+          cp .config sl3000_full_recovery.config
+
+      - name: 6. 物理覆盖推送至 sl3000-immortalwrt-bootstrap
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -129,8 +138,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add .
-          git commit -m "chore: 物理对齐 1024M DTS/MK 并强制刷新救砖全家桶环境"
+          git commit -m "chore: 物理对齐 1024M 配置并生成 8000 行全量救砖底座"
           REMOTE_URL="https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git"
           git remote add origin "$REMOTE_URL"
-          # 物理强制覆盖目标分支
           git push -f origin master:refs/heads/sl3000-immortalwrt-bootstrap
