@@ -1,24 +1,27 @@
-name: "SL3000-Sync-To-Dev-Branch-V42"
+name: "SL3000-Final-Repair-And-Sync-V43"
 
 on:
   workflow_dispatch:
 
 jobs:
-  sync_to_dev:
+  sync_and_repair:
     runs-on: ubuntu-22.04
     permissions:
       contents: write
 
     steps:
       - name: 1. 物理环境初始化
-        run: sudo apt-get update && sudo apt-get install build-essential git libncurses5-dev libssl-dev swig -y
-
-      - name: 2. 物理克隆开发分支 (源码所在处)
         run: |
-          # 明确克隆你的开发分支
+          sudo apt-get update
+          sudo apt-get install build-essential git libncurses5-dev libssl-dev swig -y
+
+      - name: 2. 物理克隆开发分支 (源码基地)
+        run: |
+          # 明确克隆你的开发分支，确保 Makefile 注入位置正确
           git clone --depth 1 -b sl3000-immortalwrt-bootstrap https://github.com/ykm888/66 openwrt
 
-      - name: 3. 物理覆写 Makefile (归位于开发分支)
+      - name: 3. 物理彻底覆写 Makefile (100% 修复 Tab 缩进)
+        # 使用 cat <<'EOF' 物理锁定格式，防止任何环境变量干扰缩进
         run: |
           cd openwrt
           mkdir -p package/boot/arm-trusted-firmware-mediatek/
@@ -72,12 +75,15 @@ jobs:
           $(eval $(call BuildPackage/Trusted-Firmware-A))
           EOF
 
-      - name: 4. 物理推导全量配置
+      - name: 4. 物理清理与全量配置推导
         run: |
           cd openwrt
+          # 删除旧缓存，强迫系统读取新覆写的 Makefile
           rm -rf tmp
           ./scripts/feeds update -a
           ./scripts/feeds install -a
+          
+          # 物理注入 1024M 强锁种子
           cat <<EOF > .config
           CONFIG_TARGET_mediatek=y
           CONFIG_TARGET_mediatek_filogic=y
@@ -85,24 +91,34 @@ jobs:
           CONFIG_PACKAGE_trusted-firmware-a-mt7981-nor-ddr4=y
           CONFIG_PACKAGE_uboot-mediatek-mt7981_sl_3000-nor=y
           EOF
+          
+          # 展开全量配置
           make defconfig
+          
+          # 物理验证：如果 Makefile 格式不对，这一步会直接报错终止
           grep "CONFIG_PACKAGE_trusted-firmware-a-mt7981-nor-ddr4=y" .config
 
-      - name: 5. 反向推送至开发分支 (实现物理闭环)
+      - name: 5. 物理同步回开发分支 (实现物理闭环)
         run: |
-          # 重新克隆并定位到开发分支
-          git clone -b sl3000-immortalwrt-bootstrap https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/ykm888/66.git repo-dev
+          # 克隆用于推送的临时目录
+          git clone -b sl3000-immortalwrt-bootstrap https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/ykm888/66.git repo-sync
           
-          # 同步配置与 Makefile
-          mkdir -p repo-dev/custom-config/
-          mkdir -p repo-dev/package/boot/arm-trusted-firmware-mediatek/
+          # 物理确保目标路径存在
+          mkdir -p repo-sync/custom-config/
+          mkdir -p repo-sync/package/boot/arm-trusted-firmware-mediatek/
           
-          cp openwrt/.config repo-dev/custom-config/sl3000.config
-          cp openwrt/package/boot/arm-trusted-firmware-mediatek/Makefile repo-dev/package/boot/arm-trusted-firmware-mediatek/Makefile
+          # 物理覆盖：将修复后的 Makefile 和生成的全量配置移动到同步目录
+          cp openwrt/package/boot/arm-trusted-firmware-mediatek/Makefile repo-sync/package/boot/arm-trusted-firmware-mediatek/Makefile
+          cp openwrt/.config repo-sync/custom-config/sl3000.config
           
-          cd repo-dev
-          git config user.name "SL3000-Dev-Branch-Bot"
+          cd repo-sync
+          git config user.name "SL3000-Ultimate-Bot"
           git config user.email "bot@github.com"
           git add .
-          git commit -m "fix: 物理同步修复版 Makefile 与 1024M 配置至开发分支" || exit 0
-          git push origin sl3000-immortalwrt-bootstrap
+          # 物理提交
+          if [ -n "$(git status --porcelain)" ]; then
+            git commit -m "fix: 物理归位 1024M Makefile 并同步全量配置至开发分支"
+            git push origin sl3000-immortalwrt-bootstrap
+          else
+            echo "物理内容无变化，跳过推送。"
+          fi
