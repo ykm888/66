@@ -1,65 +1,81 @@
-name: "SL3000-Physical-Final-V30"
+name: "SL3000-Push-Config-Fix-V27"
 
 on:
   workflow_dispatch:
 
 jobs:
-  generate_config:
+  push:
     runs-on: ubuntu-22.04
     permissions:
       contents: write
 
     steps:
-      - name: 1. 物理环境初始化
+      - name: 1. 物理环境初始化 (工序一)
         run: |
           sudo -E apt-get -qq update
-          sudo -E apt-get -qq install build-essential flex bison g++ gawk gettext git libncurses5-dev libssl-dev python3-distutils rsync unzip zlib1g-dev swig
+          sudo -E apt-get -qq install build-essential git libncurses5-dev libssl-dev swig -y
+
+      - name: 2. 物理克隆源码 (工序二)
+        run: |
           git clone --depth 1 -b sl3000-immortalwrt-bootstrap https://github.com/ykm888/66 openwrt
 
-      - name: 2. 物理依赖链强行焊死
+      - name: 3. 物理修复 Makefile 缩进 (工序三)
+        # 核心：将 Makefile 中错误的 2 空格缩进强制物理转为标准 Tab 键
+        # 否则 OpenWrt 脚本无法解析新加的 mt7981-nor-ddr4
+        run: |
+          cd openwrt
+          find package/boot/arm-trusted-firmware-mediatek/ -name "Makefile" -exec sed -i 's/^  /\t/g' {} +
+
+      - name: 4. 强制物理清理缓存 (工序四)
+        # 关键：彻底删除 tmp 目录。这是消除 "does not exist" 警告的唯一物理手段
+        run: |
+          cd openwrt
+          rm -rf tmp
+
+      - name: 5. 物理同步 Feeds (工序五)
         run: |
           cd openwrt
           ./scripts/feeds update -a
           ./scripts/feeds install -a
-          
-          # 【物理手术 1】强制修正 TF-A Makefile 的语法格式（必须是 Tab）
-          sed -i 's/^  /\t/g' package/boot/arm-trusted-firmware-mediatek/Makefile
-          
-          # 【物理手术 2】强制清理索引缓存，这是解决 "does not exist" 的核武器
-          rm -rf tmp
-          
-          # 【物理手术 3】手动触发一次预索引，确保元数据更新
-          ./scripts/metadata.pl package_config < tmp/.packageinfo > /dev/null 2>&1 || true
 
-      - name: 3. 注入 1024M 物理配置
+      - name: 6. 物理注入 1024M 核心参数 (工序六)
         run: |
           cd openwrt
-          # 物理锁定硬件
+          # 物理锁定硬件与 TF-A 目标
           echo "CONFIG_TARGET_mediatek=y" > .config
-          echo "CONFIG_TARGET_mediatek_mt7981=y" >> .config
-          echo "CONFIG_TARGET_mediatek_mt7981_DEVICE_sl_3000-emmc=y" >> .config
-          
-          # 物理锁定引导链路（必须同时存在，否则 U-Boot 会报警告）
+          echo "CONFIG_TARGET_mediatek_filogic=y" >> .config
+          echo "CONFIG_TARGET_mediatek_filogic_DEVICE_sl_3000-emmc=y" >> .config
           echo "CONFIG_PACKAGE_trusted-firmware-a-mt7981-nor-ddr4=y" >> .config
           echo "CONFIG_PACKAGE_uboot-mediatek-mt7981_sl_3000-nor=y" >> .config
-          
-          # 物理功能开关
-          echo "CONFIG_MTK_BOOT_PARTITION=y" >> .config
-          echo "CONFIG_MTK_WEB_FAILSAFE=y" >> .config
-          
-          # 执行物理闭环补全
+
+      - name: 7. 物理执行依赖对齐 (工序七)
+        # 此时运行 defconfig，由于 tmp 已删且 Makefile 已修，WARNING 应该消失
+        run: |
+          cd openwrt
           make defconfig
 
-      - name: 4. 物理推送到仓库
+      - name: 8. 物理配置导出与验证 (工序八)
+        run: |
+          mkdir -p config_out
+          # 检查生成的配置中是否真的包含 ddr4 开关
+          grep "CONFIG_PACKAGE_trusted-firmware-a-mt7981-nor-ddr4=y" openwrt/.config || exit 1
+          cp openwrt/.config config_out/sl3000.config
+
+      - name: 9. 物理准备推送仓库 (工序九)
         run: |
           git clone -b main https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/ykm888/66.git repo-main
-          mkdir -p repo-main/custom-config/
-          cp openwrt/.config repo-main/custom-config/sl3000.config
+          cp config_out/sl3000.config repo-main/custom-config/sl3000.config
           cd repo-main
-          git config --global user.email "bot@github.com"
-          git config --global user.name "SL3000-Physical-Bot"
+          git config user.name "SL3000-Bot"
+          git config user.email "bot@github.com"
+
+      - name: 10. 物理提交与强制推送到 main (工序十)
+        run: |
+          cd repo-main
           git add custom-config/sl3000.config
           if [ -n "$(git status --porcelain)" ]; then
-            git commit -m "chore: 物理链路补全 V30 - 彻底消除 does not exist 警告"
+            git commit -m "fix: 彻底消除 TF-A 依赖警告并强制启用 1024M-DDR4 支持"
             git push origin main
+          else
+            echo "物理配置无变化，跳过推送。"
           fi
