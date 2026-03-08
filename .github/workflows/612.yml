@@ -59,7 +59,7 @@ jobs:
           # 执行物理预对齐
           make defconfig
 
-      - name: 4. 物理推送到专属分支
+            - name: 4. 物理推送到专属分支
         run: |
           cd source-code
           rm -rf .git
@@ -67,9 +67,10 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add .
-          git commit -m "feat(sl3000): 拉起 Immortal 24.10 魔改版 (内核 6.12/MT7531)"
-          git remote add origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git
-          git push -f origin master:sl3000-exclusive-612
+          git commit -m "feat(sl3000): 物理拉起 Immortal 24.10 魔改版 (内核 6.12/MT7531)"
+          # 使用引号包裹 remote 地址和 push 命令，防止冒号引起的 YAML 语法解析错误
+          git remote add origin "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git"
+          git push -f origin "master:sl3000-exclusive-612"
 
       - name: 5. 任务总结
-        run: echo ">>> 专属 6.12 魔改源已物理同步至分支: sl3000-exclusive-612"
+        run: echo ">>> 专属 6.12 魔改源已物理同步完成。"
