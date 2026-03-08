@@ -1,28 +1,33 @@
-      - name: 4. 物理注入全家桶 (修复第一行语法错误)
+name: SL3000-1024M-Final-Config-V9  # 确保 n 是小写，冒号后有空格
+
+on:
+  workflow_dispatch:
+
+jobs:
+  generate-and-push:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: 物理注入全家桶 (使用单引号隔离)
         run: |
           cd openwrt
           UBOOT_MK="package/boot/uboot-mediatek/Makefile"
           mkdir -p $(dirname $UBOOT_MK)
-
-          # 使用单引号防止 Shell 解析 $()，彻底修复第一行错误
+          
+          # 使用单引号写入，物理规避所有 Shell 解析错误
           echo 'include $(TOPDIR)/rules.mk' > $UBOOT_MK
           echo 'include $(INCLUDE_DIR)/kernel.mk' >> $UBOOT_MK
-          echo '' >> $UBOOT_MK
           echo 'PKG_VERSION:=2024.10' >> $UBOOT_MK
           echo 'PKG_SOURCE_PROTO:=git' >> $UBOOT_MK
           echo 'PKG_SOURCE_URL:=https://github.com/ykm888/66.git' >> $UBOOT_MK
           echo 'PKG_SOURCE_VERSION:=sl3000-uboot-base' >> $UBOOT_MK
           echo 'PKG_MIRROR_HASH:=skip' >> $UBOOT_MK
           echo 'PKG_BUILD_DEPENDS:=arm-trusted-firmware-tools/host' >> $UBOOT_MK
-          echo '' >> $UBOOT_MK
           echo 'include $(INCLUDE_DIR)/u-boot.mk' >> $UBOOT_MK
           echo 'include $(INCLUDE_DIR)/package.mk' >> $UBOOT_MK
-          echo '' >> $UBOOT_MK
           echo 'define U-Boot/Default' >> $UBOOT_MK
           echo '  BUILD_TARGET:=mediatek' >> $UBOOT_MK
           echo '  UBOOT_IMAGE:=u-boot-mtk.bin' >> $UBOOT_MK
           echo 'endef' >> $UBOOT_MK
-          echo '' >> $UBOOT_MK
           echo 'define U-Boot/mt7981_sl_3000-emmc' >> $UBOOT_MK
           echo '  NAME:=SL-3000 (eMMC)' >> $UBOOT_MK
           echo '  BUILD_SUBTARGET:=filogic' >> $UBOOT_MK
@@ -33,16 +38,13 @@
           echo '  BL2_SOC:=mt7981' >> $UBOOT_MK
           echo '  BL2_DDRTYPE:=ddr4' >> $UBOOT_MK
           echo 'endef' >> $UBOOT_MK
-          echo '' >> $UBOOT_MK
           echo 'UBOOT_TARGETS := mt7981_sl_3000-emmc' >> $UBOOT_MK
-          echo '' >> $UBOOT_MK
           echo 'define Package/u-boot/install/default' >> $UBOOT_MK
-
-          # 物理注入真正的 Tab 制表符，避开 echo -e 的兼容性坑
+          
+          # 物理注入 Tab 键
           echo $'\t''$(CP) $(patsubst %,$(PKG_BUILD_DIR)/%,$(UBOOT_IMAGE)) $(1)/' >> $UBOOT_MK
           echo $'\t''[ -f $(PKG_BUILD_DIR)/bl2.bin ] && $(CP) $(PKG_BUILD_DIR)/bl2.bin $(1)/mt7981-emmc-ddr4-bl2.bin' >> $UBOOT_MK
           echo $'\t''[ -f $(PKG_BUILD_DIR)/u-boot.fip ] && $(CP) $(PKG_BUILD_DIR)/u-boot.fip $(1)/' >> $UBOOT_MK
-
+          
           echo 'endef' >> $UBOOT_MK
-          echo '' >> $UBOOT_MK
           echo '$(eval $(call BuildPackage/U-Boot))' >> $UBOOT_MK
