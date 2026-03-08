@@ -19,7 +19,7 @@ PKG_MAINTAINER:=ykm888
 PKG_LICENSE:=GPL-2.0
 PKG_LICENSE_FILES:=Licenses/README
 
-# 物理依赖：必须依赖针对 DDR4 编译的 TF-A
+# 物理依赖：必须依赖针对 DDR4 编译的 TF-A 和 FIP 工具
 PKG_BUILD_DEPENDS:=arm-trusted-firmware-tools/host
 
 include $(INCLUDE_DIR)/u-boot.mk
@@ -36,40 +36,49 @@ endef
 define U-Boot/mt7981_sl_3000-emmc
   NAME:=SL-3000 (DDR4-1024M-eMMC)
   BUILD_SUBTARGET:=filogic
-  UBOOT_CONFIG:=mt7981_sl_3000-emmc
-  UBOOT_IMAGE:=u-boot.fip
+  # 物理指向：源码 configs/mt7981_emmc_defconfig
+  UBOOT_CONFIG:=mt7981_emmc
+  # 物理对齐：必须匹配 filogic.mk 中 Build/mt7981-bl31-uboot 宏的寻找规律
+  UBOOT_IMAGE:=mt7981_sl_3000-emmc-u-boot.fip
   BL2_BOOTDEV:=emmc
   BL2_SOC:=mt7981
-  # 【物理核心】必须锁定 DDR4，否则无法初始化 P3A8GL4MLF 颗粒
+  # 物理核心：锁定 DDR4 训练脚本
   BL2_DDRTYPE:=ddr4
-  # 物理链接 TF-A 镜像
+  # 物理依赖：链接 TF-A 产物
   DEPENDS:=+trusted-firmware-a-mt7981-emmc-ddr4
 endef
 
 UBOOT_TARGETS := mt7981_sl_3000-emmc
 
-# 物理构建指令：生成 FIP (Firmware Image Package)
+# 物理构建指令：使用 fiptool 将 U-Boot 与 TF-A 的 BL31 合体
 define Build/fip-image
 	$(STAGING_DIR_HOST)/bin/fiptool create \
 		--soc-fw $(STAGING_DIR_IMAGE)/mt7981-emmc-ddr4-bl31.bin \
 		--nt-fw $(PKG_BUILD_DIR)/u-boot.bin \
-		$(PKG_BUILD_DIR)/u-boot.fip
+		$(PKG_BUILD_DIR)/$(UBOOT_IMAGE)
 endef
 
 define Build/Compile
 	$(call Build/Compile/U-Boot)
-ifeq ($(UBOOT_IMAGE),u-boot.fip)
+ifeq ($(UBOOT_IMAGE),mt7981_sl_3000-emmc-u-boot.fip)
 	$(call Build/fip-image)
 endif
 endef
 
-# 物理安装：将 BL2 和 FIP 拷贝至编译产物目录
+# 物理安装：将产物分发到 Staging 目录，供镜像生成器调用
+define Package/u-boot-mediatek/install
+	$(INSTALL_DIR) $(STAGING_DIR_IMAGE)
+	# 拷贝 FIP 镜像
+	$(CP) $(PKG_BUILD_DIR)/$(UBOOT_IMAGE) $(STAGING_DIR_IMAGE)/
+	# 物理转换：将 TF-A 的 .bin 转换为 filogic.mk 期待的 .img
+	[ -f $(STAGING_DIR_IMAGE)/mt7981-emmc-ddr4-bl2.bin ] && \
+		$(CP) $(STAGING_DIR_IMAGE)/mt7981-emmc-ddr4-bl2.bin $(STAGING_DIR_IMAGE)/mt7981-emmc-ddr4-bl2.img
+endef
+
+# 默认安装逻辑（用于生成编译包产物）
 define Package/u-boot/install/default
 	$(INSTALL_DIR) $(1)
 	$(CP) $(PKG_BUILD_DIR)/$(UBOOT_IMAGE) $(1)/
-	# 救砖关键：物理导出适配 DDR4 的 BL2 镜像
-	[ -f $(STAGING_DIR_IMAGE)/mt7981-emmc-ddr4-bl2.bin ] && \
-		$(CP) $(STAGING_DIR_IMAGE)/mt7981-emmc-ddr4-bl2.bin $(1)/sl3000-emmc-ddr4-bl2.bin
 endef
 
 $(eval $(call BuildPackage/U-Boot))
