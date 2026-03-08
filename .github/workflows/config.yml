@@ -1,10 +1,10 @@
-name: "SL3000-Full-Config-Recovery-V30"
+name: "SL3000-Wipe-and-Rebuild-Config-V32"
 
 on:
   workflow_dispatch:
 
 jobs:
-  recovery:
+  rebuild:
     runs-on: ubuntu-22.04
     permissions:
       contents: write
@@ -13,20 +13,24 @@ jobs:
       - name: 1. 物理环境初始化 (工序一)
         run: sudo apt-get update && sudo apt-get install build-essential git libncurses5-dev libssl-dev swig -y
 
-      - name: 2. 物理克隆源码 (工序二)
+      - name: 2. 源码物理克隆 (工序二)
         run: git clone --depth 1 -b sl3000-immortalwrt-bootstrap https://github.com/ykm888/66 openwrt
 
-      - name: 3. 物理修复 Makefile (工序三)
+      - name: 3. 物理修复 Makefile 结构 (工序三)
+        # 这是重构成功的先决条件：必须让系统先“认出”mt7981-nor-ddr4
         run: |
           cd openwrt
-          # 1. 强制将所有 2 空格缩进转为 1 个 Tab (OpenWrt 解析物理准则)
+          # 修正缩进为 Tab
           sed -i 's/^  /\t/g' package/boot/arm-trusted-firmware-mediatek/Makefile
-          # 2. 修复 TFA_TARGETS 列表截断，确保列表闭合
+          # 补齐之前被截断的目标列表结尾，确保注册列表闭合
           sed -i 's/mt7988-spim-nand-$/mt7988-spim-nand-comb/g' package/boot/arm-trusted-firmware-mediatek/Makefile
-          # 3. 物理补全结尾触发宏，如果没有这一行，defconfig 永远读不到内容
-          grep -q "BuildPackage/Trusted-Firmware-A" package/boot/arm-trusted-firmware-mediatek/Makefile || echo '$(eval $(call BuildPackage/Trusted-Firmware-A))' >> package/boot/arm-trusted-firmware-mediatek/Makefile
+          # 确保末尾有 eval 调用
+          if ! grep -q "BuildPackage/Trusted-Firmware-A" package/boot/arm-trusted-firmware-mediatek/Makefile; then
+            echo '$(eval $(call BuildPackage/Trusted-Firmware-A))' >> package/boot/arm-trusted-firmware-mediatek/Makefile
+          fi
 
-      - name: 4. 强制物理清理索引 (工序四)
+      - name: 4. 彻底物理清理索引 (工序四)
+        # 清空索引，强迫系统扫描修复后的 Makefile
         run: cd openwrt && rm -rf tmp
 
       - name: 5. 物理同步 Feeds (工序五)
@@ -35,46 +39,41 @@ jobs:
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
-      - name: 6. 物理注入 1024M 种子配置 (工序六)
+      - name: 6. 物理注入 1024M 核心种子 (工序六)
         run: |
           cd openwrt
-          # 这一步是告诉系统：我要编译 SL-3000 的 eMMC 版，并且指定要 DDR4 的引导包
+          # 由于你清空了远程配置，我们在这里重新建立物理锚点
           cat <<EOF > .config
           CONFIG_TARGET_mediatek=y
           CONFIG_TARGET_mediatek_filogic=y
           CONFIG_TARGET_mediatek_filogic_DEVICE_sl_3000-emmc=y
           CONFIG_PACKAGE_trusted-firmware-a-mt7981-nor-ddr4=y
           CONFIG_PACKAGE_uboot-mediatek-mt7981_sl_3000-nor=y
+          CONFIG_PACKAGE_kmod-mtk-hnat=y
           EOF
 
-      - name: 7. 物理全量展开 (工序七)
-        run: |
-          cd openwrt
-          # 核心工序：系统会根据种子配置，物理补全所有成千上万行的默认依赖配置
-          make defconfig
+      - name: 7. 执行全量配置展开 (工序七)
+        # 这一步会将几行种子配置膨胀为支持 SL-3000 的几千行完整配置
+        run: cd openwrt && make defconfig
 
-      - name: 8. 物理配置提取 (工序八)
+      - name: 8. 物理结果核验 (工序八)
         run: |
           mkdir -p config_out
-          # 验证生成的配置是否包含关键的 =y 开关
-          if grep -q "CONFIG_PACKAGE_trusted-firmware-a-mt7981-nor-ddr4=y" openwrt/.config; then
-            echo "物理验证：1024M DDR4 配置已成功生成！"
-          else
-            echo "物理验证：警告！配置仍未成功选中，请检查 Makefile。"
-          fi
           cp openwrt/.config config_out/sl3000.config
+          echo "--- 物理验证：检查 1024M 标记是否成功生成 ---"
+          grep "CONFIG_PACKAGE_trusted-firmware-a-mt7981-nor-ddr4=y" config_out/sl3000.config || (echo "错误：配置未能正确生成，请检查 Makefile" && exit 1)
 
-      - name: 9. 物理准备推送 (工序九)
+      - name: 9. 物理同步至主仓库 (工序九)
         run: |
           git clone -b main https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/ykm888/66.git repo-main
           cp config_out/sl3000.config repo-main/custom-config/sl3000.config
           cd repo-main
-          git config user.name "SL3000-Bot"
+          git config user.name "SL3000-Config-Bot"
           git config user.email "bot@github.com"
 
-      - name: 10. 物理强制提交覆盖 (工序十)
+      - name: 10. 物理提交覆盖 (工序十)
         run: |
           cd repo-main
           git add custom-config/sl3000.config
-          git commit -m "fix: 物理恢复被清空的 SL3000 全量 1024M 配置" || exit 0
+          git commit -m "chore: 物理重构 SL3000 全量 1024M 纯净配置" || exit 0
           git push origin main
