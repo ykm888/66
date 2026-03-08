@@ -93,12 +93,21 @@ jobs:
           echo 'endef' >> $IMAGE_MK
           echo 'TARGET_DEVICES += sl_3000-emmc' >> $IMAGE_MK
 
-      - name: 3. 物理修复 Feeds 与 全速网口配置锁定
+      - name: 3. 物理修复 Feeds 与 补齐缺失依赖 (解决 Warning)
         run: |
           cd openwrt
+          # 物理注入官方基础库，修复 libpam, lm-sensors 等缺失
+          echo "src-git official_pkgs https://github.com/openwrt/packages.git" > feeds.conf
+          echo "src-git official_luci https://github.com/openwrt/luci.git" >> feeds.conf
+          [ -f feeds.conf.default ] && cat feeds.conf.default >> feeds.conf
+          
           ./scripts/feeds update -a
           ./scripts/feeds install -a
           
+          # 物理补齐特定报错包
+          ./scripts/feeds install lm-sensors luci-app-samba4 wsdd2 libpam luci luci-i18n-base-zh-cn liblzma libnetsnmp glib2 libgpiod
+          
+          # 生成核心配置
           echo "CONFIG_TARGET_mediatek=y" > .config
           echo "CONFIG_TARGET_mediatek_mt7981=y" >> .config
           echo "CONFIG_TARGET_mediatek_mt7981_DEVICE_sl_3000-emmc=y" >> .config
@@ -106,6 +115,7 @@ jobs:
           echo "CONFIG_PACKAGE_kmod-mt7531=y" >> .config
           echo "CONFIG_PACKAGE_kmod-mtk-hnat=y" >> .config
           
+          # 物理强制对齐依赖
           make defconfig
 
       - name: 4. 推送物理配置至仓库
