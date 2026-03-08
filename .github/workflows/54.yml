@@ -1,41 +1,75 @@
-name: "SL3000-Create-New-Clean-Branch-V32"
+name: "SL3000-ImmortalWrt-5.4-FullSync-V37"
 
 on:
   workflow_dispatch:
 
 jobs:
-  create-branch:
+  rebuild-branch:
     runs-on: ubuntu-22.04
     permissions:
       contents: write
 
     steps:
-      - name: 1. 物理检出环境并拉取官方源码
+      - name: 1. 物理环境初始化
         run: |
-          # 物理隔离：从官方 ImmortalWrt 镜像拉取最纯净的代码
-          git clone --depth 1 https://github.com/immortalwrt/immortalwrt.git source-code
+          sudo -E apt-get -qq update
+          sudo -E apt-get -qq install build-essential flex bison g++ gawk gettext git libncurses5-dev libssl-dev python3-distutils rsync unzip zlib1g-dev swig
+          rm -rf openwrt
+
+      - name: 2. 物理锁定 23.05 (Kernel 5.4) 仓库源
+        run: |
+          # 物理隔离，强制拉取官方 23.05 稳定分支（该分支路径匹配 files-5.4）
+          git clone --depth 1 -b openwrt-23.05 https://github.com/immortalwrt/immortalwrt.git source-code
           cd source-code
-          # 物理同步 Feeds，确保依赖 Makefile 完整
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
-      - name: 2. 物理注入 1024M 硬件补丁 (SL3000 专属)
+      - name: 3. 物理注入 1024M 内存 DTS (指定 5.4 路径)
         run: |
           cd source-code
-          # 修改 DTS 以物理支持 1024M 内存
-          DTS_PATH="target/linux/mediatek/files-5.4/arch/arm64/boot/dts/mediatek/mt7981-sl-3000-emmc.dts"
-          mkdir -p $(dirname $DTS_PATH)
-          cat <<EOF > $DTS_PATH
+          # 物理创建你要求的绝对路径
+          DTS_DIR="target/linux/mediatek/files-5.4/arch/arm64/boot/dts/mediatek"
+          mkdir -p "$DTS_DIR"
+          
+          # 写入 1024M 内存物理定义
+          cat <<EOF > "$DTS_DIR/mt7981-sl-3000-emmc.dts"
           /dts-v1/;
           #include "mt7981.dtsi"
-          / { model = "SL-3000 1024M ImmortalWrt Clean"; compatible = "sl,3000-emmc", "mediatek,mt7981";
-          memory { device_type = "memory"; reg = <0 0x40000000 0 0x40000000>; }; };
+          / {
+              model = "SL-3000 1024M ImmortalWrt 5.4";
+              compatible = "sl,3000-emmc", "mediatek,mt7981";
+              memory {
+                  device_type = "memory";
+                  reg = <0 0x40000000 0 0x40000000>;
+              };
+          };
           EOF
 
-      - name: 3. 物理初始化 .config 基准
+      - name: 4. 物理修改 MK 配置文件 (镜像打包入口)
         run: |
           cd source-code
-          # 设定物理目标架构
+          # 物理路径名称：target/linux/mediatek/image/filogic.mk
+          MK_FILE="target/linux/mediatek/image/filogic.mk"
+          
+          # 如果文件中不存在该设备，则物理追加
+          if ! grep -q "Device/sl_3000-emmc" "$MK_FILE"; then
+            cat <<EOF >> "$MK_FILE"
+
+          define Device/sl_3000-emmc
+            DEVICE_VENDOR := SL
+            DEVICE_MODEL := 3000
+            DEVICE_VARIANT := eMMC 1024M
+            DEVICE_DTS := mt7981-sl-3000-emmc
+            SUPPORTED_DEVICES := sl,3000-emmc
+            DEVICE_PACKAGES := kmod-mt7981-firmware mt7981-wo-firmware
+          endef
+          TARGET_DEVICES += sl_3000-emmc
+          EOF
+          fi
+
+      - name: 5. 物理预生成 .config 确保依赖闭环
+        run: |
+          cd source-code
           echo "CONFIG_TARGET_mediatek=y" > .config
           echo "CONFIG_TARGET_mediatek_filogic=y" >> .config
           echo "CONFIG_TARGET_mediatek_filogic_DEVICE_sl_3000-emmc=y" >> .config
@@ -43,26 +77,24 @@ jobs:
           echo "CONFIG_MTK_BOOT_PARTITION=y" >> .config
           echo "CONFIG_MTK_WEB_FAILSAFE=y" >> .config
           
-          # 物理对齐依赖
           make defconfig || true
 
-      - name: 4. 物理创建并推送新分支
+      - name: 6. 物理强制同步到新分支 sl3000-stable-5.4
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           cd source-code
-          # 彻底切断官方 Git 历史，建立你自己的物理存档点
+          # 彻底切断官方 Git 历史，建立干净的新基准
           rm -rf .git
           git init
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           
           git add .
-          git commit -m "feat(sl3000): 物理初始化 ImmortalWrt 纯净源分支 (1024M)"
+          git commit -m "feat(sl3000): 物理同步 23.05 (Kernel 5.4) 源码并注入 1024M 定义"
           
-          # 【核心操作】物理推送到一个全新的分支名
           REMOTE_URL="https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git"
           git remote add origin "$REMOTE_URL"
           
-          # 物理强制推送到 sl3000-immortalwrt-clean 分支
-          git push -f origin master:refs/heads/sl3000-immortalwrt-clean
+          # 物理强制推送到专属的 Kernel 5.4 分支
+          git push -f origin master:refs/heads/sl3000-stable-5.4
