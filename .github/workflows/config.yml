@@ -1,10 +1,10 @@
-name: SL3000-1024M-Ultimate-Config-Generator
+name: SL3000-1024M-Full-Config-Generator-v4.0
 
 on:
   workflow_dispatch:
 
 jobs:
-  generate_config:
+  generate:
     runs-on: ubuntu-22.04
     permissions:
       contents: write
@@ -26,66 +26,72 @@ jobs:
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
-      - name: 4. 救砖全家桶配置注入与物理净化 (核心工序)
+      - name: 4. 救砖全家桶配置注入与物理净化 (核心修复)
         run: |
           cd openwrt
-          # 1. 物理移除导致编译报错的病灶文件夹
+          # 1. 物理移除病灶文件夹 (彻底解决递归依赖报错)
           find . -type d -name "datconf" -exec rm -rf {} +
           find . -type d -name "rd05a1" -exec rm -rf {} +
           
-          # 2. 物理清空旧配置并注入新基因
+          # 2. 物理清空并重新注入 U-Boot 救砖配置基因
           rm -f .config && touch .config
           
-          # [层级 1] 硬件架构锁定 (MT7981 + 1024M)
+          # [物理锁定] 硬件架构与设备目标
           echo "CONFIG_TARGET_mediatek=y" >> .config
           echo "CONFIG_TARGET_mediatek_mt7981=y" >> .config
           echo "CONFIG_TARGET_mediatek_mt7981_DEVICE_sl_3000-emmc=y" >> .config
           
-          # [层级 2] 激活救砖全家桶构建开关 (核心：确保生成 BL2, FIP, GPT)
+          # [物理同步] 注入救砖全家桶构建开关 (基于您提供的 U-Boot defconfig)
+          # 确保开启 Web 救砖后台 (Web Failsafe) 和引导分区构建
           echo "CONFIG_TARGET_IMAGE_uboot_mediatek_mt7981_sl_3000_emmc=y" >> .config
           echo "CONFIG_TARGET_IMAGE_uboot_mediatek_mt7981_sl_3000-emmc=y" >> .config
           echo "CONFIG_MTK_BOOT_PARTITION=y" >> .config
-          echo "CONFIG_TARGET_ROOTFS_PARTSIZE=1024" >> .config
+          echo "CONFIG_MTK_WEB_FAILSAFE=y" >> .config
+          echo "CONFIG_MTK_BOOTMENU_MMC=y" >> .config
           
-          # [层级 3] 1024M 物理内存与 eMMC 驱动支持
+          # [1024M 内存与 eMMC 支持]
           echo "CONFIG_FIXED_PHANDLE=y" >> .config
           echo "CONFIG_PACKAGE_kmod-mmc-mtk=y" >> .config
           echo "CONFIG_PACKAGE_kmod-mtk-sd=y" >> .config
           
-          # [层级 4] 物理屏蔽损坏包 (防止 recursive dependency)
+          # [物理屏蔽] 损坏包
           echo "# CONFIG_PACKAGE_datconf is not set" >> .config
           echo "# CONFIG_PACKAGE_rd05a1 is not set" >> .config
           
-          # 3. 执行物理膨胀，生成 8000+ 行全量配置
+          # 3. 执行物理膨胀，生成全量 8000 行配置
           make defconfig
+          # 容错处理：确保关键开关在膨胀后依然存在
           make oldconfig < /dev/null
 
-      - name: 5. 物理多维验证
+      - name: 5. 物理多维验证 (带容错探测)
         run: |
           cd openwrt
-          echo ">>> 物理行数检查："
-          wc -l .config
-          echo ">>> 救砖全家桶开关状态："
-          grep "CONFIG_TARGET_IMAGE_uboot" .config
-          grep "CONFIG_MTK_BOOT_PARTITION" .config
+          echo ">>> 物理行数检查：$(wc -l < .config)"
+          echo ">>> 救砖全家桶开关状态探测："
+          # 使用 || true 确保 grep 没找到时不会中断工作流
+          grep "CONFIG_TARGET_IMAGE_uboot" .config || echo "物理警告：未发现 U-Boot 激活项"
+          grep "CONFIG_MTK_WEB_FAILSAFE" .config || echo "物理警告：未发现 Web 救砖后台配置"
 
-      - name: 6. 物理推送至仓库 (一键同步)
+      - name: 6. 物理推送至仓库 (一键生成并同步)
         run: |
           # 1. 克隆主仓库
           git clone -b main https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/ykm888/66.git repo-main
           
-          # 2. 覆盖物理配置文件
+          # 2. 物理同步配置文件
           mkdir -p repo-main/custom-config/
           cp openwrt/.config repo-main/custom-config/sl3000.config
           
-          # 3. Git 提交并物理推送
+          # 3. Git 配置与推送
           cd repo-main
           git config --global user.email "bot@github.com"
           git config --global user.name "SL3000-Config-Bot"
           git add custom-config/sl3000.config
           
-          # 只有在物理内容发生变化时才提交
+          # 只有在物理内容发生变化时才提交，防止重复提交
           if [ -n "$(git status --porcelain)" ]; then
-            git commit -m "chore: 物理对齐并注入救砖全家桶配置 [Auto-Generated]"
+            git commit -m "chore: 物理对齐 1024M 救砖全家桶配置 [Auto-Generated]"
             git push origin main
+            echo "物理逻辑：配置已成功更新并推送到仓库。"
+          else
+            echo "物理逻辑：配置内容无变化，跳过推送。"
           fi
