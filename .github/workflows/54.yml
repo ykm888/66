@@ -1,10 +1,10 @@
-name: "SL3000-ImmortalWrt-5.4-FullSync-V37"
+name: "SL3000-ImmortalWrt-FullPatch-V39"
 
 on:
   workflow_dispatch:
 
 jobs:
-  rebuild-branch:
+  patch-and-sync:
     runs-on: ubuntu-22.04
     permissions:
       contents: write
@@ -16,85 +16,148 @@ jobs:
           sudo -E apt-get -qq install build-essential flex bison g++ gawk gettext git libncurses5-dev libssl-dev python3-distutils rsync unzip zlib1g-dev swig
           rm -rf openwrt
 
-      - name: 2. 物理锁定 23.05 (Kernel 5.4) 仓库源
+      - name: 2. 物理拉取 ImmortalWrt 23.05 稳定源
         run: |
-          # 物理隔离，强制拉取官方 23.05 稳定分支（该分支路径匹配 files-5.4）
           git clone --depth 1 -b openwrt-23.05 https://github.com/immortalwrt/immortalwrt.git source-code
           cd source-code
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
-      - name: 3. 物理注入 1024M 内存 DTS (指定 5.4 路径)
+      - name: 3. 物理注入完整 DTS (SL-3000 1024M Bootstrap)
         run: |
           cd source-code
-          # 物理创建你要求的绝对路径
-          DTS_DIR="target/linux/mediatek/files-5.4/arch/arm64/boot/dts/mediatek"
-          mkdir -p "$DTS_DIR"
-          
-          # 写入 1024M 内存物理定义
-          cat <<EOF > "$DTS_DIR/mt7981-sl-3000-emmc.dts"
+          # 定义物理内容
+          cat <<'EOF' > ./mt7981-sl-3000-emmc.dts
           /dts-v1/;
           #include "mt7981.dtsi"
+
           / {
-              model = "SL-3000 1024M ImmortalWrt 5.4";
-              compatible = "sl,3000-emmc", "mediatek,mt7981";
-              memory {
-                  device_type = "memory";
-                  reg = <0 0x40000000 0 0x40000000>;
-              };
+            model = "SL-3000 eMMC 1024M bootstrap version";
+            compatible = "sl,3000-emmc", "mediatek,mt7981";
+
+            chosen {
+              bootargs = "console=ttyS0,115200n1 loglevel=8 \
+                  earlycon=uart8250,mmio32,0x11002000 \
+                  root=PARTLABEL=rootfs rootwait rootfstype=squashfs,f2fs";
+            };
+
+            aliases {
+              led-boot = &status_red_led;
+              led-failsafe = &status_red_led;
+              led-running = &status_green_led;
+              led-upgrade = &status_blue_led;
+            };
+
+            memory {
+              /* 物理魔改：1024M 内存锁定 */
+              reg = <0 0x40000000 0 0x40000000>;
+            };
+
+            leds {
+              compatible = "gpio-leds";
+              status_red_led: led-0 { label = "red:status"; gpios = <&pio 10 GPIO_ACTIVE_LOW>; };
+              status_green_led: led-1 { label = "green:status"; gpios = <&pio 11 GPIO_ACTIVE_LOW>; };
+              status_blue_led: led-2 { label = "blue:status"; gpios = <&pio 12 GPIO_ACTIVE_LOW>; };
+            };
+
+            gpio-keys {
+              compatible = "gpio-keys";
+              reset { label = "reset"; linux,code = <KEY_RESTART>; gpios = <&pio 1 GPIO_ACTIVE_LOW>; };
+              mesh { label = "mesh"; gpios = <&pio 0 GPIO_ACTIVE_LOW>; linux,code = <BTN_9>; linux,input-type = <EV_SW>; };
+            };
           };
+
+          &uart0 { status = "okay"; };
+          &watchdog { status = "okay"; };
+
+          &eth {
+            status = "okay";
+            gmac0: mac@0 { compatible = "mediatek,eth-mac"; reg = <0>; phy-mode = "2500base-x"; fixed-link { speed = <2500>; full-duplex; pause; }; };
+            gmac1: mac@1 { compatible = "mediatek,eth-mac"; reg = <1>; phy-mode = "2500base-x"; fixed-link { speed = <2500>; full-duplex; pause; }; };
+            mdio: mdio-bus {
+              #address-cells = <1>; #size-cells = <0>;
+              switch@0 {
+                compatible = "mediatek,mt7531"; reg = <31>; reset-gpios = <&pio 39 0>;
+                ports {
+                  #address-cells = <1>; #size-cells = <0>;
+                  port@0 { reg = <0>; label = "lan1"; };
+                  port@1 { reg = <1>; label = "lan2"; };
+                  port@2 { reg = <2>; label = "lan3"; };
+                  port@3 { reg = <3>; label = "wan"; };
+                  port@6 { reg = <6>; label = "cpu"; ethernet = <&gmac0>; phy-mode = "2500base-x"; fixed-link { speed = <2500>; full-duplex; pause; }; };
+                };
+              };
+            };
+          };
+
+          &hnat { mtketh-wan = "eth1"; mtketh-lan = "lan"; mtketh-ppd = "eth1"; mtketh-max-gmac = <2>; status = "okay"; };
+          &xhci { mediatek,u3p-dis-msk = <0x0>; phys = <&u2port0 PHY_TYPE_USB2>, <&u3port0 PHY_TYPE_USB3>; status = "okay"; };
+          &mmc0 { bus-width = <8>; cap-mmc-highspeed; max-frequency = <52000000>; no-sd; no-sdio; non-removable; pinctrl-names = "default", "state_uhs"; pinctrl-0 = <&mmc0_pins_default>; pinctrl-1 = <&mmc0_pins_uhs>; vmmc-supply = <&reg_3p3v>; status = "okay"; };
+          &pio { mmc0_pins_default: mmc0-pins-default { mux { function = "flash"; groups = "emmc_45"; }; }; mmc0_pins_uhs: mmc0-pins-uhs { mux { function = "flash"; groups = "emmc_45"; }; }; };
           EOF
 
-      - name: 4. 物理修改 MK 配置文件 (镜像打包入口)
+          # 物理同步注入到两个可能的内核路径
+          mkdir -p target/linux/mediatek/files-5.4/arch/arm64/boot/dts/mediatek/
+          mkdir -p target/linux/mediatek/files-5.15/arch/arm64/boot/dts/mediatek/
+          cp ./mt7981-sl-3000-emmc.dts target/linux/mediatek/files-5.4/arch/arm64/boot/dts/mediatek/
+          cp ./mt7981-sl-3000-emmc.dts target/linux/mediatek/files-5.15/arch/arm64/boot/dts/mediatek/
+
+      - name: 4. 物理注入完整 MK 配置 (filogic.mk)
         run: |
           cd source-code
-          # 物理路径名称：target/linux/mediatek/image/filogic.mk
-          MK_FILE="target/linux/mediatek/image/filogic.mk"
-          
-          # 如果文件中不存在该设备，则物理追加
-          if ! grep -q "Device/sl_3000-emmc" "$MK_FILE"; then
-            cat <<EOF >> "$MK_FILE"
+          # 物理覆盖原有的 filogic.mk，确保 SL-3000 定义处于核心位置
+          cat <<'EOF' > target/linux/mediatek/image/filogic.mk
+          # Copyright (C) 2021 MediaTek Inc.
+          KERNEL_LOADADDR := 0x48080000
+
+          MT7981_USB_PKGS := automount blkid blockdev fdisk \
+              kmod-nls-cp437 kmod-nls-iso8859-1 kmod-usb2 kmod-usb3 \
+              luci-app-usb-printer luci-i18n-usb-printer-zh-cn \
+              kmod-usb-net-rndis usbutils \
+              kmod-usb-net-qmi-wwan autoksmbd
 
           define Device/sl_3000-emmc
             DEVICE_VENDOR := SL
             DEVICE_MODEL := 3000
-            DEVICE_VARIANT := eMMC 1024M
+            DEVICE_VARIANT := eMMC-1024M-Recovery
             DEVICE_DTS := mt7981-sl-3000-emmc
+            DEVICE_DTS_DIR := $(DTS_DIR)/mediatek
             SUPPORTED_DEVICES := sl,3000-emmc
-            DEVICE_PACKAGES := kmod-mt7981-firmware mt7981-wo-firmware
+            IMAGES := factory.bin sysupgrade.bin
+            IMAGE_SIZE := 120M
+            IMAGE/factory.bin := append-kernel | append-rootfs | pad-to $(IMAGE_SIZE)
+            IMAGE/sysupgrade.bin := sysupgrade-tar | append-metadata
+            DEVICE_PACKAGES := $(MT7981_USB_PKGS) kmod-mmc-mtk mkf2fs e2fsprogs \
+                        kmod-fs-f2fs kmod-fs-ext4 kmod-fs-vfat \
+                        u-boot-mt7981_sl_3000-emmc
           endef
           TARGET_DEVICES += sl_3000-emmc
+
+          define Device/mt7981-emmc-rfb
+            DEVICE_VENDOR := MediaTek
+            DEVICE_MODEL := mt7981-emmc-rfb
+            DEVICE_DTS := mt7981-emmc-rfb
+            SUPPORTED_DEVICES := mediatek,mt7981-emmc-rfb
+            DEVICE_DTS_DIR := $(DTS_DIR)/mediatek
+            DEVICE_PACKAGES := mkf2fs e2fsprogs blkid blockdev losetup kmod-fs-ext4 \
+                        kmod-mmc kmod-fs-f2fs kmod-fs-vfat kmod-nls-cp437 \
+                        kmod-nls-iso8859-1
+            IMAGE/sysupgrade.bin := sysupgrade-tar | append-metadata
+          endef
+          TARGET_DEVICES += mt7981-emmc-rfb
           EOF
-          fi
 
-      - name: 5. 物理预生成 .config 确保依赖闭环
-        run: |
-          cd source-code
-          echo "CONFIG_TARGET_mediatek=y" > .config
-          echo "CONFIG_TARGET_mediatek_filogic=y" >> .config
-          echo "CONFIG_TARGET_mediatek_filogic_DEVICE_sl_3000-emmc=y" >> .config
-          # 开启核心救砖功能
-          echo "CONFIG_MTK_BOOT_PARTITION=y" >> .config
-          echo "CONFIG_MTK_WEB_FAILSAFE=y" >> .config
-          
-          make defconfig || true
-
-      - name: 6. 物理强制同步到新分支 sl3000-stable-5.4
+      - name: 5. 物理对齐配置并推送
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           cd source-code
-          # 彻底切断官方 Git 历史，建立干净的新基准
           rm -rf .git
           git init
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          
           git add .
-          git commit -m "feat(sl3000): 物理同步 23.05 (Kernel 5.4) 源码并注入 1024M 定义"
-          
+          git commit -m "feat(sl3000): 物理注入 1024M Bootstrap DTS 与完整 MK 打包逻辑"
           REMOTE_URL="https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git"
           git remote add origin "$REMOTE_URL"
-          
-          # 物理强制推送到专属的 Kernel 5.4 分支
-          git push -f origin master:refs/heads/sl3000-stable-5.4
+          git push -f origin master:refs/heads/sl3000-immortalwrt-bootstrap
