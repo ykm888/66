@@ -401,53 +401,24 @@ define Trusted-Firmware-A/mt7988-spim-nand-comb
 endef
 
 # 物理清单注册 (核心修复点：将 mt7981-nor-ddr4 加入清单)
-TFA_TARGETS:= \
-	mt7622-nor-1ddr \
-	mt7622-nor-2ddr \
-	mt7622-snand-1ddr \
-	mt7622-snand-2ddr \
-	mt7622-emmc-1ddr \
-	mt7622-emmc-2ddr \
-	mt7622-sdmmc-1ddr \
-	mt7622-sdmmc-2ddr \
-	mt7981-emmc-ddr3 \
-	mt7981-emmc-ddr3-1866mhz \
-	mt7981-nor-ddr3 \
-	mt7981-nor-ddr4 \
-	mt7981-sdmmc-ddr3 \
-	mt7981-snand-ddr3 \
-	mt7981-spim-nand-ddr3 \
-	mt7981-spim-nand-ddr3-1866mhz \
-	mt7981-emmc-ddr4 \
-	mt7981-spim-nand-ddr4 \
-	mt7981-cudy-tr3000-v1 \
-	mt7986-emmc-ddr3 \
-	mt7986-nor-ddr3 \
-	mt7986-sdmmc-ddr3 \
-	mt7986-snand-ddr3 \
-	mt7986-spim-nand-ddr3 \
-	mt7986-emmc-ddr4 \
-	mt7986-nor-ddr4 \
-	mt7986-sdmmc-ddr4 \
-	mt7986-snand-ddr4 \
-	mt7986-spim-nand-ddr4 \
-	mt7986-spim-nand-4k-ddr4 \
-	mt7988-emmc-ddr3 \
-	mt7988-nor-ddr3 \
-	mt7988-sdmmc-ddr3 \
-	mt7988-snand-ddr3 \
-	mt7988-spim-nand-ddr3 \
-	mt7988-emmc-ddr4 \
-	mt7988-nor-ddr4 \
-	mt7988-sdmmc-ddr4 \
-	mt7988-snand-ddr4 \
-	mt7988-spim-nand-ddr4 \
-	mt7988-emmc-comb \
-	mt7988-nor-comb \
-	mt7988-sdmmc-comb \
-	mt7988-snand-comb \
-	mt7988-spim-nand-comb
-
 TFA_MAKE_FLAGS += \
 	BOOT_DEVICE=$(BOOT_DEVICE) \
-	USE_MKIM
+	USE_MKIMAGE=1 MKIMAGE=$(STAGING_DIR_HOST)/bin/mkimage \
+	$(if $(findstring ddr4,$(DDR_TYPE)),DRAM_USE_DDR4=1) \
+	$(if $(BOARD_QFN),BOARD_QFN=1,BOARD_BGA=1) \
+	$(if $(NAND_TYPE),NAND_TYPE=$(NAND_TYPE)) \
+	HAVE_DRAM_OBJ_FILE=yes \
+	$(if $(DDR3_FLYBY),DDR3_FLYBY=1) \
+	$(if $(DDR3_FREQ),DDR3_FREQ_$(DDR3_FREQ)=1) \
+	$(if $(DRAM_USE_COMB),DRAM_USE_COMB=1) \
+	$(if $(FIP_OFFSET),OVERRIDE_FIP_BASE=$(FIP_OFFSET)) \
+	$(if $(FIP_SIZE),OVERRIDE_FIP_SIZE=$(FIP_SIZE)) \
+	all
+
+define Package/trusted-firmware-a/install
+	$(INSTALL_DIR) $(STAGING_DIR_IMAGE)
+	$(INSTALL_DATA) $(PKG_BUILD_DIR)/build/$(PLAT)/release/bl2.img $(STAGING_DIR_IMAGE)/$(BUILD_VARIANT)-bl2.img
+	$(INSTALL_DATA) $(PKG_BUILD_DIR)/build/$(PLAT)/release/bl31.bin $(STAGING_DIR_IMAGE)/$(BUILD_VARIANT)-bl31.bin
+endef
+
+$(eval $(call BuildPackage/Trusted-Firmware-A))
