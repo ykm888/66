@@ -18,17 +18,15 @@ jobs:
 
       - name: 2. 物理克隆固件源码 (工序二)
         run: |
-          # 物理锁定 sl3000-padavan-2410 分支
           git clone --depth 1 -b sl3000-padavan-2410 https://github.com/ykm888/66 openwrt
 
       - name: 3. 物理克隆救砖引导源 (工序三)
         run: |
-          # 获取 1024M 补丁后的引导文件基准
           git clone --depth 1 -b sl3000-uboot-base https://github.com/ykm888/66 uboot-base
 
       - name: 4. 物理提取引导文件 (工序四)
         run: |
-          # 修正物理路径：对应 aarch64_cortex-a53 架构
+          # 针对 Cortex-A53 架构的物理路径对齐
           mkdir -p openwrt/staging_dir/target-aarch64_cortex-a53_musl/image/
           cp uboot-base/bl2.bin openwrt/staging_dir/target-aarch64_cortex-a53_musl/image/mt7981-sl3000-bl2.bin || true
           cp uboot-base/fip.bin openwrt/staging_dir/target-aarch64_cortex-a53_musl/image/mt7981-sl3000-fip.bin || true
@@ -39,45 +37,48 @@ jobs:
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
-      - name: 6. 物理加载配置并执行强制修正 (工序六 - 核心修复)
+      - name: 6. 物理加载配置与“递归死锁”核心修复 (工序六)
         run: |
           cd openwrt
-          # 1. 拉取仓库中的 8000 行全量配置
+          # 1. 物理拉取 8000 行配置
           curl -fLo .config https://raw.githubusercontent.com/ykm888/66/main/custom-config/sl3000.config
           
-          # 2. 【物理屏蔽】切断导致 Error 2 的下载报错包
-          sed -i 's/CONFIG_PACKAGE_datconf=y/# CONFIG_PACKAGE_datconf is not set/g' .config
-          sed -i 's/CONFIG_PACKAGE_rd05a1=y/# CONFIG_PACKAGE_rd05a1 is not set/g' .config
+          # 2. 【核心手术】：彻底物理抹除 rd05a1 极其依赖项，终结递归死循环
+          sed -i '/CONFIG_PACKAGE_rd05a1/d' .config
+          echo "# CONFIG_PACKAGE_rd05a1 is not set" >> .config
           
-          # 3. 【物理对齐】强制修正架构偏移，确保不再偏移到 MT7622
+          # 3. 【核心手术】：物理抹除 datconf，终结 Error 2 下载报错
+          sed -i '/CONFIG_PACKAGE_datconf/d' .config
+          echo "# CONFIG_PACKAGE_datconf is not set" >> .config
+          
+          # 4. 【核心对齐】：物理强制锁定 MT7981 架构，防止偏移到 MT7622
           echo "# CONFIG_TARGET_mediatek_mt7622 is not set" >> .config
           echo "CONFIG_TARGET_mediatek_mt7981=y" >> .config
           echo "CONFIG_TARGET_mediatek_mt7981_DEVICE_sl_3000-emmc=y" >> .config
           
-          # 4. 【物理注入】补全救砖包构建开关
+          # 5. 【核心注入】：强制开启救砖包（Factory）打包开关
           echo "CONFIG_TARGET_IMAGE_uboot_mediatek_mt7981_sl_3000_emmc=y" >> .config
           
-          # 执行物理对齐膨胀
+          # 6. 执行物理展开
           make defconfig
 
       - name: 7. 物理预下载 (工序七)
         run: |
           cd openwrt
           make download -j$(nproc)
-          find dl -size -1024c -exec ls -l {} \;
           find dl -size -1024c -exec rm -f {} \;
 
-      - name: 8. 物理构建 (工序八)
+      - name: 8. 物理执行构建 (工序八)
         run: |
           cd openwrt
-          # 使用 V=s 捕捉可能的物理报错
+          # 优先使用多线程，报错则自动物理回退单线程 V=s 捕捉
           make -j$(nproc) || make -j1 V=s
 
       - name: 9. 物理产物整理 (工序九)
         run: |
           cd openwrt
           mkdir -p out_images
-          # 物理匹配 MT7981 路径下的产物
+          # 物理搜索所有包含 sl_3000 的产物 (factory, sysupgrade, fip等)
           find bin/targets/mediatek/ -name "*sl_3000-emmc*" -exec cp -v {} out_images/ \;
 
       - name: 10. 物理上传救砖包 (工序十)
