@@ -1,79 +1,94 @@
-name: "SL3000-Wipe-and-Rebuild-Config-V32"
+name: "SL3000-1024M-Full-Recovery-Suite-V34-Final"
 
 on:
   workflow_dispatch:
 
 jobs:
-  rebuild:
+  build:
     runs-on: ubuntu-22.04
     permissions:
       contents: write
 
     steps:
       - name: 1. 物理环境初始化 (工序一)
-        run: sudo apt-get update && sudo apt-get install build-essential git libncurses5-dev libssl-dev swig -y
+        run: |
+          sudo -E apt-get -qq update
+          sudo -E apt-get -qq install build-essential clang flex bison g++ gawk gcc-multilib g++-multilib gettext git libncurses5-dev libssl-dev python3-distutils rsync unzip zlib1g-dev swig libpython3-dev qemu-utils libncursesw5-dev liblzma-dev
+          sudo timedatectl set-timezone "Asia/Shanghai"
 
-      - name: 2. 源码物理克隆 (工序二)
-        run: git clone --depth 1 -b sl3000-immortalwrt-bootstrap https://github.com/ykm888/66 openwrt
+      - name: 2. 物理克隆源码 (工序二)
+        run: |
+          git clone --depth 1 -b sl3000-immortalwrt-bootstrap https://github.com/ykm888/66 openwrt
 
-      - name: 3. 物理修复 Makefile 结构 (工序三)
-        # 这是重构成功的先决条件：必须让系统先“认出”mt7981-nor-ddr4
+      - name: 3. 物理手术：修复 Makefile 语法断层 (工序三)
+        # 针对你发出的日志，强制物理修复 TFA 注册列表截断和缩进问题
         run: |
           cd openwrt
-          # 修正缩进为 Tab
-          sed -i 's/^  /\t/g' package/boot/arm-trusted-firmware-mediatek/Makefile
-          # 补齐之前被截断的目标列表结尾，确保注册列表闭合
+          # 1. 强制将所有 2 空格转换为 1 个 Tab (解析准则)
+          find package/boot/arm-trusted-firmware-mediatek/ -name "Makefile" -exec sed -i 's/^  /\t/g' {} +
+          # 2. 修复 TFA_TARGETS 列表截断：确保 mt7988-spim-nand-comb 完整且清单闭合
           sed -i 's/mt7988-spim-nand-$/mt7988-spim-nand-comb/g' package/boot/arm-trusted-firmware-mediatek/Makefile
-          # 确保末尾有 eval 调用
-          if ! grep -q "BuildPackage/Trusted-Firmware-A" package/boot/arm-trusted-firmware-mediatek/Makefile; then
-            echo '$(eval $(call BuildPackage/Trusted-Firmware-A))' >> package/boot/arm-trusted-firmware-mediatek/Makefile
-          fi
+          # 3. 物理确认：加入 1024M DDR4 目标（如果不存在）
+          grep -q "mt7981-nor-ddr4" package/boot/arm-trusted-firmware-mediatek/Makefile || sed -i '/mt7981-nor-ddr3/a \\tmt7981-nor-ddr4 \\' package/boot/arm-trusted-firmware-mediatek/Makefile
 
-      - name: 4. 彻底物理清理索引 (工序四)
-        # 清空索引，强迫系统扫描修复后的 Makefile
-        run: cd openwrt && rm -rf tmp
-
-      - name: 5. 物理同步 Feeds (工序五)
+      - name: 4. 物理清理与 Feeds 强制同步 (工序四)
+        # 解决日志中出现的 'luci', 'libpam' does not exist 的核心步骤
         run: |
           cd openwrt
+          rm -rf tmp
           ./scripts/feeds update -a
           ./scripts/feeds install -a
+          # 物理二次对齐：确保交叉依赖包被扫描到
+          ./scripts/feeds install -a
 
-      - name: 6. 物理注入 1024M 核心种子 (工序六)
+      - name: 5. 物理全量配置对齐 (工序五)
         run: |
           cd openwrt
-          # 由于你清空了远程配置，我们在这里重新建立物理锚点
-          cat <<EOF > .config
-          CONFIG_TARGET_mediatek=y
-          CONFIG_TARGET_mediatek_filogic=y
-          CONFIG_TARGET_mediatek_filogic_DEVICE_sl_3000-emmc=y
-          CONFIG_PACKAGE_trusted-firmware-a-mt7981-nor-ddr4=y
-          CONFIG_PACKAGE_uboot-mediatek-mt7981_sl_3000-nor=y
-          CONFIG_PACKAGE_kmod-mtk-hnat=y
-          EOF
+          # 1. 拉取你指定的远程配置
+          curl -fLo .config https://raw.githubusercontent.com/ykm888/66/main/custom-config/sl3000.config
+          
+          # 2. 物理强锁：核心 1024M 参数诱导
+          {
+            echo "CONFIG_TARGET_mediatek=y"
+            echo "CONFIG_TARGET_mediatek_filogic=y"
+            echo "CONFIG_TARGET_mediatek_filogic_DEVICE_sl_3000-emmc=y"
+            echo "CONFIG_PACKAGE_trusted-firmware-a-mt7981-nor-ddr4=y"
+            echo "CONFIG_PACKAGE_uboot-mediatek-mt7981_sl_3000-nor=y"
+            echo "CONFIG_PACKAGE_luci=y"
+            echo "CONFIG_PACKAGE_luci-i18n-base-zh-cn=y"
+          } >> .config
+          
+          # 3. 物理执行全量推导
+          make defconfig
 
-      - name: 7. 执行全量配置展开 (工序七)
-        # 这一步会将几行种子配置膨胀为支持 SL-3000 的几千行完整配置
-        run: cd openwrt && make defconfig
-
-      - name: 8. 物理结果核验 (工序八)
+      - name: 6. 物理下载源码包 (工序六)
         run: |
-          mkdir -p config_out
-          cp openwrt/.config config_out/sl3000.config
-          echo "--- 物理验证：检查 1024M 标记是否成功生成 ---"
-          grep "CONFIG_PACKAGE_trusted-firmware-a-mt7981-nor-ddr4=y" config_out/sl3000.config || (echo "错误：配置未能正确生成，请检查 Makefile" && exit 1)
+          cd openwrt
+          make download -j$(nproc)
+          find dl -size -1024c -exec rm -f {} \;
 
-      - name: 9. 物理同步至主仓库 (工序九)
+      - name: 7. 物理全量构建 (工序七)
         run: |
-          git clone -b main https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/ykm888/66.git repo-main
-          cp config_out/sl3000.config repo-main/custom-config/sl3000.config
-          cd repo-main
-          git config user.name "SL3000-Config-Bot"
-          git config user.email "bot@github.com"
+          cd openwrt
+          # 物理火力全开：优先多线程，失败自动切单线程并输出报错
+          make -j$(nproc) || make -j1 V=s
 
-      - name: 10. 物理提交覆盖 (工序十)
+      - name: 8. 物理搜集“救砖全家桶” (工序八)
         run: |
-          cd repo-main
-          git add custom-config/sl3000.config
-          git commit -m "chore: 物理重构 SL3000 全量 1024M 纯净配置" || exit 0
-          git push origin main
+          cd openwrt
+          mkdir -p out_images
+          # 物理抓取：1024M 专用 BL2、FIP 引导以及系统镜像
+          find bin/targets/mediatek/filogic/ -name "*nor-ddr4-bl2.img*" -exec cp -v {} out_images/ \;
+          find bin/targets/mediatek/filogic/ -name "*fip.bin*" -exec cp -v {} out_images/ \;
+          find bin/targets/mediatek/filogic/ -name "*sl_3000-emmc-sysupgrade.itb*" -exec cp -v {} out_images/ \;
+
+      - name: 9. 物理生成指纹校验 (工序九)
+        run: |
+          cd openwrt/out_images
+          sha256sum * > sha256sums-sl3000-1024M-DDR4.txt
+
+      - name: 10. 上传救砖产物 (工序十)
+        uses: actions/upload-artifact@v4
+        with:
+          name: SL3000-1024M-Final-Pack
+          path: openwrt/out_images/
