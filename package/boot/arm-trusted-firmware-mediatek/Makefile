@@ -37,6 +37,7 @@ define Trusted-Firmware-A/Default
   FIP_SIZE:=
 endef
 
+# --- MT7622 Targets (保持不变) ---
 define Trusted-Firmware-A/mt7622-nor-1ddr
   NAME:=MediaTek MT7622 (SPI-NOR, 1x DDR3)
   BUILD_SUBTARGET:=mt7622
@@ -95,6 +96,17 @@ define Trusted-Firmware-A/mt7622-sdmmc-2ddr
   PLAT:=mt7622
   BOOT_DEVICE:=sdmmc
   DDR3_FLYBY:=1
+endef
+
+# --- MT7981 Targets (关键物理修正点) ---
+
+# 物理修正：新增针对 SL-3000 的 NOR-DDR4 目标
+define Trusted-Firmware-A/mt7981-nor-ddr4
+  NAME:=MediaTek MT7981 (SPI-NOR, DDR4)
+  BOOT_DEVICE:=nor
+  BUILD_SUBTARGET:=filogic
+  PLAT:=mt7981
+  DDR_TYPE:=ddr4
 endef
 
 define Trusted-Firmware-A/mt7981-emmc-ddr4
@@ -181,6 +193,7 @@ define Trusted-Firmware-A/mt7981-cudy-tr3000-v1
   FIP_SIZE:=0x200000
 endef
 
+# --- MT7986/7988 Targets (保持不变) ---
 define Trusted-Firmware-A/mt7986-nor-ddr4
   NAME:=MediaTek MT7986 (SPI-NOR, DDR4)
   BOOT_DEVICE:=nor
@@ -391,6 +404,7 @@ define Trusted-Firmware-A/mt7988-spim-nand-comb
   DRAM_USE_COMB:=1
 endef
 
+# --- 物理清单注册 (物理对齐点) ---
 TFA_TARGETS:= \
 	mt7622-nor-1ddr \
 	mt7622-nor-2ddr \
@@ -403,6 +417,7 @@ TFA_TARGETS:= \
 	mt7981-emmc-ddr3 \
 	mt7981-emmc-ddr3-1866mhz \
 	mt7981-nor-ddr3 \
+	mt7981-nor-ddr4 \
 	mt7981-sdmmc-ddr3 \
 	mt7981-snand-ddr3 \
 	mt7981-spim-nand-ddr3 \
@@ -434,27 +449,4 @@ TFA_TARGETS:= \
 	mt7988-emmc-comb \
 	mt7988-nor-comb \
 	mt7988-sdmmc-comb \
-	mt7988-snand-comb \
-	mt7988-spim-nand-comb
-
-TFA_MAKE_FLAGS += \
-	BOOT_DEVICE=$(BOOT_DEVICE) \
-	USE_MKIMAGE=1 MKIMAGE=$(STAGING_DIR_HOST)/bin/mkimage \
-	$(if $(findstring ddr4,$(DDR_TYPE)),DRAM_USE_DDR4=1) \
-	$(if $(BOARD_QFN),BOARD_QFN=1,BOARD_BGA=1) \
-	$(if $(NAND_TYPE),NAND_TYPE=$(NAND_TYPE)) \
-	HAVE_DRAM_OBJ_FILE=yes \
-	$(if $(DDR3_FLYBY),DDR3_FLYBY=1) \
-	$(if $(DDR3_FREQ),DDR3_FREQ_$(DDR3_FREQ)=1) \
-	$(if $(DRAM_USE_COMB),DRAM_USE_COMB=1) \
-	$(if $(FIP_OFFSET),OVERRIDE_FIP_BASE=$(FIP_OFFSET)) \
-	$(if $(FIP_SIZE),OVERRIDE_FIP_SIZE=$(FIP_SIZE)) \
-	all
-
-define Package/trusted-firmware-a/install
-	$(INSTALL_DIR) $(STAGING_DIR_IMAGE)
-	$(INSTALL_DATA) $(PKG_BUILD_DIR)/build/$(PLAT)/release/bl2.img $(STAGING_DIR_IMAGE)/$(BUILD_VARIANT)-bl2.img
-	$(INSTALL_DATA) $(PKG_BUILD_DIR)/build/$(PLAT)/release/bl31.bin $(STAGING_DIR_IMAGE)/$(BUILD_VARIANT)-bl31.bin
-endef
-
-$(eval $(call BuildPackage/Trusted-Firmware-A))
+	mt7988-snand-
