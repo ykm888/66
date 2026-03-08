@@ -37,7 +37,6 @@ define Trusted-Firmware-A/Default
   FIP_SIZE:=
 endef
 
-# --- MT7622 Targets (保持不变) ---
 define Trusted-Firmware-A/mt7622-nor-1ddr
   NAME:=MediaTek MT7622 (SPI-NOR, 1x DDR3)
   BUILD_SUBTARGET:=mt7622
@@ -98,41 +97,6 @@ define Trusted-Firmware-A/mt7622-sdmmc-2ddr
   DDR3_FLYBY:=1
 endef
 
-# --- MT7981 Targets (关键物理修正点) ---
-
-# 物理修正：新增针对 SL-3000 的 NOR-DDR4 目标
-define Trusted-Firmware-A/mt7981-nor-ddr4
-  NAME:=MediaTek MT7981 (SPI-NOR, DDR4)
-  BOOT_DEVICE:=nor
-  BUILD_SUBTARGET:=filogic
-  PLAT:=mt7981
-  DDR_TYPE:=ddr4
-endef
-
-define Trusted-Firmware-A/mt7981-emmc-ddr4
-  NAME:=MediaTek MT7981 (eMMC, DDR4)
-  BOOT_DEVICE:=emmc
-  BUILD_SUBTARGET:=filogic
-  PLAT:=mt7981
-  DDR_TYPE:=ddr4
-endef
-
-define Trusted-Firmware-A/mt7981-spim-nand-ddr4
-  NAME:=MediaTek MT7981 (SPI-NAND via SPIM, DDR4)
-  BOOT_DEVICE:=spim-nand
-  BUILD_SUBTARGET:=filogic
-  PLAT:=mt7981
-  DDR_TYPE:=ddr4
-endef
-
-define Trusted-Firmware-A/mt7981-nor-ddr3
-  NAME:=MediaTek MT7981 (SPI-NOR, DDR3)
-  BOOT_DEVICE:=nor
-  BUILD_SUBTARGET:=filogic
-  PLAT:=mt7981
-  DDR_TYPE:=ddr3
-endef
-
 define Trusted-Firmware-A/mt7981-emmc-ddr3
   NAME:=MediaTek MT7981 (eMMC, DDR3)
   BOOT_DEVICE:=emmc
@@ -148,6 +112,23 @@ define Trusted-Firmware-A/mt7981-emmc-ddr3-1866mhz
   PLAT:=mt7981
   DDR_TYPE:=ddr3
   DDR3_FREQ:=1866
+endef
+
+define Trusted-Firmware-A/mt7981-nor-ddr3
+  NAME:=MediaTek MT7981 (SPI-NOR, DDR3)
+  BOOT_DEVICE:=nor
+  BUILD_SUBTARGET:=filogic
+  PLAT:=mt7981
+  DDR_TYPE:=ddr3
+endef
+
+# 物理修正点：针对 SL-3000 的 NOR-DDR4 定义
+define Trusted-Firmware-A/mt7981-nor-ddr4
+  NAME:=MediaTek MT7981 (SPI-NOR, DDR4)
+  BOOT_DEVICE:=nor
+  BUILD_SUBTARGET:=filogic
+  PLAT:=mt7981
+  DDR_TYPE:=ddr4
 endef
 
 define Trusted-Firmware-A/mt7981-sdmmc-ddr3
@@ -183,6 +164,22 @@ define Trusted-Firmware-A/mt7981-spim-nand-ddr3-1866mhz
   DDR3_FREQ:=1866
 endef
 
+define Trusted-Firmware-A/mt7981-emmc-ddr4
+  NAME:=MediaTek MT7981 (eMMC, DDR4)
+  BOOT_DEVICE:=emmc
+  BUILD_SUBTARGET:=filogic
+  PLAT:=mt7981
+  DDR_TYPE:=ddr4
+endef
+
+define Trusted-Firmware-A/mt7981-spim-nand-ddr4
+  NAME:=MediaTek MT7981 (SPI-NAND via SPIM, DDR4)
+  BOOT_DEVICE:=spim-nand
+  BUILD_SUBTARGET:=filogic
+  PLAT:=mt7981
+  DDR_TYPE:=ddr4
+endef
+
 define Trusted-Firmware-A/mt7981-cudy-tr3000-v1
   NAME:=Cudy TR3000 v1 (SPI-NAND via SPIM, DDR3)
   BOOT_DEVICE:=spim-nand
@@ -193,18 +190,57 @@ define Trusted-Firmware-A/mt7981-cudy-tr3000-v1
   FIP_SIZE:=0x200000
 endef
 
-# --- MT7986/7988 Targets (保持不变) ---
-define Trusted-Firmware-A/mt7986-nor-ddr4
-  NAME:=MediaTek MT7986 (SPI-NOR, DDR4)
+define Trusted-Firmware-A/mt7986-emmc-ddr3
+  NAME:=MediaTek MT7986 (eMMC, DDR3)
+  BOOT_DEVICE:=emmc
+  BUILD_SUBTARGET:=filogic
+  PLAT:=mt7986
+  DDR_TYPE:=ddr3
+endef
+
+define Trusted-Firmware-A/mt7986-nor-ddr3
+  NAME:=MediaTek MT7986 (SPI-NOR, DDR3)
   BOOT_DEVICE:=nor
   BUILD_SUBTARGET:=filogic
   PLAT:=mt7986
-  DDR_TYPE:=ddr4
+  DDR_TYPE:=ddr3
+endef
+
+define Trusted-Firmware-A/mt7986-sdmmc-ddr3
+  NAME:=MediaTek MT7986 (SD card, DDR3)
+  BOOT_DEVICE:=sdmmc
+  BUILD_SUBTARGET:=filogic
+  PLAT:=mt7986
+  DDR_TYPE:=ddr3
+endef
+
+define Trusted-Firmware-A/mt7986-snand-ddr3
+  NAME:=MediaTek MT7986 (SPI-NAND via SNFI, DDR3)
+  BOOT_DEVICE:=snand
+  BUILD_SUBTARGET:=filogic
+  PLAT:=mt7986
+  DDR_TYPE:=ddr3
+endef
+
+define Trusted-Firmware-A/mt7986-spim-nand-ddr3
+  NAME:=MediaTek MT7986 (SPI-NAND via SPIM, DDR3)
+  BOOT_DEVICE:=spim-nand
+  BUILD_SUBTARGET:=filogic
+  PLAT:=mt7986
+  DDR_TYPE:=ddr3
 endef
 
 define Trusted-Firmware-A/mt7986-emmc-ddr4
   NAME:=MediaTek MT7986 (eMMC, DDR4)
   BOOT_DEVICE:=emmc
+  BUILD_SUBTARGET:=filogic
+  PLAT:=mt7986
+  DDR_TYPE:=ddr4
+endef
+
+define Trusted-Firmware-A/mt7986-nor-ddr4
+  NAME:=MediaTek MT7986 (SPI-NOR, DDR4)
+  BOOT_DEVICE:=nor
   BUILD_SUBTARGET:=filogic
   PLAT:=mt7986
   DDR_TYPE:=ddr4
@@ -244,57 +280,17 @@ define Trusted-Firmware-A/mt7986-spim-nand-4k-ddr4
   NAND_TYPE:=spim:4k+256
 endef
 
-define Trusted-Firmware-A/mt7986-nor-ddr3
-  NAME:=MediaTek MT7986 (SPI-NOR, DDR3)
-  BOOT_DEVICE:=nor
-  BUILD_SUBTARGET:=filogic
-  PLAT:=mt7986
-  DDR_TYPE:=ddr3
-endef
-
-define Trusted-Firmware-A/mt7986-emmc-ddr3
-  NAME:=MediaTek MT7986 (eMMC, DDR3)
+define Trusted-Firmware-A/mt7988-emmc-ddr3
+  NAME:=MediaTek MT7988 (eMMC, DDR3)
   BOOT_DEVICE:=emmc
   BUILD_SUBTARGET:=filogic
-  PLAT:=mt7986
-  DDR_TYPE:=ddr3
-endef
-
-define Trusted-Firmware-A/mt7986-sdmmc-ddr3
-  NAME:=MediaTek MT7986 (SD card, DDR3)
-  BOOT_DEVICE:=sdmmc
-  BUILD_SUBTARGET:=filogic
-  PLAT:=mt7986
-  DDR_TYPE:=ddr3
-endef
-
-define Trusted-Firmware-A/mt7986-snand-ddr3
-  NAME:=MediaTek MT7986 (SPI-NAND via SNFI, DDR3)
-  BOOT_DEVICE:=snand
-  BUILD_SUBTARGET:=filogic
-  PLAT:=mt7986
-  DDR_TYPE:=ddr3
-endef
-
-define Trusted-Firmware-A/mt7986-spim-nand-ddr3
-  NAME:=MediaTek MT7986 (SPI-NAND via SPIM, DDR3)
-  BOOT_DEVICE:=spim-nand
-  BUILD_SUBTARGET:=filogic
-  PLAT:=mt7986
+  PLAT:=mt7988
   DDR_TYPE:=ddr3
 endef
 
 define Trusted-Firmware-A/mt7988-nor-ddr3
   NAME:=MediaTek MT7988 (SPI-NOR, DDR3)
   BOOT_DEVICE:=nor
-  BUILD_SUBTARGET:=filogic
-  PLAT:=mt7988
-  DDR_TYPE:=ddr3
-endef
-
-define Trusted-Firmware-A/mt7988-emmc-ddr3
-  NAME:=MediaTek MT7988 (eMMC, DDR3)
-  BOOT_DEVICE:=emmc
   BUILD_SUBTARGET:=filogic
   PLAT:=mt7988
   DDR_TYPE:=ddr3
@@ -324,17 +320,17 @@ define Trusted-Firmware-A/mt7988-spim-nand-ddr3
   DDR_TYPE:=ddr3
 endef
 
-define Trusted-Firmware-A/mt7988-nor-ddr4
-  NAME:=MediaTek MT7988 (SPI-NOR, DDR4)
-  BOOT_DEVICE:=nor
+define Trusted-Firmware-A/mt7988-emmc-ddr4
+  NAME:=MediaTek MT7988 (eMMC, DDR4)
+  BOOT_DEVICE:=emmc
   BUILD_SUBTARGET:=filogic
   PLAT:=mt7988
   DDR_TYPE:=ddr4
 endef
 
-define Trusted-Firmware-A/mt7988-emmc-ddr4
-  NAME:=MediaTek MT7988 (eMMC, DDR4)
-  BOOT_DEVICE:=emmc
+define Trusted-Firmware-A/mt7988-nor-ddr4
+  NAME:=MediaTek MT7988 (SPI-NOR, DDR4)
+  BOOT_DEVICE:=nor
   BUILD_SUBTARGET:=filogic
   PLAT:=mt7988
   DDR_TYPE:=ddr4
@@ -364,17 +360,17 @@ define Trusted-Firmware-A/mt7988-spim-nand-ddr4
   DDR_TYPE:=ddr4
 endef
 
-define Trusted-Firmware-A/mt7988-nor-comb
-  NAME:=MediaTek MT7988 (SPI-NOR)
-  BOOT_DEVICE:=nor
+define Trusted-Firmware-A/mt7988-emmc-comb
+  NAME:=MediaTek MT7988 (eMMC)
+  BOOT_DEVICE:=emmc
   BUILD_SUBTARGET:=filogic
   PLAT:=mt7988
   DRAM_USE_COMB:=1
 endef
 
-define Trusted-Firmware-A/mt7988-emmc-comb
-  NAME:=MediaTek MT7988 (eMMC)
-  BOOT_DEVICE:=emmc
+define Trusted-Firmware-A/mt7988-nor-comb
+  NAME:=MediaTek MT7988 (SPI-NOR)
+  BOOT_DEVICE:=nor
   BUILD_SUBTARGET:=filogic
   PLAT:=mt7988
   DRAM_USE_COMB:=1
@@ -404,7 +400,7 @@ define Trusted-Firmware-A/mt7988-spim-nand-comb
   DRAM_USE_COMB:=1
 endef
 
-# --- 物理清单注册 (物理对齐点) ---
+# 物理清单注册 (核心修复点：将 mt7981-nor-ddr4 加入清单)
 TFA_TARGETS:= \
 	mt7622-nor-1ddr \
 	mt7622-nor-2ddr \
@@ -449,4 +445,9 @@ TFA_TARGETS:= \
 	mt7988-emmc-comb \
 	mt7988-nor-comb \
 	mt7988-sdmmc-comb \
-	mt7988-snand-
+	mt7988-snand-comb \
+	mt7988-spim-nand-comb
+
+TFA_MAKE_FLAGS += \
+	BOOT_DEVICE=$(BOOT_DEVICE) \
+	USE_MKIM
