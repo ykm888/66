@@ -1,10 +1,10 @@
-name: "SL3000-Physical-Sync-1024M-V27"
+name: "SL3000-Physical-Final-V29"
 
 on:
   workflow_dispatch: # 手动触发
 
 jobs:
-  build_config:
+  generate_config:
     runs-on: ubuntu-22.04
     permissions:
       contents: write
@@ -14,47 +14,50 @@ jobs:
         run: |
           sudo -E apt-get -qq update
           sudo -E apt-get -qq install build-essential flex bison g++ gawk gettext git libncurses5-dev libssl-dev python3-distutils rsync unzip zlib1g-dev swig
-          rm -rf openwrt
-          # 克隆你锁定的源码分支
+          
+          # 克隆你锁定的 1024M 适配分支
           git clone --depth 1 -b sl3000-immortalwrt-bootstrap https://github.com/ykm888/66 openwrt
 
-      - name: 2. 执行 Feeds 物理净化
+      - name: 2. 物理全同步与强制重索引
         run: |
           cd openwrt
           ./scripts/feeds update -a
           ./scripts/feeds install -a
-          # 物理隔离：删除可能导致递归冲突的旧包，强制系统识别你修改后的本地 Makefile
-          rm -rf package/feeds/mediatek/rd05a1
-          rm -rf package/feeds/mediatek/datconf-lua
+          
+          # 【物理手术 1】将所有 Makefile 中的双空格强制转换为 Tab（Makefile 物理准则）
+          # 这一步能解决 "does not exist" 的缩进识别问题
+          find package/boot/ -name "Makefile" -exec sed -i 's/^  /\t/g' {} +
+          
+          # 【物理手术 2】深度清理旧索引缓存
+          rm -rf tmp
 
-      - name: 3. 物理配置注入 (对齐你修改后的 Makefile)
+      - name: 3. 物理配置注入与依赖闭环
         run: |
           cd openwrt
-          # 基础架构锁定
+          # 1. 锁定硬件架构
           echo "CONFIG_TARGET_mediatek=y" > .config
           echo "CONFIG_TARGET_mediatek_mt7981=y" >> .config
           echo "CONFIG_TARGET_mediatek_mt7981_DEVICE_sl_3000-emmc=y" >> .config
           
-          # 核心修正：选中你刚刚在 TF-A Makefile 中新增的 NOR-DDR4 目标
+          # 2. 注入你修改后的物理目标（TF-A & U-Boot）
           echo "CONFIG_PACKAGE_trusted-firmware-a-mt7981-nor-ddr4=y" >> .config
-          
-          # 核心修正：选中你修改后的 U-Boot NOR 目标
           echo "CONFIG_PACKAGE_uboot-mediatek-mt7981_sl_3000-nor=y" >> .config
           
-          # 救砖位物理焊死
+          # 3. 开启核心物理功能
           echo "CONFIG_MTK_BOOT_PARTITION=y" >> .config
           echo "CONFIG_MTK_WEB_FAILSAFE=y" >> .config
+          echo "CONFIG_EFI_PARTITION=y" >> .config
           
-          # 运行预编译检查，自动补全依赖
+          # 4. 自动补全并校验（如果不再报 WARNING，说明物理识别成功）
           make defconfig
 
       - name: 4. 物理推送到仓库 main 分支
         run: |
-          # 克隆 main 分支用于存放生成的 config
+          # 准备存放配置的目录
           git clone -b main https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/ykm888/66.git repo-main
           mkdir -p repo-main/custom-config/
           
-          # 将生成的物理闭环配置复制过去
+          # 导出生成的 1024M 专用配置
           cp openwrt/.config repo-main/custom-config/sl3000.config
           
           cd repo-main
@@ -63,8 +66,8 @@ jobs:
           
           git add custom-config/sl3000.config
           
-          # 检查是否有物理变动
+          # 检查物理变动并提交
           if [ -n "$(git status --porcelain)" ]; then
-            git commit -m "chore: 物理对齐 1024M NOR-DDR4 闭环配置 (V27)"
+            git commit -m "chore: 物理对齐 V29 - 修正 Makefile 缩进并导出 1024M 配置"
             git push origin main
           fi
