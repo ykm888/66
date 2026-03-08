@@ -1,4 +1,4 @@
-name: "SL3000-1024M-Final-Build-V45"
+name: "SL3000-1024M-Final-Build-V47"
 
 on:
   workflow_dispatch:
@@ -12,19 +12,18 @@ jobs:
     steps:
       - name: 1. 物理环境初始化 (工序一)
         run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/share/boost
           sudo -E apt-get -qq update
           sudo -E apt-get -qq install build-essential clang flex bison g++ gawk gcc-multilib g++-multilib gettext git libncurses5-dev libssl-dev python3-distutils rsync unzip zlib1g-dev swig libpython3-dev qemu-utils libncursesw5-dev liblzma-dev libpam0g-dev libglib2.0-dev libgpiod-dev
           sudo timedatectl set-timezone "Asia/Shanghai"
 
       - name: 2. 物理克隆源码 (工序二)
         run: |
-          # 物理锁定你的开发分支
           git clone --depth 1 -b sl3000-immortalwrt-bootstrap https://github.com/ykm888/66 openwrt
 
       - name: 3. 物理同步最新 Makefile (工序三)
         run: |
           cd openwrt
-          # 确保使用你刚才确认过的那份完美版 Makefile
           mkdir -p package/boot/arm-trusted-firmware-mediatek/
           curl -L https://raw.githubusercontent.com/ykm888/66/sl3000-immortalwrt-bootstrap/package/boot/arm-trusted-firmware-mediatek/Makefile -o package/boot/arm-trusted-firmware-mediatek/Makefile
 
@@ -34,21 +33,15 @@ jobs:
           rm -rf tmp
           ./scripts/feeds update -a
           ./scripts/feeds install -a
-          ./scripts/feeds install -a # 物理二次安装解决交叉依赖
+          ./scripts/feeds install -a
 
       - name: 5. 物理种子配置对齐 (工序五)
         run: |
           cd openwrt
-          # 物理提取你 main 分支下那个带 nor-ddr4=y 的配置
           curl -L https://raw.githubusercontent.com/ykm888/66/main/custom-config/sl3000.config -o .config
-          
-          # 物理强制修正第 8 行，确保是 nor 模式而非 emmc
           sed -i 's/CONFIG_TARGET_mediatek_filogic_DEVICE_sl_3000-emmc=y/CONFIG_TARGET_mediatek_filogic_DEVICE_sl_3000-nor=y/g' .config
-          
-          # 执行物理对齐
           make defconfig
-          # 物理核验救砖包是否存在于配置中
-          grep "CONFIG_PACKAGE_trusted-firmware-a-mt7981-nor-ddr4=y" .config || (echo "物理报警：配置丢失！" && exit 1)
+          grep "CONFIG_PACKAGE_trusted-firmware-a-mt7981-nor-ddr4=y" .config || (echo "物理报警：配置失效！" && exit 1)
 
       - name: 6. 物理下载源码包 (工序六)
         run: |
@@ -56,28 +49,27 @@ jobs:
           make download -j$(nproc)
           find dl -size -1024c -exec rm -f {} \;
 
-      - name: 7. 物理全量构建 (工序七)
+      - name: 7. 物理工具链预构建 (工序七)
         run: |
           cd openwrt
-          # 物理策略：先保救砖包，再保全系统
+          make tools/install -j$(nproc)
+          make toolchain/install -j$(nproc)
+
+      - name: 8. 物理核心包构建 (工序八)
+        run: |
+          cd openwrt
           make package/boot/arm-trusted-firmware-mediatek/compile V=s -j1
           make package/boot/uboot-mediatek/compile V=s -j1
           make -j$(nproc) || make -j1 V=s
 
-      - name: 8. 物理搜集“1024M 救砖产物” (工序八)
+      - name: 9. 物理搜集救砖产物 (工序九)
         run: |
           cd openwrt
           mkdir -p out_recovery
-          # 精准抓取适配 1024M DDR4 的物理 BL2 和 FIP
           find bin/targets/mediatek/filogic/ -name "*nor-ddr4-bl2.img*" -exec cp -v {} out_recovery/ \;
           find bin/targets/mediatek/filogic/ -name "*fip.bin*" -exec cp -v {} out_recovery/ \;
-          # 抓取完整的 sysupgrade 固件
-          find bin/targets/mediatek/filogic/ -name "*sl_3000-nor-sysupgrade.itb*" -exec cp -v {} out_recovery/ \;
-
-      - name: 9. 物理生成指纹校验 (工序九)
-        run: |
-          cd openwrt/out_recovery
-          sha256sum * > sha256sums-sl3000-1024M.txt
+          find bin/targets/mediatek/filogic/ -name "*sysupgrade.itb*" -exec cp -v {} out_recovery/ \;
+          cd out_recovery && sha256sum * > sha256sums.txt
 
       - name: 10. 发布救砖固件 (工序十)
         uses: actions/upload-artifact@v4
