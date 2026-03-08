@@ -1,10 +1,10 @@
-name: "SL3000-1024M-Pure-V20"
+name: "SL3000-1024M-Final-V23-Fixed"
 
 on:
   workflow_dispatch:
 
 jobs:
-  generate:
+  generate-config:
     runs-on: ubuntu-22.04
     permissions:
       contents: write
@@ -17,10 +17,10 @@ jobs:
           rm -rf openwrt
           git clone --depth 1 -b sl3000-padavan-2410 https://github.com/ykm888/66 openwrt
 
-      - name: 2. 物理锁定 1024M 救砖核心
+      - name: 2. 物理注入 1024M 救砖核心 (锁死硬件定义)
         run: |
           cd openwrt
-          # A. 物理注入救砖版 U-Boot Makefile
+          # A. 物理注入 U-Boot Makefile
           UBOOT_MK="package/boot/uboot-mediatek/Makefile"
           mkdir -p $(dirname $UBOOT_MK)
           echo 'include $(TOPDIR)/rules.mk' > $UBOOT_MK
@@ -59,13 +59,10 @@ jobs:
           echo '/ { model = "SL-3000 1024M Recovery"; compatible = "sl,3000-emmc", "mediatek,mt7981";' >> $DTS_FILE
           echo 'memory { device_type = "memory"; reg = <0 0x40000000 0 0x40000000>; }; };' >> $DTS_FILE
 
-      - name: 3. 物理修复 Feeds 与 最终配置生成
+      - name: 3. 物理修复 Feeds 与 补齐缺失依赖
         run: |
           cd openwrt
-          # 清除所有由于未删干净可能残留的 rd05a1 引用
-          find . -name "*rd05a1*" -exec rm -rf {} + || true
-          
-          # 【物理去重】重写 feeds.conf，解决 Duplicate 报错并找回缺失工具
+          # 物理去重，防止 Duplicate feed 报错
           rm -f feeds.conf
           echo "src-git official_pkgs https://github.com/openwrt/packages.git" > feeds.conf
           echo "src-git official_luci https://github.com/openwrt/luci.git" >> feeds.conf
@@ -74,8 +71,8 @@ jobs:
           ./scripts/feeds update -a
           ./scripts/feeds install -a
           
-          # 手动物理补齐
-          ./scripts/feeds install csstidy luasrcdiet lua-cjson luci-base
+          # 物理补齐：强制安装日志中显示 does not exist 的核心包
+          ./scripts/feeds install datconf-lua lua-cjson csstidy luasrcdiet ucode-mod-digest
           
           # 初始化 .config
           echo "CONFIG_TARGET_mediatek=y" > .config
@@ -84,18 +81,19 @@ jobs:
           
           make defconfig || true
           
-          # 【核心物理锁定】在配置生成最后一步，强行开启救砖总闸
+          # 【物理焊死】针对 1024M 救砖版的最终配置锁定
           {
             echo "CONFIG_TARGET_IMAGE_uboot_mediatek_mt7981_sl_3000_emmc=y"
             echo "CONFIG_MTK_BOOT_PARTITION=y"
             echo "CONFIG_MTK_WEB_FAILSAFE=y"
             echo "CONFIG_MTK_BOOTMENU_MMC=y"
             echo "CONFIG_PACKAGE_datconf-lua=y"
+            echo "CONFIG_PACKAGE_ucode-mod-digest=y"
           } >> .config
           
           make oldconfig < /dev/null
 
-      - name: 4. 推送物理配置
+      - name: 4. 推送物理配置至仓库
         run: |
           git clone -b main https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/ykm888/66.git repo-main
           mkdir -p repo-main/custom-config/
@@ -105,6 +103,6 @@ jobs:
           git config --global user.name "SL3000-Bot"
           git add custom-config/sl3000.config
           if [ -n "$(git status --porcelain)" ]; then
-            git commit -m "chore: 物理路径清理完成，锁定救砖版配置"
+            git commit -m "chore: 物理对齐完成，生成最终 1024M 救砖配置"
             git push origin main
           fi
