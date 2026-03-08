@@ -19,7 +19,7 @@ PKG_MAINTAINER:=ykm888
 PKG_LICENSE:=GPL-2.0
 PKG_LICENSE_FILES:=Licenses/README
 
-# 物理依赖：必须依赖针对 DDR4 编译的 TF-A 和 FIP 工具
+# 物理依赖：必须依赖针对 DDR4 编译的 TF-A 和 fiptool 主机工具
 PKG_BUILD_DEPENDS:=arm-trusted-firmware-tools/host
 
 include $(INCLUDE_DIR)/u-boot.mk
@@ -38,19 +38,19 @@ define U-Boot/mt7981_sl_3000-emmc
   BUILD_SUBTARGET:=filogic
   # 物理指向：源码 configs/mt7981_emmc_defconfig
   UBOOT_CONFIG:=mt7981_emmc
-  # 物理对齐：必须匹配 filogic.mk 中 Build/mt7981-bl31-uboot 宏的寻找规律
+  # 物理对齐：必须匹配 filogic.mk 中 Build/mt7981-bl31-uboot 宏的规律
   UBOOT_IMAGE:=mt7981_sl_3000-emmc-u-boot.fip
   BL2_BOOTDEV:=emmc
   BL2_SOC:=mt7981
-  # 物理核心：锁定 DDR4 训练脚本
+  # 物理核心：锁定针对 P3A8GL4MLF-GJN 的 DDR4 训练脚本
   BL2_DDRTYPE:=ddr4
-  # 物理依赖：链接 TF-A 产物
+  # 物理依赖：强制链接 TF-A 产物，确保编译顺序正确
   DEPENDS:=+trusted-firmware-a-mt7981-emmc-ddr4
 endef
 
 UBOOT_TARGETS := mt7981_sl_3000-emmc
 
-# 物理构建指令：使用 fiptool 将 U-Boot 与 TF-A 的 BL31 合体
+# 物理构建指令：使用 fiptool 将 U-Boot 与 TF-A 的 BL31 合体为 FIP 包
 define Build/fip-image
 	$(STAGING_DIR_HOST)/bin/fiptool create \
 		--soc-fw $(STAGING_DIR_IMAGE)/mt7981-emmc-ddr4-bl31.bin \
@@ -65,17 +65,23 @@ ifeq ($(UBOOT_IMAGE),mt7981_sl_3000-emmc-u-boot.fip)
 endif
 endef
 
-# 物理安装：将产物分发到 Staging 目录，供镜像生成器调用
+# 物理安装与救砖备份：将产物分发到 Staging 和 Bin 目录
 define Package/u-boot-mediatek/install
-	$(INSTALL_DIR) $(STAGING_DIR_IMAGE)
-	# 拷贝 FIP 镜像
+	$(INSTALL_DIR) $(STAGING_DIR_IMAGE) $(BIN_DIR)/sl3000-recovery-kits
+	
+	# 1. 物理同步 FIP (U-Boot 核心)
 	$(CP) $(PKG_BUILD_DIR)/$(UBOOT_IMAGE) $(STAGING_DIR_IMAGE)/
-	# 物理转换：将 TF-A 的 .bin 转换为 filogic.mk 期待的 .img
-	[ -f $(STAGING_DIR_IMAGE)/mt7981-emmc-ddr4-bl2.bin ] && \
-		$(CP) $(STAGING_DIR_IMAGE)/mt7981-emmc-ddr4-bl2.bin $(STAGING_DIR_IMAGE)/mt7981-emmc-ddr4-bl2.img
+	$(CP) $(PKG_BUILD_DIR)/$(UBOOT_IMAGE) $(BIN_DIR)/sl3000-recovery-kits/uboot-fip-recovery.bin
+
+	# 2. 物理转换与导出 BL2 (救砖心脏)
+	# 将 TF-A 生成的 .bin 转换为 .img 供 filogic.mk 调用，同时备份到 bin 目录供烧录器使用
+	if [ -f $(STAGING_DIR_IMAGE)/mt7981-emmc-ddr4-bl2.bin ]; then \
+		$(CP) $(STAGING_DIR_IMAGE)/mt7981-emmc-ddr4-bl2.bin $(STAGING_DIR_IMAGE)/mt7981-emmc-ddr4-bl2.img; \
+		$(CP) $(STAGING_DIR_IMAGE)/mt7981-emmc-ddr4-bl2.bin $(BIN_DIR)/sl3000-recovery-kits/bl2-emmc-ddr4.bin; \
+	fi
 endef
 
-# 默认安装逻辑（用于生成编译包产物）
+# 默认安装逻辑（兼容性保留）
 define Package/u-boot/install/default
 	$(INSTALL_DIR) $(1)
 	$(CP) $(PKG_BUILD_DIR)/$(UBOOT_IMAGE) $(1)/
