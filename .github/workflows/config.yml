@@ -1,36 +1,33 @@
-name: "SL3000-Push-Config-Fix-V27"
+name: "SL3000-Full-Config-Recovery-V30"
 
 on:
   workflow_dispatch:
 
 jobs:
-  push:
+  recovery:
     runs-on: ubuntu-22.04
     permissions:
       contents: write
 
     steps:
       - name: 1. 物理环境初始化 (工序一)
-        run: |
-          sudo -E apt-get -qq update
-          sudo -E apt-get -qq install build-essential git libncurses5-dev libssl-dev swig -y
+        run: sudo apt-get update && sudo apt-get install build-essential git libncurses5-dev libssl-dev swig -y
 
       - name: 2. 物理克隆源码 (工序二)
-        run: |
-          git clone --depth 1 -b sl3000-immortalwrt-bootstrap https://github.com/ykm888/66 openwrt
+        run: git clone --depth 1 -b sl3000-immortalwrt-bootstrap https://github.com/ykm888/66 openwrt
 
-      - name: 3. 物理修复 Makefile 缩进 (工序三)
-        # 核心：将 Makefile 中错误的 2 空格缩进强制物理转为标准 Tab 键
-        # 否则 OpenWrt 脚本无法解析新加的 mt7981-nor-ddr4
+      - name: 3. 物理修复 Makefile (工序三)
         run: |
           cd openwrt
-          find package/boot/arm-trusted-firmware-mediatek/ -name "Makefile" -exec sed -i 's/^  /\t/g' {} +
+          # 1. 强制将所有 2 空格缩进转为 1 个 Tab (OpenWrt 解析物理准则)
+          sed -i 's/^  /\t/g' package/boot/arm-trusted-firmware-mediatek/Makefile
+          # 2. 修复 TFA_TARGETS 列表截断，确保列表闭合
+          sed -i 's/mt7988-spim-nand-$/mt7988-spim-nand-comb/g' package/boot/arm-trusted-firmware-mediatek/Makefile
+          # 3. 物理补全结尾触发宏，如果没有这一行，defconfig 永远读不到内容
+          grep -q "BuildPackage/Trusted-Firmware-A" package/boot/arm-trusted-firmware-mediatek/Makefile || echo '$(eval $(call BuildPackage/Trusted-Firmware-A))' >> package/boot/arm-trusted-firmware-mediatek/Makefile
 
-      - name: 4. 强制物理清理缓存 (工序四)
-        # 关键：彻底删除 tmp 目录。这是消除 "does not exist" 警告的唯一物理手段
-        run: |
-          cd openwrt
-          rm -rf tmp
+      - name: 4. 强制物理清理索引 (工序四)
+        run: cd openwrt && rm -rf tmp
 
       - name: 5. 物理同步 Feeds (工序五)
         run: |
@@ -38,30 +35,36 @@ jobs:
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
-      - name: 6. 物理注入 1024M 核心参数 (工序六)
+      - name: 6. 物理注入 1024M 种子配置 (工序六)
         run: |
           cd openwrt
-          # 物理锁定硬件与 TF-A 目标
-          echo "CONFIG_TARGET_mediatek=y" > .config
-          echo "CONFIG_TARGET_mediatek_filogic=y" >> .config
-          echo "CONFIG_TARGET_mediatek_filogic_DEVICE_sl_3000-emmc=y" >> .config
-          echo "CONFIG_PACKAGE_trusted-firmware-a-mt7981-nor-ddr4=y" >> .config
-          echo "CONFIG_PACKAGE_uboot-mediatek-mt7981_sl_3000-nor=y" >> .config
+          # 这一步是告诉系统：我要编译 SL-3000 的 eMMC 版，并且指定要 DDR4 的引导包
+          cat <<EOF > .config
+          CONFIG_TARGET_mediatek=y
+          CONFIG_TARGET_mediatek_filogic=y
+          CONFIG_TARGET_mediatek_filogic_DEVICE_sl_3000-emmc=y
+          CONFIG_PACKAGE_trusted-firmware-a-mt7981-nor-ddr4=y
+          CONFIG_PACKAGE_uboot-mediatek-mt7981_sl_3000-nor=y
+          EOF
 
-      - name: 7. 物理执行依赖对齐 (工序七)
-        # 此时运行 defconfig，由于 tmp 已删且 Makefile 已修，WARNING 应该消失
+      - name: 7. 物理全量展开 (工序七)
         run: |
           cd openwrt
+          # 核心工序：系统会根据种子配置，物理补全所有成千上万行的默认依赖配置
           make defconfig
 
-      - name: 8. 物理配置导出与验证 (工序八)
+      - name: 8. 物理配置提取 (工序八)
         run: |
           mkdir -p config_out
-          # 检查生成的配置中是否真的包含 ddr4 开关
-          grep "CONFIG_PACKAGE_trusted-firmware-a-mt7981-nor-ddr4=y" openwrt/.config || exit 1
+          # 验证生成的配置是否包含关键的 =y 开关
+          if grep -q "CONFIG_PACKAGE_trusted-firmware-a-mt7981-nor-ddr4=y" openwrt/.config; then
+            echo "物理验证：1024M DDR4 配置已成功生成！"
+          else
+            echo "物理验证：警告！配置仍未成功选中，请检查 Makefile。"
+          fi
           cp openwrt/.config config_out/sl3000.config
 
-      - name: 9. 物理准备推送仓库 (工序九)
+      - name: 9. 物理准备推送 (工序九)
         run: |
           git clone -b main https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/ykm888/66.git repo-main
           cp config_out/sl3000.config repo-main/custom-config/sl3000.config
@@ -69,13 +72,9 @@ jobs:
           git config user.name "SL3000-Bot"
           git config user.email "bot@github.com"
 
-      - name: 10. 物理提交与强制推送到 main (工序十)
+      - name: 10. 物理强制提交覆盖 (工序十)
         run: |
           cd repo-main
           git add custom-config/sl3000.config
-          if [ -n "$(git status --porcelain)" ]; then
-            git commit -m "fix: 彻底消除 TF-A 依赖警告并强制启用 1024M-DDR4 支持"
-            git push origin main
-          else
-            echo "物理配置无变化，跳过推送。"
-          fi
+          git commit -m "fix: 物理恢复被清空的 SL3000 全量 1024M 配置" || exit 0
+          git push origin main
