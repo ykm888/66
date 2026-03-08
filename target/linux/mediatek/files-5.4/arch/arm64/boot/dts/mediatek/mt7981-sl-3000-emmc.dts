@@ -2,7 +2,7 @@
 #include "mt7981.dtsi"
 
 / {
-	model = "SL-3000 eMMC bootstrap version";
+	model = "SL-3000 eMMC 1024M bootstrap version";
 	compatible = "sl,3000-emmc", "mediatek,mt7981";
 
 	chosen {
@@ -19,25 +19,26 @@
 	};
 
 	memory {
-		reg = <0 0x40000000 0 0x20000000>;
+		/* 物理魔改：将长度 0x20000000(512M) 修正为 0x40000000(1024M) */
+		reg = <0 0x40000000 0 0x40000000>;
 	};
 
-        leds {
-                compatible = "gpio-leds";
+	leds {
+		compatible = "gpio-leds";
 
-                status_red_led: led-0 {
-                        label = "red:status";
-                        gpios = <&pio 10 GPIO_ACTIVE_LOW>;
-                };
+		status_red_led: led-0 {
+			label = "red:status";
+			gpios = <&pio 10 GPIO_ACTIVE_LOW>;
+		};
 
-                status_green_led: led-1 {
-                        label = "green:status";
-                        gpios = <&pio 11 GPIO_ACTIVE_LOW>;
-                };
+		status_green_led: led-1 {
+			label = "green:status";
+			gpios = <&pio 11 GPIO_ACTIVE_LOW>;
+		};
 
-                status_blue_led: led-2 {
-                        label = "blue:status";
-                        gpios = <&pio 12 GPIO_ACTIVE_LOW>;
+		status_blue_led: led-2 {
+			label = "blue:status";
+			gpios = <&pio 12 GPIO_ACTIVE_LOW>;
 		};
 	};
 
@@ -93,12 +94,9 @@
 		};
 	};
 
-
-
 	mdio: mdio-bus {
 		#address-cells = <1>;
 		#size-cells = <0>;
-
 
 		switch@0 {
 			compatible = "mediatek,mt7531";
@@ -172,7 +170,6 @@
 	pinctrl-0 = <&mmc0_pins_default>;
 	pinctrl-1 = <&mmc0_pins_uhs>;
 	vmmc-supply = <&reg_3p3v>;
-	non-removable;
 	status = "okay";
 };
 
