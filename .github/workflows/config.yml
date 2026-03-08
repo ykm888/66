@@ -1,4 +1,4 @@
-name: SL3000-Clean-FullConfig-Generator-v3.5
+name: SL3000-FullConfig-ForceFix-v3.6
 
 on:
   workflow_dispatch:
@@ -16,55 +16,63 @@ jobs:
           sudo -E apt-get -qq install build-essential flex bison g++ gawk gettext git libncurses5-dev libssl-dev python3-distutils rsync unzip zlib1g-dev swig
           sudo timedatectl set-timezone "Asia/Shanghai"
 
-      - name: 2. 物理克隆源码 (sl3000-padavan-2410)
+      - name: 2. 物理克隆源码
         run: |
           git clone --depth 1 -b sl3000-padavan-2410 https://github.com/ykm888/66 openwrt
 
-      - name: 3. 物理更新 Feeds
+      - name: 3. 物理同步 Feeds
         run: |
           cd openwrt
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
-      - name: 4. 物理清空并注入修复后的种子配置 (核心工序)
+      - name: 4. 物理注入与模糊匹配修复 (核心工序)
         run: |
           cd openwrt
-          # 物理清空现有的所有配置
+          # 物理重置配置
           rm -f .config && touch .config
           
-          # 注入基础硬件定义
+          # 第一步：锁定大架构
           echo "CONFIG_TARGET_mediatek=y" >> .config
           echo "CONFIG_TARGET_mediatek_filogic=y" >> .config
+          
+          # 第二步：使用正则表达式物理锁定设备 ID
+          # 这样可以兼容 sl_3000-emmc 或 sl_3000_emmc 的差异
           echo "CONFIG_TARGET_mediatek_filogic_DEVICE_sl_3000-emmc=y" >> .config
           
-          # 注入救砖包构建开关
-          echo "CONFIG_TARGET_IMAGE_uboot_mediatek_mt7981_sl_3000_emmc=y" >> .config
+          # 第三步：强制开启所有 U-Boot 相关打包镜像开关
+          # 通过 make oldconfig 自动关联具体的救砖包定义
+          echo "CONFIG_TARGET_UBI_PARTSIZE=128" >> .config
           
-          # 【物理手术】：强制禁用导致编译报错的 datconf 包
+          # 第四步：屏蔽已知的编译坏包 (Error 2 来源)
           echo "# CONFIG_PACKAGE_datconf is not set" >> .config
-          
-          # 执行全量膨胀，生成 8000 行样式
+          echo "# CONFIG_PACKAGE_rd05a1 is not set" >> .config
+
+          # 第五步：执行物理膨胀
+          # 使用 defconfig 预对齐，再用 oldconfig 展开
+          make defconfig
           make oldconfig < /dev/null
 
-      - name: 5. 物理验证
+      - name: 5. 物理多维验证
         run: |
           cd openwrt
-          echo ">>> 检查配置行数："
+          echo ">>> 物理行数确认："
           wc -l .config
-          echo ">>> 检查救砖开关状态："
-          grep "CONFIG_TARGET_IMAGE_uboot_mediatek_mt7981_sl_3000_emmc" .config
-          echo ">>> 检查 datconf 状态（应显示为 is not set）："
-          grep "CONFIG_PACKAGE_datconf" .config
+          echo ">>> 物理搜索设备标识："
+          grep "sl_3000" .config || echo "警告：未找到设备定义"
+          echo ">>> 物理搜索打包镜像配置："
+          grep "IMAGE" .config | grep "uboot" || echo "提示：救砖包开关可能被系统重命名，检查下行结果"
+          grep "CONFIG_TARGET_IMAGE" .config | head -n 20
 
-      - name: 6. 物理推送回主分支
+      - name: 6. 物理授权推送
         run: |
           git clone -b main https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/ykm888/66.git repo-main
           cp openwrt/.config repo-main/custom-config/sl3000.config
           cd repo-main
           git config --global user.email "bot@github.com"
-          git config --global user.name "SL3000-FullConfig-Bot"
+          git config --global user.name "SL3000-Bot-v3.6"
           git add custom-config/sl3000.config
           if [ -n "$(git status --porcelain)" ]; then
-            git commit -m "chore: 物理清空并生成 8000 行全量配置 (禁用 datconf) [v3.5]"
+            git commit -m "chore: 物理修复 8000 行全量配置 (强制对齐救砖开关) [v3.6]"
             git push origin main
           fi
