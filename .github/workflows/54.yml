@@ -1,16 +1,16 @@
-name: "SL3000-1024M-ImmortalWrt-V28"
+name: "SL3000-1024M-ImmortalWrt-V30-Push"
 
 on:
   workflow_dispatch:
 
 jobs:
-  generate:
+  build:
     runs-on: ubuntu-22.04
     permissions:
       contents: write
 
     steps:
-      - name: 1. 物理环境爆破
+      - name: 1. 物理环境初始化
         run: |
           sudo -E apt-get -qq update
           sudo -E apt-get -qq install build-essential flex bison g++ gawk gettext git libncurses5-dev libssl-dev python3-distutils rsync unzip zlib1g-dev swig
@@ -18,90 +18,64 @@ jobs:
 
       - name: 2. 物理拉取 ImmortalWrt 官方源
         run: |
-          # 物理锁定 immortalwrt 官方 master 分支
+          # 物理隔离，拉取最干净的官方 Master
           git clone --depth 1 https://github.com/immortalwrt/immortalwrt.git openwrt
 
-      - name: 3. 物理重置 Feeds 并同步 (解决依赖缺失)
+      - name: 3. 物理同步 Feeds
         run: |
           cd openwrt
-          # 强制使用官方内置 feeds.conf.default 
           ./scripts/feeds update -a
           ./scripts/feeds install -a
-          
-          # 物理补齐 SL3000 WiFi 管理核心
+          # 物理补齐必要的 WiFi 核心包
           ./scripts/feeds install datconf-lua ucode-mod-digest luci-base
 
-      - name: 4. 物理注入 1024M 救砖核心 (原子操作)
+      - name: 4. 物理注入 SL3000 救砖核心 (1024M 内存定义)
         run: |
           cd openwrt
-          # A. 物理锁定 1024M 内存 DTS
-          DTS_FILE="target/linux/mediatek/files-5.4/arch/arm64/boot/dts/mediatek/mt7981-sl-3000-emmc.dts"
-          mkdir -p $(dirname $DTS_FILE)
-          echo '/dts-v1/;' > $DTS_FILE
-          echo '#include "mt7981.dtsi"' >> $DTS_FILE
-          echo '/ { model = "SL-3000 1024M ImmortalWrt"; compatible = "sl,3000-emmc", "mediatek,mt7981";' >> $DTS_FILE
-          echo 'memory { device_type = "memory"; reg = <0 0x40000000 0 0x40000000>; }; };' >> $DTS_FILE
-
-          # B. 物理注入救砖 U-Boot Makefile
-          UBOOT_MK="package/boot/uboot-mediatek/Makefile"
-          mkdir -p $(dirname $UBOOT_MK)
-          cat << 'EOF' > $UBOOT_MK
-          include $(TOPDIR)/rules.mk
-          include $(INCLUDE_DIR)/kernel.mk
-          PKG_VERSION:=2024.10
-          PKG_SOURCE_PROTO:=git
-          PKG_SOURCE_URL:=https://github.com/ykm888/66.git
-          PKG_SOURCE_VERSION:=sl3000-uboot-base
-          include $(INCLUDE_DIR)/u-boot.mk
-          include $(INCLUDE_DIR)/package.mk
-          define U-Boot/Default
-            BUILD_TARGET:=mediatek
-            UBOOT_IMAGE:=u-boot-mtk.bin
-          endef
-          define U-Boot/mt7981_sl_3000-emmc
-            NAME:=SL-3000 (eMMC)
-            UBOOT_CONFIG:=mt7981_sl_3000-emmc
-            UBOOT_IMAGE:=u-boot.fip
-            BL2_BOOTDEV:=emmc
-            BL2_SOC:=mt7981
-            BL2_DDRTYPE:=ddr4
-          endef
-          UBOOT_TARGETS := mt7981_sl_3000-emmc
-          define Package/u-boot/install/default
-          $(printf '\t')$(CP) $(patsubst %,$(PKG_BUILD_DIR)/%,$(UBOOT_IMAGE)) $(1)/
-          $(printf '\t')[ -f $(PKG_BUILD_DIR)/bl2.bin ] && $(CP) $(PKG_BUILD_DIR)/bl2.bin $(1)/mt7981-emmc-ddr4-bl2.bin
-          $(printf '\t')[ -f $(PKG_BUILD_DIR)/u-boot.fip ] && $(CP) $(PKG_BUILD_DIR)/u-boot.fip $(1)/
-          endef
-          $(eval $(call BuildPackage/U-Boot))
+          # 物理锁定 1024M DTS 路径
+          DTS_PATH="target/linux/mediatek/files-5.4/arch/arm64/boot/dts/mediatek/mt7981-sl-3000-emmc.dts"
+          mkdir -p $(dirname $DTS_PATH)
+          cat <<EOF > $DTS_PATH
+          /dts-v1/;
+          #include "mt7981.dtsi"
+          / { model = "SL-3000 1024M ImmortalWrt"; compatible = "sl,3000-emmc", "mediatek,mt7981";
+          memory { device_type = "memory"; reg = <0 0x40000000 0 0x40000000>; }; };
           EOF
 
       - name: 5. 物理生成并焊死最终配置
         run: |
           cd openwrt
+          # 初始化物理架构
           echo "CONFIG_TARGET_mediatek=y" > .config
           echo "CONFIG_TARGET_mediatek_filogic=y" >> .config
           echo "CONFIG_TARGET_mediatek_filogic_DEVICE_sl_3000-emmc=y" >> .config
           
-          # 物理开启救砖和 1024M 核心
+          # 物理开启 Web 救砖和 eMMC 支持
           {
-            echo "CONFIG_TARGET_IMAGE_uboot_mediatek_mt7981_sl_3000_emmc=y"
             echo "CONFIG_MTK_BOOT_PARTITION=y"
             echo "CONFIG_MTK_WEB_FAILSAFE=y"
+            echo "CONFIG_MTK_BOOTMENU_MMC=y"
           } >> .config
           
-          make defconfig || true
+          make defconfig
           make oldconfig < /dev/null
 
-      - name: 6. 物理推送配置至主仓库
+      - name: 6. 物理【强制】推送到你的仓库
         run: |
+          # 克隆你自己的仓库 main 分支用于存放生成的配置
           git clone -b main https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/ykm888/66.git repo-main
           mkdir -p repo-main/custom-config/
+          
+          # 物理覆盖
           cp openwrt/.config repo-main/custom-config/sl3000.config
+          
           cd repo-main
           git config --global user.email "bot@github.com"
           git config --global user.name "SL3000-Bot"
+          
+          # 物理记录当前时间戳，确保 Git 认定为有变化
+          echo "# Generated at $(date)" >> custom-config/sl3000.config
+          
           git add custom-config/sl3000.config
-          if [ -n "$(git status --porcelain)" ]; then
-            git commit -m "chore: 物理拉取 ImmortalWrt 官方源，完成 1024M 救砖配置对齐"
-            git push origin main
-          fi
+          git commit -m "feat: 物理同步 ImmortalWrt 官方 1024M 救砖配置"
+          git push origin main
