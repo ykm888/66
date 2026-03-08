@@ -1,10 +1,10 @@
-name: "SL3000-1024M-Final-V16"
+name: "SL3000-1024M-Pure-V20"
 
 on:
   workflow_dispatch:
 
 jobs:
-  generate-and-push:
+  generate:
     runs-on: ubuntu-22.04
     permissions:
       contents: write
@@ -17,10 +17,10 @@ jobs:
           rm -rf openwrt
           git clone --depth 1 -b sl3000-padavan-2410 https://github.com/ykm888/66 openwrt
 
-      - name: 2. 物理注入救砖核心 (Makefile/Mk/DTS)
+      - name: 2. 物理锁定 1024M 救砖核心
         run: |
           cd openwrt
-          # --- A. 注入 U-Boot Makefile ---
+          # A. 物理注入救砖版 U-Boot Makefile
           UBOOT_MK="package/boot/uboot-mediatek/Makefile"
           mkdir -p $(dirname $UBOOT_MK)
           echo 'include $(TOPDIR)/rules.mk' > $UBOOT_MK
@@ -51,18 +51,7 @@ jobs:
           echo 'endef' >> $UBOOT_MK
           echo '$(eval $(call BuildPackage/U-Boot))' >> $UBOOT_MK
 
-          # --- B. 注入设备支持 ---
-          DEVICE_MK="target/linux/mediatek/image/mt7981.mk"
-          echo 'KERNEL_LOADADDR := 0x48080000' > $DEVICE_MK
-          echo 'define Device/sl_3000-emmc' >> $DEVICE_MK
-          echo '  DEVICE_VENDOR := SL' >> $DEVICE_MK
-          echo '  DEVICE_MODEL := 3000' >> $DEVICE_MK
-          echo '  DEVICE_DTS := mt7981-sl-3000-emmc' >> $DEVICE_MK
-          echo '  DEVICE_PACKAGES := kmod-mmc-mtk mkf2fs e2fsprogs u-boot-mt7981_sl_3000-emmc' >> $DEVICE_MK
-          echo 'endef' >> $DEVICE_MK
-          echo 'TARGET_DEVICES += sl_3000-emmc' >> $DEVICE_MK
-
-          # --- C. 注入 1024M DTS ---
+          # B. 物理锁定 1024M 内存 DTS
           DTS_FILE="target/linux/mediatek/files-5.4/arch/arm64/boot/dts/mediatek/mt7981-sl-3000-emmc.dts"
           mkdir -p $(dirname $DTS_FILE)
           echo '/dts-v1/;' > $DTS_FILE
@@ -70,33 +59,32 @@ jobs:
           echo '/ { model = "SL-3000 1024M Recovery"; compatible = "sl,3000-emmc", "mediatek,mt7981";' >> $DTS_FILE
           echo 'memory { device_type = "memory"; reg = <0 0x40000000 0 0x40000000>; }; };' >> $DTS_FILE
 
-      - name: 3. 物理修复 Feeds 与 配置生成
+      - name: 3. 物理修复 Feeds 与 最终配置生成
         run: |
           cd openwrt
+          # 清除所有由于未删干净可能残留的 rd05a1 引用
+          find . -name "*rd05a1*" -exec rm -rf {} + || true
           
-          # 【物理避坑】删除导致递归依赖的包
-          find package -name "rd05a1" -type d -exec rm -rf {} +
-          
-          # 【物理去重】先删除原有的 feeds.conf，防止 Duplicate 报错
+          # 【物理去重】重写 feeds.conf，解决 Duplicate 报错并找回缺失工具
           rm -f feeds.conf
-          
-          # 【物理注入源】将官方源重命名为 'base_pkgs' 避开与 'packages' 冲突，同时找回工具包
-          echo "src-git base_pkgs https://github.com/openwrt/packages.git" > feeds.conf
-          echo "src-git base_luci https://github.com/openwrt/luci.git" >> feeds.conf
-          # 合并原有默认源
+          echo "src-git official_pkgs https://github.com/openwrt/packages.git" > feeds.conf
+          echo "src-git official_luci https://github.com/openwrt/luci.git" >> feeds.conf
           [ -f feeds.conf.default ] && cat feeds.conf.default >> feeds.conf
           
           ./scripts/feeds update -a
           ./scripts/feeds install -a
           
-          # 初始化配置
+          # 手动物理补齐
+          ./scripts/feeds install csstidy luasrcdiet lua-cjson luci-base
+          
+          # 初始化 .config
           echo "CONFIG_TARGET_mediatek=y" > .config
           echo "CONFIG_TARGET_mediatek_mt7981=y" >> .config
           echo "CONFIG_TARGET_mediatek_mt7981_DEVICE_sl_3000-emmc=y" >> .config
           
           make defconfig || true
           
-          # 【物理补齐】强制注入救砖选项
+          # 【核心物理锁定】在配置生成最后一步，强行开启救砖总闸
           {
             echo "CONFIG_TARGET_IMAGE_uboot_mediatek_mt7981_sl_3000_emmc=y"
             echo "CONFIG_MTK_BOOT_PARTITION=y"
@@ -107,16 +95,16 @@ jobs:
           
           make oldconfig < /dev/null
 
-      - name: 4. 物理推送配置
+      - name: 4. 推送物理配置
         run: |
           git clone -b main https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/ykm888/66.git repo-main
           mkdir -p repo-main/custom-config/
           cp openwrt/.config repo-main/custom-config/sl3000.config
           cd repo-main
           git config --global user.email "bot@github.com"
-          git config --global user.name "SL3000-Config-Bot"
+          git config --global user.name "SL3000-Bot"
           git add custom-config/sl3000.config
           if [ -n "$(git status --porcelain)" ]; then
-            git commit -m "chore: 物理修复 Feed 冲突并锁定救砖配置"
+            git commit -m "chore: 物理路径清理完成，锁定救砖版配置"
             git push origin main
           fi
