@@ -6,6 +6,9 @@ on:
 jobs:
   build:
     runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+
     steps:
       - name: 1. 物理环境初始化 (工序一)
         run: |
@@ -15,20 +18,20 @@ jobs:
 
       - name: 2. 物理克隆固件源码 (工序二)
         run: |
-          # 克隆包含你 DTS 和 MK 修改的分支
+          # 物理锁定 sl3000-padavan-2410 分支
           git clone --depth 1 -b sl3000-padavan-2410 https://github.com/ykm888/66 openwrt
 
       - name: 3. 物理克隆救砖引导源 (工序三)
         run: |
-          # 获取 1024M 补丁后的引导文件 (bl2/fip)
+          # 获取 1024M 补丁后的引导文件基准
           git clone --depth 1 -b sl3000-uboot-base https://github.com/ykm888/66 uboot-base
 
       - name: 4. 物理提取引导文件 (工序四)
         run: |
-          # 物理注入暂存区，供 MK 合成 factory.bin 使用
-          mkdir -p openwrt/staging_dir/target-aarch64_generic_musl/image/
-          cp uboot-base/bl2.bin openwrt/staging_dir/target-aarch64_generic_musl/image/mt7981-sl3000-bl2.bin || true
-          cp uboot-base/fip.bin openwrt/staging_dir/target-aarch64_generic_musl/image/mt7981-sl3000-fip.bin || true
+          # 修正物理路径：对应 aarch64_cortex-a53 架构
+          mkdir -p openwrt/staging_dir/target-aarch64_cortex-a53_musl/image/
+          cp uboot-base/bl2.bin openwrt/staging_dir/target-aarch64_cortex-a53_musl/image/mt7981-sl3000-bl2.bin || true
+          cp uboot-base/fip.bin openwrt/staging_dir/target-aarch64_cortex-a53_musl/image/mt7981-sl3000-fip.bin || true
 
       - name: 5. 物理更新 Feeds (工序五)
         run: |
@@ -36,34 +39,49 @@ jobs:
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
-      - name: 6. 物理加载仓库专属配置 (工序六 - 修正)
+      - name: 6. 物理加载配置并执行强制修正 (工序六 - 核心修复)
         run: |
           cd openwrt
-          # 物理拉取你指定的 sl3000.config 文件
+          # 1. 拉取仓库中的 8000 行全量配置
           curl -fLo .config https://raw.githubusercontent.com/ykm888/66/main/custom-config/sl3000.config
           
-          # 物理执行预处理，确保配置对齐
+          # 2. 【物理屏蔽】切断导致 Error 2 的下载报错包
+          sed -i 's/CONFIG_PACKAGE_datconf=y/# CONFIG_PACKAGE_datconf is not set/g' .config
+          sed -i 's/CONFIG_PACKAGE_rd05a1=y/# CONFIG_PACKAGE_rd05a1 is not set/g' .config
+          
+          # 3. 【物理对齐】强制修正架构偏移，确保不再偏移到 MT7622
+          echo "# CONFIG_TARGET_mediatek_mt7622 is not set" >> .config
+          echo "CONFIG_TARGET_mediatek_mt7981=y" >> .config
+          echo "CONFIG_TARGET_mediatek_mt7981_DEVICE_sl_3000-emmc=y" >> .config
+          
+          # 4. 【物理注入】补全救砖包构建开关
+          echo "CONFIG_TARGET_IMAGE_uboot_mediatek_mt7981_sl_3000_emmc=y" >> .config
+          
+          # 执行物理对齐膨胀
           make defconfig
 
       - name: 7. 物理预下载 (工序七)
         run: |
           cd openwrt
-          make download -j8
+          make download -j$(nproc)
+          find dl -size -1024c -exec ls -l {} \;
           find dl -size -1024c -exec rm -f {} \;
 
-      - name: 8. 物理执行 12 道工序编译 (工序八)
+      - name: 8. 物理构建 (工序八)
         run: |
           cd openwrt
+          # 使用 V=s 捕捉可能的物理报错
           make -j$(nproc) || make -j1 V=s
 
-      - name: 9. 物理产物搜集 (工序九)
+      - name: 9. 物理产物整理 (工序九)
         run: |
           cd openwrt
           mkdir -p out_images
-          cp bin/targets/mediatek/filogic/*sl_3000-emmc* out_images/
+          # 物理匹配 MT7981 路径下的产物
+          find bin/targets/mediatek/ -name "*sl_3000-emmc*" -exec cp -v {} out_images/ \;
 
       - name: 10. 物理上传救砖包 (工序十)
         uses: actions/upload-artifact@v4
         with:
-          name: SL3000-1024M-Recovery-Pack
+          name: SL3000-1024M-Final-Recovery-Pack
           path: openwrt/out_images/
