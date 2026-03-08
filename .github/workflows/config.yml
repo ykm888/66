@@ -1,4 +1,4 @@
-name: SL3000-Config-AutoFix-Only-v2.5
+name: SL3000-Config-AutoFix-Only-v2.6
 
 on:
   workflow_dispatch:
@@ -39,14 +39,13 @@ jobs:
           # 【物理手术】：清理 5.4 内核不兼容的冗余项
           sed -i 's/CONFIG_PACKAGE_kmod-xdp-sockets-diag=y/# kmod-xdp-sockets-diag removed/g' .config
           
-          # 【物理执行】：由 OpenWrt 系统物理剔除 8000 行中的无效条目并重组
-          # 这步会物理修复所有依赖冲突
+          # 【物理执行】：由系统物理修复所有依赖冲突
           make defconfig
 
-      - name: 5. 物理反向推送至 Main 分支 (工序五)
+      - name: 5. 物理反向推送至 Main 分支 (工序五 - v2.6 修复点)
         run: |
-          # 物理克隆仓库主分支
-          git clone -b main https://github.com/ykm888/66 repo-main
+          # 物理注入 GITHUB_TOKEN 解决 128 错误
+          git clone -b main https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/ykm888/66.git repo-main
           
           # 物理替换修复后的配置文件
           cp openwrt/.config repo-main/custom-config/sl3000.config
@@ -57,7 +56,10 @@ jobs:
           
           # 物理提交变更
           git add custom-config/sl3000.config
-          git commit -m "chore: 物理修复 sl3000.config 递归依赖并完成 defconfig 瘦身 [v2.5]"
-          
-          # 物理推送 (Actions 环境下会自动使用 GITHUB_TOKEN)
-          git push
+          # 检查是否有改动，防止因无变动导致的报错
+          if [ -n "$(git status --porcelain)" ]; then
+            git commit -m "chore: 物理修复 sl3000.config 递归依赖并完成 defconfig 瘦身 [v2.6]"
+            git push origin main
+          else
+            echo "No changes to commit"
+          fi
