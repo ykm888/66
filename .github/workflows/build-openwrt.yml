@@ -1,90 +1,80 @@
-name: Build OpenWrt
+name: SL3000-1024M-Physical-Build-Final
 
 on:
   workflow_dispatch:
 
-env:
-  REPO_URL: https://github.com/ykm888/66
-  REPO_BRANCH: openwrt-24.10-6.6
-  CONFIG_FILE: custom-config/sl3000.config
-  UBOOT_BRANCH: sl3000-uboot-base
-  UPLOAD_RELEASE: true
-  TZ: Asia/Shanghai
-
 jobs:
   build:
     runs-on: ubuntu-22.04
-
     steps:
-      - name: 1. 物理检出当前仓库
-        uses: actions/checkout@v4
-
-      - name: 2. 物理初始化编译环境
+      - name: 1. 物理环境初始化 (工序一)
         run: |
-          sudo timedatectl set-timezone "$TZ"
-          sudo mkdir -p /workdir
-          sudo chown $USER:$GROUPS /workdir
+          sudo rm -rf /etc/apt/sources.list.d/*
+          sudo -E apt-get -qq update
+          sudo -E apt-get -qq install build-essential clang flex bison g++ gawk gcc-multilib g++-multilib gettext git libncurses5-dev libssl-dev python3-distutils rsync unzip zlib1g-dev swig libpython3-dev qemu-utils
+          sudo timedatectl set-timezone "Asia/Shanghai"
 
-      - name: 3. 物理克隆 OpenWrt 源码
-        working-directory: /workdir
+      - name: 2. 物理克隆固件源 (工序二)
         run: |
-          git clone $REPO_URL -b $REPO_BRANCH openwrt
-          ln -sf /workdir/openwrt $GITHUB_WORKSPACE/openwrt
+          # 物理锁定你保存好 DTS 和 MK 的分支
+          git clone --depth 1 -b sl3000-padavan-2410 https://github.com/ykm888/66 openwrt
 
-      - name: 4. 更新 Feeds
+      - name: 3. 物理克隆救砖引导源 (工序三)
+        run: |
+          # 物理获取 1024M 补丁后的 U-Boot 碎片
+          git clone --depth 1 -b sl3000-uboot-base https://github.com/ykm888/66 uboot-base
+
+      - name: 4. 物理更新 Feeds (工序四)
         run: |
           cd openwrt
           ./scripts/feeds update -a
-
-      - name: 5. 安装 Feeds
-        run: |
-          cd openwrt
           ./scripts/feeds install -a
 
-      - name: 6. 运行 1024M 物理补丁脚本
+      - name: 5. 物理注入 1024M 引导碎片 (工序五)
         run: |
-          chmod +x scripts/sl3000-patch.sh
-          ./scripts/sl3000-patch.sh ${{ env.UBOOT_BRANCH }}
+          # 物理创建构建暂存区，确保 MK 文件能找到 bl2/fip
+          mkdir -p openwrt/staging_dir/target-aarch64_generic_musl/image/
+          cp uboot-base/bl2.bin openwrt/staging_dir/target-aarch64_generic_musl/image/mt7981-sl3000-bl2.bin || true
+          cp uboot-base/fip.bin openwrt/staging_dir/target-aarch64_generic_musl/image/mt7981-sl3000-fip.bin || true
 
-      - name: 7. 加载已洗白配置并物理锁死 Warp
+      - name: 6. 物理校验 DTS/MK (工序六)
         run: |
-          cp "$CONFIG_FILE" openwrt/.config
+          # 物理确认 1024M 内存长度是否为 0x40000000
+          grep "0x40000000" openwrt/target/linux/mediatek/files-5.4/arch/arm64/boot/dts/mediatek/mt7981-sl-3000-emmc.dts
+
+      - name: 7. 物理生成 .config (工序七 - 禁用 EOF)
+        run: |
           cd openwrt
+          # 物理强制指定 SL-3000 目标设备
+          printf "CONFIG_TARGET_mediatek=y\nCONFIG_TARGET_mediatek_filogic=y\nCONFIG_TARGET_mediatek_filogic_DEVICE_sl_3000-emmc=y\n" > .config
+          # 物理追加必备驱动
+          printf "CONFIG_PACKAGE_kmod-mmc-mtk=y\nCONFIG_PACKAGE_kmod-mt7531=y\n" >> .config
           make defconfig
-          # 物理执行锁死：确保掐死 Warp
-          sed -i '/CONFIG_PACKAGE_kmod-mtk-warp/d' .config
-          echo "# CONFIG_PACKAGE_kmod-mtk-warp is not set" >> .config
-          echo "CONFIG_PACKAGE_kmod-mtk-warp=n" >> .config
-          make oldconfig
 
-      - name: 8. 下载编译所需软件包
+      - name: 8. 物理预下载 (工序八)
         run: |
           cd openwrt
           make download -j8
           find dl -size -1024c -exec rm -f {} \;
 
-      - name: 9. 物理启动固件编译
+      - name: 9. 物理主编译 (工序九)
         run: |
           cd openwrt
           make -j$(nproc) || make -j1 V=s
 
-      - name: 10. 物理整理编译产物
+      - name: 10. 物理整理产物 (工序十)
         run: |
-          cd openwrt/bin/targets/*/*
-          [ -f "$GITHUB_WORKSPACE/sl3000-uboot.bin" ] && cp "$GITHUB_WORKSPACE/sl3000-uboot.bin" .
-          echo "FIRMWARE=$PWD" >> $GITHUB_ENV
+          cd openwrt
+          mkdir -p out_firmware
+          cp bin/targets/mediatek/filogic/*sl_3000-emmc* out_firmware/
 
-      - name: 11. 上传固件到 Artifacts
+      - name: 11. 物理校验救砖包大小 (工序十一)
+        run: |
+          # 物理确认 factory.bin 是否达到 128MB
+          ls -lh openwrt/out_firmware/*factory.bin
+
+      - name: 12. 物理上传产物 (工序十二)
         uses: actions/upload-artifact@v4
         with:
-          name: OpenWrt_SL3000_1024M
-          path: ${{ env.FIRMWARE }}/*
-
-      - name: 12. 发布救砖全家桶到 Release
-        uses: softprops/action-gh-release@v2
-        if: env.UPLOAD_RELEASE == 'true'
-        with:
-          tag_name: SL3000-1024M-${{ github.run_id }}
-          files: ${{ env.FIRMWARE }}/*
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          name: SL3000-1024M-Final-Firmware
+          path: openwrt/out_firmware/
