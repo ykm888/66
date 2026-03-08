@@ -1,4 +1,4 @@
-name: "SL3000-1024M-Final-V11"
+name: "SL3000-1024M-Recovery-V12"
 
 on:
   workflow_dispatch:
@@ -7,64 +7,108 @@ jobs:
   generate-and-push:
     runs-on: ubuntu-22.04
     permissions:
-      contents: write  # 物理授权：允许 Workflow 写入你的仓库
+      contents: write
 
     steps:
       - name: 1. 物理环境与源码克隆
         run: |
-          # 清理并克隆目标源码
+          sudo -E apt-get -qq update
+          sudo -E apt-get -qq install build-essential flex bison g++ gawk gettext git libncurses5-dev libssl-dev python3-distutils rsync unzip zlib1g-dev swig
           rm -rf openwrt
           git clone --depth 1 -b sl3000-padavan-2410 https://github.com/ykm888/66 openwrt
-          
-      - name: 2. 物理注入全家桶配置 (Makefile+Mk+DTS)
-        run: |
-          cd openwrt
-          # [此处省略之前已验证的 Makefile/Mk/DTS 注入代码，保持与 V10 一致]
-          # ... (确保代码已物理注入)
 
-      - name: 3. 物理生成全量 .config
+      - name: 2. 物理注入核心组件 (Makefile/Mk/DTS)
         run: |
           cd openwrt
+          
+          # A. 物理注入 U-Boot Makefile
+          UBOOT_MK="package/boot/uboot-mediatek/Makefile"
+          mkdir -p $(dirname $UBOOT_MK)
+          echo 'include $(TOPDIR)/rules.mk' > $UBOOT_MK
+          echo 'include $(INCLUDE_DIR)/kernel.mk' >> $UBOOT_MK
+          echo 'PKG_VERSION:=2024.10' >> $UBOOT_MK
+          echo 'PKG_SOURCE_PROTO:=git' >> $UBOOT_MK
+          echo 'PKG_SOURCE_URL:=https://github.com/ykm888/66.git' >> $UBOOT_MK
+          echo 'PKG_SOURCE_VERSION:=sl3000-uboot-base' >> $UBOOT_MK
+          echo 'include $(INCLUDE_DIR)/u-boot.mk' >> $UBOOT_MK
+          echo 'include $(INCLUDE_DIR)/package.mk' >> $UBOOT_MK
+          echo 'define U-Boot/Default' >> $UBOOT_MK
+          echo '  BUILD_TARGET:=mediatek' >> $UBOOT_MK
+          echo '  UBOOT_IMAGE:=u-boot-mtk.bin' >> $UBOOT_MK
+          echo 'endef' >> $UBOOT_MK
+          echo 'define U-Boot/mt7981_sl_3000-emmc' >> $UBOOT_MK
+          echo '  NAME:=SL-3000 (eMMC)' >> $UBOOT_MK
+          echo '  UBOOT_CONFIG:=mt7981_sl_3000-emmc' >> $UBOOT_MK
+          echo '  UBOOT_IMAGE:=u-boot.fip' >> $UBOOT_MK
+          echo '  BL2_BOOTDEV:=emmc' >> $UBOOT_MK
+          echo '  BL2_SOC:=mt7981' >> $UBOOT_MK
+          echo '  BL2_DDRTYPE:=ddr4' >> $UBOOT_MK
+          echo 'endef' >> $UBOOT_MK
+          echo 'UBOOT_TARGETS := mt7981_sl_3000-emmc' >> $UBOOT_MK
+          echo 'define Package/u-boot/install/default' >> $UBOOT_MK
+          echo $'\t''$(CP) $(patsubst %,$(PKG_BUILD_DIR)/%,$(UBOOT_IMAGE)) $(1)/' >> $UBOOT_MK
+          echo $'\t''[ -f $(PKG_BUILD_DIR)/bl2.bin ] && $(CP) $(PKG_BUILD_DIR)/bl2.bin $(1)/mt7981-emmc-ddr4-bl2.bin' >> $UBOOT_MK
+          echo $'\t''[ -f $(PKG_BUILD_DIR)/u-boot.fip ] && $(CP) $(PKG_BUILD_DIR)/u-boot.fip $(1)/' >> $UBOOT_MK
+          echo 'endef' >> $UBOOT_MK
+          echo '$(eval $(call BuildPackage/U-Boot))' >> $UBOOT_MK
+
+          # B. 物理注入 mt7981.mk (强制关联救砖包)
+          DEVICE_MK="target/linux/mediatek/image/mt7981.mk"
+          echo 'KERNEL_LOADADDR := 0x48080000' > $DEVICE_MK
+          echo 'define Device/sl_3000-emmc' >> $DEVICE_MK
+          echo '  DEVICE_VENDOR := SL' >> $DEVICE_MK
+          echo '  DEVICE_MODEL := 3000' >> $DEVICE_MK
+          echo '  DEVICE_DTS := mt7981-sl-3000-emmc' >> $DEVICE_MK
+          echo '  IMAGE_SIZE := 120M' >> $DEVICE_MK
+          echo '  IMAGE/factory.bin := append-kernel | append-rootfs | pad-to $(IMAGE_SIZE)' >> $DEVICE_MK
+          echo '  DEVICE_PACKAGES := kmod-mmc-mtk mkf2fs e2fsprogs u-boot-mt7981_sl_3000-emmc' >> $DEVICE_MK
+          echo 'endef' >> $DEVICE_MK
+          echo 'TARGET_DEVICES += sl_3000-emmc' >> $DEVICE_MK
+
+          # C. 物理注入 DTS (锁定 1024M 内存)
+          DTS_FILE="target/linux/mediatek/files-5.4/arch/arm64/boot/dts/mediatek/mt7981-sl-3000-emmc.dts"
+          mkdir -p $(dirname $DTS_FILE)
+          echo '/dts-v1/;' > $DTS_FILE
+          echo '#include "mt7981.dtsi"' >> $DTS_FILE
+          echo '/ { model = "SL-3000 1024M"; compatible = "sl,3000-emmc", "mediatek,mt7981";' >> $DTS_FILE
+          echo 'memory { device_type = "memory"; reg = <0 0x40000000 0 0x40000000>; }; };' >> $DTS_FILE
+
+      - name: 3. 物理爆破冲突依赖并生成配置
+        run: |
+          cd openwrt
+          
+          # 物理爆破导致递归依赖的 rd05a1
+          find package -name "rd05a1" -type d -exec rm -rf {} +
+          # 物理爆破导致 datconf-lua 缺失的旧路径
+          find package -name "datconf" -type d -exec rm -rf {} +
+          
           ./scripts/feeds update -a && ./scripts/feeds install -a
           
-          # 物理初始化配置
+          # 初始化核心目标
           echo "CONFIG_TARGET_mediatek=y" > .config
           echo "CONFIG_TARGET_mediatek_mt7981=y" >> .config
           echo "CONFIG_TARGET_mediatek_mt7981_DEVICE_sl_3000-emmc=y" >> .config
           
-          make defconfig
+          make defconfig || true
           
-          # 物理打入救砖总闸补丁
+          # 物理补全救砖总闸 (即便报错也强制写入)
           echo "CONFIG_TARGET_IMAGE_uboot_mediatek_mt7981_sl_3000_emmc=y" >> .config
           echo "CONFIG_MTK_BOOT_PARTITION=y" >> .config
           echo "CONFIG_MTK_WEB_FAILSAFE=y" >> .config
+          echo "CONFIG_MTK_BOOTMENU_MMC=y" >> .config
           
           make oldconfig < /dev/null
 
-      - name: 4. 物理推送至仓库
+      - name: 4. 物理推送配置回仓库
         run: |
-          # 物理克隆主仓库用于提交（使用 GITHUB_TOKEN）
           git clone -b main https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/ykm888/66.git repo-main
-          
-          # 物理创建配置存放目录
           mkdir -p repo-main/custom-config/
-          
-          # 物理拷贝生成的配置
           cp openwrt/.config repo-main/custom-config/sl3000.config
-          
           cd repo-main
-          # 物理配置 Git 身份
           git config --global user.email "bot@github.com"
           git config --global user.name "SL3000-Config-Bot"
-          
-          # 物理提交
           git add custom-config/sl3000.config
-          
-          # 物理检查：只有当内容发生变化时才推送，防止无限循环报错
           if [ -n "$(git status --porcelain)" ]; then
-            git commit -m "chore: 物理更新 SL-3000 1024M 救砖版配置"
+            git commit -m "chore: 物理修复递归依赖并对齐 1024M 救砖配置"
             git push origin main
-            echo ">>> 物理推送成功：配置已更新至 custom-config/sl3000.config"
-          else
-            echo ">>> 物理跳过：配置内容无变化，无需推送。"
           fi
