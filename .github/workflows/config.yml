@@ -1,77 +1,65 @@
-name: SL3000-FullConfig-Fix-Push-v3.3
+name: SL3000-Clean-And-FullConfig-Generator-v3.4
 
 on:
   workflow_dispatch:
 
 jobs:
-  fix-and-push:
+  clean-and-generate:
     runs-on: ubuntu-22.04
     permissions:
       contents: write
 
     steps:
-      - name: 1. 物理环境初始化 (工序一)
+      - name: 1. 物理环境初始化
         run: |
           sudo -E apt-get -qq update
           sudo -E apt-get -qq install build-essential flex bison g++ gawk gettext git libncurses5-dev libssl-dev python3-distutils rsync unzip zlib1g-dev swig
           sudo timedatectl set-timezone "Asia/Shanghai"
 
-      - name: 2. 物理克隆固件源码 (工序二)
+      - name: 2. 物理克隆源码
         run: |
-          # 物理锁定 sl3000-padavan-2410 分支，它是生成 1024M 全量配置的逻辑基准
           git clone --depth 1 -b sl3000-padavan-2410 https://github.com/ykm888/66 openwrt
 
-      - name: 3. 物理同步 Feeds (工序三)
+      - name: 3. 物理同步 Feeds
         run: |
           cd openwrt
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
-      - name: 4. 物理注入核心开关与修复 (工序四 - 关键修复点)
+      - name: 4. 物理清空旧配置并注入核心种子 (关键工序)
         run: |
           cd openwrt
-          # 物理拉取你仓库现有的 8000 行配置（即使它不完整）
-          curl -fLo .config https://raw.githubusercontent.com/ykm888/66/main/custom-config/sl3000.config
+          # 物理创建一个全新的、空白的 .config
+          rm -f .config && touch .config
           
-          # 【物理定点手术 1】：强制注入救砖包开关和设备标识（解决你搜不到的问题）
-          sed -i '/CONFIG_TARGET_mediatek_filogic_DEVICE_sl_3000-emmc/d' .config
-          sed -i '/CONFIG_TARGET_IMAGE_uboot_mediatek_mt7981_sl_3000_emmc/d' .config
+          # 物理注入最基础的“种子”：硬件标识 + 救砖包开关
+          # 只要有这几行，系统就能自动膨胀出剩下的 8000 行
+          echo "CONFIG_TARGET_mediatek=y" >> .config
+          echo "CONFIG_TARGET_mediatek_filogic=y" >> .config
           echo "CONFIG_TARGET_mediatek_filogic_DEVICE_sl_3000-emmc=y" >> .config
           echo "CONFIG_TARGET_IMAGE_uboot_mediatek_mt7981_sl_3000_emmc=y" >> .config
           
-          # 【物理定点手术 2】：切断 rd05a1 循环依赖，防止膨胀熔断
-          sed -i 's/CONFIG_PACKAGE_rd05a1=y/# CONFIG_PACKAGE_rd05a1 is not set/g' .config
-          
-          # 【物理定点手术 3】：清理内核模块冲突警告
-          sed -i 's/CONFIG_PACKAGE_kmod-xdp-sockets-diag=y/# kmod-xdp-sockets-diag removed/g' .config
+          # 执行全量膨胀：系统会根据上述种子，物理补全所有默认选项和交换机驱动
+          make oldconfig < /dev/null
 
-      - name: 5. 执行物理全量膨胀 (工序五)
+      - name: 5. 物理验证全量样式
         run: |
           cd openwrt
-          # 使用 make oldconfig 将注入的开关物理展开，补齐所有 "# CONFIG_xxx is not set"
-          make oldconfig < /dev/null
-          
-          echo ">>> 物理行数确认："
+          echo ">>> 检查物理行数（预期应由于膨胀达到数千行）："
           wc -l .config
-          echo ">>> 救砖开关检查："
-          grep "CONFIG_TARGET_IMAGE_uboot_mediatek_mt7981_sl_3000_emmc" .config
+          echo ">>> 检查全量样式头部："
+          head -n 20 .config
 
-      - name: 6. 物理授权推送回 Main (工序六)
+      - name: 6. 物理授权并推送回仓库
         run: |
-          # 物理注入 x-access-token 授权
           git clone -b main https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/ykm888/66.git repo-main
           
-          # 替换文件
+          # 物理覆盖旧的 sl3000.config
           cp openwrt/.config repo-main/custom-config/sl3000.config
           
           cd repo-main
           git config --global user.email "bot@github.com"
-          git config --global user.name "SL3000-Config-Bot"
-          
+          git config --global user.name "SL3000-Clean-Bot"
           git add custom-config/sl3000.config
-          if [ -n "$(git status --porcelain)" ]; then
-            git commit -m "chore: 物理修复并生成 8000 行全量救砖配置 [v3.3]"
-            git push origin main
-          else
-            echo "无物理变动"
-          fi
+          git commit -m "chore: 物理清空并重新生成 8000 行全量救砖配置 [v3.4]"
+          git push origin main
