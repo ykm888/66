@@ -1,4 +1,4 @@
-name: "SL3000-1024M-Full-Recovery-Suite-V26"
+name: "SL3000-1024M-Full-Recovery-Suite-V26-Pro"
 
 on:
   workflow_dispatch:
@@ -13,76 +13,76 @@ jobs:
       - name: 1. 物理环境初始化 (工序一)
         run: |
           sudo -E apt-get -qq update
-          sudo -E apt-get -qq install build-essential clang flex bison g++ gawk gcc-multilib g++-multilib gettext git libncurses5-dev libssl-dev python3-distutils rsync unzip zlib1g-dev swig libpython3-dev qemu-utils
+          sudo -E apt-get -qq install build-essential clang flex bison g++ gawk gcc-multilib g++-multilib gettext git libncurses5-dev libssl-dev python3-distutils rsync unzip zlib1g-dev swig libpython3-dev qemu-utils libncursesw5-dev
           sudo timedatectl set-timezone "Asia/Shanghai"
 
       - name: 2. 物理克隆源码 (工序二)
         run: |
-          # 物理同步：拉取适配 SL-3000 的 bootstrap 分支
           git clone --depth 1 -b sl3000-immortalwrt-bootstrap https://github.com/ykm888/66 openwrt
 
-      - name: 3. 物理修复 Feeds 与 核心依赖 (工序三)
+      - name: 3. 物理修正 Makefile 语法断层 (工序三)
+        run: |
+          cd openwrt
+          # 【核心物理纠偏】强制将 Makefile 行首空格转为 Tab，确保识别新定义的 mt7981-nor-ddr4
+          find package/boot/ -name "Makefile" -exec sed -i 's/^  /\t/g' {} +
+          # 物理清理索引缓存，强制扫描修复后的 Makefile，彻底消除 "does not exist"
+          rm -rf tmp
+
+      - name: 4. 物理更新与安装 Feeds (工序四)
         run: |
           cd openwrt
           ./scripts/feeds update -a
-          # 物理强制补齐：修复之前警告中缺失的底层库 (libcrypt, libpcre等)
-          ./scripts/feeds install libcrypt-compat libpcre libmpfr btrfs-progs
           ./scripts/feeds install -a
 
-      - name: 4. 物理净化与全量配置对齐 (工序四)
+      - name: 5. 物理全量配置对齐 (工序五)
         run: |
           cd openwrt
-          # 1. 【核心全量配置物理拉取】 - 对齐你指定的路径
+          # 1. 物理拉取远程 custom-config
           curl -fLo .config https://raw.githubusercontent.com/ykm888/66/main/custom-config/sl3000.config
           
-          # 2. 【物理切除病灶】 - 双重保险清理 rd05a1
-          find package/ -type d -name "datconf" -exec rm -rf {} +
-          find package/ -type d -name "rd05a1" -exec rm -rf {} +
-          find . -name "Kconfig" -exec sed -i '/rd05a1/d' {} +
-          find . -name "Kconfig" -exec sed -i '/datconf/d' {} +
-
-          # 3. 【物理参数强锁】 - 确保 1024M DDR4 识别与 2500M 全速 HNAT 逻辑生效
+          # 2. 物理补全 1024M DDR4 核心开关（这是救砖成功的物理保障）
           {
             echo "CONFIG_TARGET_mediatek=y"
             echo "CONFIG_TARGET_mediatek_filogic=y"
             echo "CONFIG_TARGET_mediatek_filogic_DEVICE_sl_3000-emmc=y"
+            echo "CONFIG_PACKAGE_trusted-firmware-a-mt7981-nor-ddr4=y"
+            echo "CONFIG_PACKAGE_uboot-mediatek-mt7981_sl_3000-nor=y"
             echo "CONFIG_PACKAGE_kmod-mtk-hnat=y"
-            echo "CONFIG_PACKAGE_kmod-mt7531=y"
-            echo "CONFIG_PACKAGE_kmod-mmc-mtk=y"
-            echo "CONFIG_TARGET_ROOTFS_PARTSIZE=512"
-            echo "CONFIG_TARGET_IMAGES_GZ=y"
           } >> .config
           
-          # 4. 物理对齐
+          # 3. 物理清理无用病灶 (rd05a1等)
+          find package/ -type d -name "rd05a1" -exec rm -rf {} +
           make defconfig
 
-      - name: 5. 物理下载源码包 (工序五)
+      - name: 6. 物理下载源码包 (工序六)
         run: |
           cd openwrt
           make download -j$(nproc)
           find dl -size -1024c -exec rm -f {} \;
 
-      - name: 6. 物理全量构建 (工序六)
+      - name: 7. 物理全量构建阶段 (工序七)
         run: |
           cd openwrt
-          # 物理火力全开：优先多线程，失败则自动切单线程抓取报错
+          # 物理火力全开：多线程失败则自动转单线程抓取报错
           make -j$(nproc) || make -j1 V=s
 
-      - name: 7. 物理搜集“救砖全家桶”产物 (工序七)
+      - name: 8. 物理搜集“1024M 救砖全家桶” (工序八)
         run: |
           cd openwrt
           mkdir -p out_images
-          # 物理抓取：针对 128G eMMC 布局的所有救砖核心文件
-          find bin/targets/mediatek/filogic/ -name "*sl_3000-emmc*" -exec cp -v {} out_images/ \;
-          # 确保包含底层引导
-          find bin/targets/mediatek/filogic/ -name "*bl2*" -exec cp -v {} out_images/ \;
-          find bin/targets/mediatek/filogic/ -name "*fip*" -exec cp -v {} out_images/ \;
-          
-          # 生成指纹校验
-          cd out_images && sha256sum * > sha256sums-sl3000-final.txt
+          # 抓取 1024M 专用 BL2 (救砖最核心文件)
+          find bin/targets/mediatek/filogic/ -name "*nor-ddr4-bl2.img*" -exec cp -v {} out_images/ \;
+          # 抓取 FIP 引导与系统全量镜像
+          find bin/targets/mediatek/filogic/ -name "*fip.bin*" -exec cp -v {} out_images/ \;
+          find bin/targets/mediatek/filogic/ -name "*sl_3000-emmc-sysupgrade.itb*" -exec cp -v {} out_images/ \;
 
-      - name: 8. 上传救砖全家桶 (工序八)
+      - name: 9. 物理生成指纹校验 (工序九)
+        run: |
+          cd openwrt/out_images
+          sha256sum * > sha256sums-sl3000-1024M-DDR4.txt
+
+      - name: 10. 上传救砖工序产物 (工序十)
         uses: actions/upload-artifact@v4
         with:
-          name: SL3000-1024M-Full-Recovery-Pack
+          name: SL3000-1024M-Recovery-Suite
           path: openwrt/out_images/
