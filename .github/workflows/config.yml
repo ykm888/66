@@ -1,81 +1,63 @@
-name: Source-Fix (SL-3000 6.6 Root)
+name: SL3000-Config-AutoFix-Only-v2.5
 
 on:
   workflow_dispatch:
 
 jobs:
-  source-healing:
-    runs-on: ubuntu-latest
+  fix-and-push:
+    runs-on: ubuntu-22.04
     permissions:
-      contents: write
+      contents: write  # 物理授权反向推送权限
 
     steps:
-      - name: 1. 物理检出仓库
-        uses: actions/checkout@v4
-
-      - name: 2. 物理修复 ebtables Makefile (404 彻底解决)
+      - name: 1. 物理环境准备 (工序一)
         run: |
-          EBT_PATH="package/network/utils/ebtables/Makefile"
-          if [ -f "$EBT_PATH" ]; then
-            echo ">>> 正在物理重定向 ebtables 至 Fedora 镜像源..."
-            sed -i 's|https://git.netfilter.org/ebtables|https://src.fedoraproject.org/git/rpms/ebtables.git|g' "$EBT_PATH"
-          fi
+          sudo -E apt-get -qq update
+          sudo -E apt-get -qq install build-essential flex bison g++ gawk gettext git libncurses5-dev libssl-dev python3-distutils rsync unzip zlib1g-dev swig
+          sudo timedatectl set-timezone "Asia/Shanghai"
 
-      - name: 3. 物理注入 mt_wifi 6.6 内核兼容补丁
+      - name: 2. 物理克隆固件源码 (工序二)
         run: |
-          # 针对之前报错的 WFDMA 寄存器宏定义进行代码级物理注入
-          WHNAT_HDR="package/mtk/drivers/mt_wifi/files/mt_wifi/embedded/plug_in/whnat/woe_mt7981.h"
-          WHNAT_MAIN="package/mtk/drivers/mt_wifi/files/mt_wifi/embedded/plug_in/whnat/woe_main.c"
+          # 物理锁定 sl3000-padavan-2410 分支，作为 defconfig 的运行环境
+          git clone --depth 1 -b sl3000-padavan-2410 https://github.com/ykm888/66 openwrt
+
+      - name: 3. 物理同步 Feeds (工序三)
+        run: |
+          cd openwrt
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
+
+      - name: 4. 物理拉取并定点修复 (工序四)
+        run: |
+          cd openwrt
+          # 物理拉取 8000 行原始配置
+          curl -fLo .config https://raw.githubusercontent.com/ykm888/66/main/custom-config/sl3000.config
           
-          if [ -f "$WHNAT_HDR" ]; then
-            echo ">>> 正在物理注入 6.6 内核缺失的 PCI_BASE 宏..."
-            sed -i '1i #ifndef WF_WFDMA_EXT_WRAP_CSR_PCI_BASE\n#define WF_WFDMA_EXT_WRAP_CSR_PCI_BASE(p) (p)\n#endif' "$WHNAT_HDR"
-          fi
+          # 【物理手术】：强制切断 rd05a1 递归依赖
+          sed -i 's/CONFIG_PACKAGE_rd05a1=y/# CONFIG_PACKAGE_rd05a1 is not set/g' .config
           
-          if [ -f "$WHNAT_MAIN" ]; then
-            echo ">>> 正在物理切除过时的 MODULE_SUPPORTED_DEVICE..."
-            sed -i 's/MODULE_SUPPORTED_DEVICE/\/\/MODULE_SUPPORTED_DEVICE/g' "$WHNAT_MAIN"
-          fi
+          # 【物理手术】：清理 5.4 内核不兼容的冗余项
+          sed -i 's/CONFIG_PACKAGE_kmod-xdp-sockets-diag=y/# kmod-xdp-sockets-diag removed/g' .config
+          
+          # 【物理执行】：由 OpenWrt 系统物理剔除 8000 行中的无效条目并重组
+          # 这步会物理修复所有依赖冲突
+          make defconfig
 
-      - name: 4. 物理清理 sl3000.config (阻断 Warp + 锁定交换机/磁盘)
+      - name: 5. 物理反向推送至 Main 分支 (工序五)
         run: |
-          CONFIG_FILE="custom-config/sl3000.config"
-          if [ -f "$CONFIG_FILE" ]; then
-            echo ">>> 正在物理对齐 .config 关键项..."
-            # A. 物理切除 Warp 冲突
-            sed -i '/CONFIG_PACKAGE_kmod-mtk-warp/d' "$CONFIG_FILE"
-            sed -i '/CONFIG_MTK_WARP_SUPPORT/d' "$CONFIG_FILE"
-            echo "CONFIG_PACKAGE_kmod-mtk-warp=n" >> "$CONFIG_FILE"
-            echo "CONFIG_MTK_WARP_SUPPORT=n" >> "$CONFIG_FILE"
-
-            # B. 物理锁定 MT7531 交换机与 HNAT
-            echo "CONFIG_PACKAGE_kmod-mediatek_eth=y" >> "$CONFIG_FILE"
-            echo "CONFIG_PACKAGE_kmod-mediatek_hnat=y" >> "$CONFIG_FILE"
-            echo "CONFIG_PACKAGE_kmod-mt7531=y" >> "$CONFIG_FILE"
-            echo "CONFIG_PACKAGE_bridge=y" >> "$CONFIG_FILE"
-            echo "CONFIG_PACKAGE_kmod-bridge=y" >> "$CONFIG_FILE"
-
-            # C. 物理注入磁盘工具 (1024M 增强)
-            DISK_PKGS=(
-              "CONFIG_PACKAGE_kmod-fs-ext4=y"
-              "CONFIG_PACKAGE_kmod-fs-vfat=y"
-              "CONFIG_PACKAGE_fdisk=y"
-              "CONFIG_PACKAGE_lsblk=y"
-              "CONFIG_PACKAGE_block-mount=y"
-            )
-            for pkg in "${DISK_PKGS[@]}"; do
-              grep -q "${pkg%%=*}" "$CONFIG_FILE" || echo "$pkg" >> "$CONFIG_FILE"
-            done
-          fi
-
-      - name: 5. 物理回推修复后的仓库
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add .
-          if git diff --staged --quiet; then
-            echo "物理源头已是最新修复态，无需推送。"
-          else
-            git commit -m "fix(sl3000): 物理合一修复 (ebtables/wifi-6.6/mt7531/warp)"
-            git push origin HEAD
-          fi
+          # 物理克隆仓库主分支
+          git clone -b main https://github.com/ykm888/66 repo-main
+          
+          # 物理替换修复后的配置文件
+          cp openwrt/.config repo-main/custom-config/sl3000.config
+          
+          cd repo-main
+          git config --global user.email "bot@github.com"
+          git config --global user.name "SL3000-Config-Bot"
+          
+          # 物理提交变更
+          git add custom-config/sl3000.config
+          git commit -m "chore: 物理修复 sl3000.config 递归依赖并完成 defconfig 瘦身 [v2.5]"
+          
+          # 物理推送 (Actions 环境下会自动使用 GITHUB_TOKEN)
+          git push
