@@ -16,9 +16,9 @@ jobs:
           sudo -E apt-get -qq install build-essential clang flex bison g++ gawk gcc-multilib g++-multilib gettext git libncurses5-dev libssl-dev python3-distutils rsync unzip zlib1g-dev swig libpython3-dev qemu-utils
           sudo timedatectl set-timezone "Asia/Shanghai"
 
-      - name: 2. 物理克隆源码 (工序二 - 锁定 Bootstrap 核心分支)
+      - name: 2. 物理克隆源码 (工序二 - 完美同步你的源端修复)
         run: |
-          # 物理锁定：使用你已经对齐好 1024M 内存定义的分支
+          # 直接物理同步你已修复 U-Boot 和 ebtables 的分支
           git clone --depth 1 -b sl3000-immortalwrt-bootstrap https://github.com/ykm888/66 openwrt
 
       - name: 3. 物理更新与安装 Feeds (工序三)
@@ -30,57 +30,50 @@ jobs:
       - name: 4. 物理净化与全量配置对齐 (工序四)
         run: |
           cd openwrt
-          # 1. 【核心对齐】：物理拉取你刚才生成的 8000 行全量配置
+          # 1. 【核心全量配置拉取】
           curl -fLo .config https://raw.githubusercontent.com/ykm888/66/sl3000-immortalwrt-bootstrap/sl3000_full_recovery.config
           
-          # 2. 【物理手术】：切除 datconf 和 rd05a1 病灶，终结递归死循环
-          # 彻底删除源码文件夹，防止扫描到导致死锁
+          # 2. 【物理切除病灶】 - 即使源端有修复，Actions 运行时物理清理 rd05a1 依然是双重保险
           find package/ -type d -name "datconf" -exec rm -rf {} +
           find package/ -type d -name "rd05a1" -exec rm -rf {} +
-          
-          # 物理抹除所有 Kconfig 中的依赖声明，彻底断开递归链
-          find . -name "Kconfig" -exec sed -i '/depends on PACKAGE_rd05a1/d' {} +
-          find . -name "Kconfig" -exec sed -i '/select PACKAGE_rd05a1/d' {} +
-          find . -name "Kconfig" -exec sed -i '/depends on PACKAGE_datconf/d' {} +
-          
-          # 3. 【物理锁定】：强制锁定 MT7981 1024M 参数，防止 config 偏移
+          find . -name "Kconfig" -exec sed -i '/rd05a1/d' {} +
+          find . -name "Kconfig" -exec sed -i '/datconf/d' {} +
+
+          # 3. 【物理参数强锁】 - 确保 1024M 颗粒定义物理生效
           echo "CONFIG_TARGET_mediatek=y" >> .config
           echo "CONFIG_TARGET_mediatek_filogic=y" >> .config
           echo "CONFIG_TARGET_mediatek_filogic_DEVICE_sl_3000-emmc=y" >> .config
-          # 开启救砖包核心标记
-          echo "CONFIG_MTK_BOOT_PARTITION=y" >> .config
-          echo "CONFIG_MTK_WEB_FAILSAFE=y" >> .config
           
-          # 4. 执行物理对齐膨胀 (生成最终编译用 .config)
+          # 4. 物理验证：检查你修改的 ebtables URL 是否生效
+          echo "--- 物理验证 ebtables 源码路径 ---"
+          grep "PKG_SOURCE_URL" $(find package/ -name Makefile | grep "ebtables/Makefile")
+          
           make defconfig
 
       - name: 5. 物理下载源码包 (工序五)
         run: |
           cd openwrt
+          # 使用全速物理下载
           make download -j$(nproc)
           find dl -size -1024c -exec rm -f {} \;
 
       - name: 6. 物理执行全量构建 (工序六)
         run: |
           cd openwrt
-          # 优先多线程，报错则自动回退单线程 V=s 捕捉物理错误
+          # 核心工序：物理火力全开进行构建
           make -j$(nproc) || make -j1 V=s
 
       - name: 7. 物理搜集“救砖全家桶”产物 (工序七)
         run: |
           cd openwrt
           mkdir -p out_images
-          
-          # 搜集系统固件 (Factory & Sysupgrade)
+          # 物理抓取：Factory, Sysupgrade, BL2, FIP, GPT
           find bin/targets/mediatek/filogic/ -name "*sl_3000-emmc*" -exec cp -v {} out_images/ \;
-          
-          # 搜集引导全家桶 (BL2, FIP, GPT) - 这是救砖的关键
-          # 物理路径通常在相应的编译产物目录下
           find bin/targets/mediatek/filogic/ -name "*bl2.bin" -exec cp -v {} out_images/ \;
           find bin/targets/mediatek/filogic/ -name "*fip.bin" -exec cp -v {} out_images/ \;
           find bin/targets/mediatek/filogic/ -name "*gpt.bin" -exec cp -v {} out_images/ \;
           
-          # 生成物理校验清单
+          # 生成物理指纹校验
           cd out_images && sha256sum * > sha256sums-sl3000-1024M.txt
 
       - name: 8. 上传救砖全家桶 (工序八)
