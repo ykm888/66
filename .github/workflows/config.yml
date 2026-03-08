@@ -1,10 +1,10 @@
-name: "SL3000-1024M-Full-Recovery-V23"
+name: "SL3000-Physical-Sync-1024M-V27"
 
 on:
-  workflow_dispatch:
+  workflow_dispatch: # 手动触发
 
 jobs:
-  build:
+  build_config:
     runs-on: ubuntu-22.04
     permissions:
       contents: write
@@ -14,79 +14,57 @@ jobs:
         run: |
           sudo -E apt-get -qq update
           sudo -E apt-get -qq install build-essential flex bison g++ gawk gettext git libncurses5-dev libssl-dev python3-distutils rsync unzip zlib1g-dev swig
-          # 拉取专用 Bootstrap 分支
+          rm -rf openwrt
+          # 克隆你锁定的源码分支
           git clone --depth 1 -b sl3000-immortalwrt-bootstrap https://github.com/ykm888/66 openwrt
 
-      - name: 2. 物理注入 1024M 核心补丁 (使用 echo 模式)
+      - name: 2. 执行 Feeds 物理净化
         run: |
           cd openwrt
-          # A. 物理注入 U-Boot Makefile
-          UBOOT_MK="package/boot/uboot-mediatek/Makefile"
-          mkdir -p $(dirname $UBOOT_MK)
-          echo 'include $(TOPDIR)/rules.mk' > $UBOOT_MK
-          echo 'include $(INCLUDE_DIR)/kernel.mk' >> $UBOOT_MK
-          echo 'PKG_NAME:=uboot-mediatek' >> $UBOOT_MK
-          echo 'PKG_VERSION:=2024.10' >> $UBOOT_MK
-          echo 'PKG_SOURCE_PROTO:=git' >> $UBOOT_MK
-          echo 'PKG_SOURCE_URL:=https://github.com/ykm888/66.git' >> $UBOOT_MK
-          echo 'PKG_SOURCE_VERSION:=sl3000-uboot-base' >> $UBOOT_MK
-          echo 'include $(INCLUDE_DIR)/u-boot.mk' >> $UBOOT_MK
-          echo 'include $(INCLUDE_DIR)/package.mk' >> $UBOOT_MK
-          echo 'define U-Boot/mt7981_sl_3000-emmc' >> $UBOOT_MK
-          echo '  NAME:=SL-3000 (DDR4-1024M-eMMC)' >> $UBOOT_MK
-          echo '  UBOOT_CONFIG:=mt7981_emmc' >> $UBOOT_MK
-          echo '  BL2_DDRTYPE:=ddr4' >> $UBOOT_MK
-          echo '  DEPENDS:=+trusted-firmware-a-mt7981-emmc-ddr4' >> $UBOOT_MK
-          echo 'endef' >> $UBOOT_MK
-          echo 'UBOOT_TARGETS := mt7981_sl_3000-emmc' >> $UBOOT_MK
-          echo 'define Package/u-boot-mediatek/install' >> $UBOOT_MK
-          echo $'\t''$(INSTALL_DIR) $(STAGING_DIR_IMAGE)' >> $UBOOT_MK
-          echo $'\t''$(CP) $(PKG_BUILD_DIR)/mt7981_sl_3000-emmc-u-boot.fip $(STAGING_DIR_IMAGE)/' >> $UBOOT_MK
-          echo 'endef' >> $UBOOT_MK
-          echo '$(eval $(call BuildPackage/U-Boot))' >> $UBOOT_MK
-
-          # B. 物理锁定 1024M 内存 DTS (路径对齐)
-          DTS_FILE="target/linux/mediatek/files-5.4/arch/arm64/boot/dts/mediatek/mt7981-sl-3000-emmc.dts"
-          mkdir -p $(dirname $DTS_FILE)
-          echo '/dts-v1/;' > $DTS_FILE
-          echo '#include "mt7981.dtsi"' >> $DTS_FILE
-          echo '/ { model = "SL-3000 1024M"; compatible = "sl,3000-emmc", "mediatek,mt7981";' >> $DTS_FILE
-          echo 'memory { device_type = "memory"; reg = <0 0x40000000 0 0x40000000>; }; };' >> $DTS_FILE
-
-      - name: 3. 物理同步配置与依赖加固
-        run: |
-          cd openwrt
-          # 物理同步你的远程配置
-          curl -sSL https://raw.githubusercontent.com/ykm888/66/main/custom-config/sl3000.config > .config
-          
-          # 物理加固：锁定 2500M 全速驱动与硬件加速
-          {
-            echo "CONFIG_PACKAGE_kmod-mtk-hnat=y"
-            echo "CONFIG_PACKAGE_kmod-mt7531=y"
-            echo "CONFIG_PACKAGE_kmod-mmc-mtk=y"
-            echo "CONFIG_TARGET_ROOTFS_PARTSIZE=512"
-            echo "CONFIG_TARGET_IMAGES_GZ=y"
-          } >> .config
-          
-          # 物理修复：剔除低内存限制，释放 1GB 潜能
-          sed -i '/CONFIG_LOW_MEMORY_FOOTPRINT/d' .config
-          
           ./scripts/feeds update -a
           ./scripts/feeds install -a
-          # 物理补全缺失的核心依赖库
-          ./scripts/feeds install libcrypt-compat libpcre libmpfr btrfs-progs
-          
-          make defconfig
+          # 物理隔离：删除可能导致递归冲突的旧包，强制系统识别你修改后的本地 Makefile
+          rm -rf package/feeds/mediatek/rd05a1
+          rm -rf package/feeds/mediatek/datconf-lua
 
-      - name: 4. 物理多线程编译
+      - name: 3. 物理配置注入 (对齐你修改后的 Makefile)
         run: |
           cd openwrt
-          make -j$(nproc) || make -j1 V=s
+          # 基础架构锁定
+          echo "CONFIG_TARGET_mediatek=y" > .config
+          echo "CONFIG_TARGET_mediatek_mt7981=y" >> .config
+          echo "CONFIG_TARGET_mediatek_mt7981_DEVICE_sl_3000-emmc=y" >> .config
+          
+          # 核心修正：选中你刚刚在 TF-A Makefile 中新增的 NOR-DDR4 目标
+          echo "CONFIG_PACKAGE_trusted-firmware-a-mt7981-nor-ddr4=y" >> .config
+          
+          # 核心修正：选中你修改后的 U-Boot NOR 目标
+          echo "CONFIG_PACKAGE_uboot-mediatek-mt7981_sl_3000-nor=y" >> .config
+          
+          # 救砖位物理焊死
+          echo "CONFIG_MTK_BOOT_PARTITION=y" >> .config
+          echo "CONFIG_MTK_WEB_FAILSAFE=y" >> .config
+          
+          # 运行预编译检查，自动补全依赖
+          make defconfig
 
-      - name: 5. 物理上传救砖全家桶 (Artifacts)
-        uses: actions/upload-artifact@v4
-        with:
-          name: SL3000-1024M-Final-Firmware
-          path: |
-            openwrt/bin/targets/mediatek/filogic/*.bin
-            openwrt/bin/targets/mediatek/filogic/*.gz
+      - name: 4. 物理推送到仓库 main 分支
+        run: |
+          # 克隆 main 分支用于存放生成的 config
+          git clone -b main https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/ykm888/66.git repo-main
+          mkdir -p repo-main/custom-config/
+          
+          # 将生成的物理闭环配置复制过去
+          cp openwrt/.config repo-main/custom-config/sl3000.config
+          
+          cd repo-main
+          git config --global user.email "bot@github.com"
+          git config --global user.name "SL3000-Physical-Bot"
+          
+          git add custom-config/sl3000.config
+          
+          # 检查是否有物理变动
+          if [ -n "$(git status --porcelain)" ]; then
+            git commit -m "chore: 物理对齐 1024M NOR-DDR4 闭环配置 (V27)"
+            git push origin main
+          fi
