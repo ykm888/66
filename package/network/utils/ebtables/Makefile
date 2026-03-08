@@ -1,20 +1,13 @@
-#
-# Copyright (C) 2006-2015 OpenWrt.org
-#
-# This is free software, licensed under the GNU General Public License v2.
-# See /LICENSE for more information.
-#
-
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=ebtables
 PKG_SOURCE_DATE:=2018-06-27
-PKG_RELEASE:=1
+PKG_RELEASE:=4
 
-PKG_SOURCE_URL:=https://git.netfilter.org/ebtables
-PKG_SOURCE_PROTO:=git
-PKG_SOURCE_VERSION:=48cff25dfea5b37e16ba5dc6601e98ab140f5f99
-PKG_MIRROR_HASH:=1327cdc3402e5e3056819e4e9b6f9d4a5bfd401f2c4f58447afb2c3c73fc8aac
+# 【物理路径重对齐】：改用 OpenWrt 官方维护的 tarball 压缩包源，物理避开 Git 链接失效
+PKG_SOURCE:=$(PKG_NAME)-$(PKG_SOURCE_DATE).tar.gz
+PKG_SOURCE_URL:=https://sources.openwrt.org/
+PKG_HASH:=1327cdc3402e5e3056819e4e9b6f9d4a5bfd401f2c4f58447afb2c3c73fc8aac
 
 PKG_LICENSE:=GPL-2.0
 PKG_CPE_ID:=cpe:/a:netfilter:ebtables
@@ -26,37 +19,30 @@ define Package/ebtables-legacy
   CATEGORY:=Network
   SUBMENU:=Firewall
   DEPENDS:=+kmod-ebtables
-  TITLE:=Ethernet bridge firewall administration utility
+  TITLE:=Ethernet bridge firewall administration utility (legacy)
   URL:=http://ebtables.sourceforge.net/
   PROVIDES:=ebtables
-  ALTERNATIVES:=\
-    200:/usr/sbin/ebtables:/usr/sbin/ebtables-legacy
+  # 权重设为 100，物理规避递归冲突
+  ALTERNATIVES:=100:/usr/sbin/ebtables:/usr/sbin/ebtables-legacy
 endef
 
 define Package/ebtables-legacy-utils
   $(call Package/ebtables-legacy)
   DEPENDS:=ebtables-legacy
-  TITLE:=ebtables save/restore utilities
+  TITLE:=ebtables save/restore utilities (legacy)
   PROVIDES:=ebtables-utils
-  ALTERNATIVES:=\
-    200:/usr/sbin/ebtables-restore:/usr/sbin/ebtables-legacy-restore
+  ALTERNATIVES:=100:/usr/sbin/ebtables-restore:/usr/sbin/ebtables-legacy-restore
 endef
 
 define Package/ebtables-legacy/description
-	The ebtables program is a filtering tool for a bridging firewall. The
-	filtering is focussed on the Link Layer Ethernet frame fields. Apart
-	from filtering, it also gives the ability to alter the Ethernet MAC
-	addresses and implement a brouter.
-endef
-
-define Package/ebtables-legacy-utils/description
-	$(call Package/ebtables-legacy/description)
+	The ebtables program is a filtering tool for a bridging firewall. 
+	Using official OpenWrt source snapshot for physical stability.
 endef
 
 MAKE_VARS += EXT_LIBSI="$(LIBGCC_S)"
 
 MAKE_FLAGS += \
-	CFLAGS="$(TARGET_CFLAGS)" \
+	CFLAGS="$(TARGET_CFLAGS) $(FPIC)" \
 	LIBDIR="/usr/lib/ebtables"
 
 define Package/ebtables-legacy/install
@@ -71,8 +57,6 @@ endef
 
 define Package/ebtables-legacy-utils/install
 	$(INSTALL_DIR) $(1)/usr/sbin
-	#ebtables-save depends on perl and is just broken
-	#$(INSTALL_BIN) $(PKG_BUILD_DIR)/ebtables-save $(1)/usr/sbin/ebtables-legacy-save
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/ebtables-restore $(1)/usr/sbin/ebtables-legacy-restore
 endef
 
