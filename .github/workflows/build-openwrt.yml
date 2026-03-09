@@ -1,4 +1,4 @@
-name: SL3000-23.05-5.15-Build-V2
+name: "SL3000-23.05-5.15-Build-V10"
 
 on:
   repository_dispatch:
@@ -7,8 +7,12 @@ on:
 env:
   REPO_URL: https://github.com/ykm888/66
   REPO_BRANCH: sl3000-immortalwrt-bootstrap
+  UBOOT_REPO_URL: https://github.com/ykm888/66
+  UBOOT_BRANCH: sl3000-uboot-base
   FEEDS_CONF: feeds.conf.default
   CONFIG_FILE: custom-config/sl3000.config
+  DTS_FILE: custom-config/mt7981-sl-3000-emmc.dts
+  MK_FILE: custom-config/filogic.mk
   DIY_P1_SH: diy-part1.sh
   DIY_P2_SH: diy-part2.sh
   TZ: Asia/Shanghai
@@ -22,14 +26,10 @@ jobs:
       uses: actions/checkout@v4
 
     - name: Initialization environment
-      env:
-        DEBIAN_FRONTEND: noninteractive
       run: |
         sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc
         sudo -E apt-get -qq update
         sudo -E apt-get -qq install $(curl -fsSL https://is.gd/depends_ubuntu_2204)
-        sudo -E apt-get -qq autoremove --purge
-        sudo -E apt-get -qq clean
         sudo timedatectl set-timezone "$TZ"
         sudo mkdir -p /workdir
         sudo chown $USER:$USER /workdir
@@ -37,58 +37,51 @@ jobs:
     - name: Clone source code
       working-directory: /workdir
       run: |
-        df -hT $PWD
         git clone $REPO_URL -b $REPO_BRANCH openwrt
         ln -sf /workdir/openwrt $GITHUB_WORKSPACE/openwrt
+        # 物理注入 U-Boot 救砖源代码
+        rm -rf openwrt/package/boot/uboot-mediatek/src
+        git clone --depth 1 $UBOOT_REPO_URL -b $UBOOT_BRANCH openwrt/package/boot/uboot-mediatek/src
 
     - name: Load custom feeds
       run: |
         [ -e $FEEDS_CONF ] && cp -f $FEEDS_CONF openwrt/feeds.conf.default
         chmod +x $DIY_P1_SH
-        cd openwrt
-        $GITHUB_WORKSPACE/$DIY_P1_SH
+        cd openwrt && $GITHUB_WORKSPACE/$DIY_P1_SH
 
-    - name: Update feeds
-      run: cd openwrt && ./scripts/feeds update -a
-
-    - name: Install feeds
-      run: cd openwrt && ./scripts/feeds install -a
+    - name: Update/Install feeds
+      run: cd openwrt && ./scripts/feeds update -a && ./scripts/feeds install -a
 
     - name: Load custom configuration
       run: |
-        [ -d files ] && mv files openwrt/files
-        [ -e $CONFIG_FILE ] && cp -f $CONFIG_FILE openwrt/.config
+        # 1. 物理注入你修复好的 DTS 
+        # 注意：这里不再使用 sed，直接信任你仓库中的内容
+        cp -f $GITHUB_WORKSPACE/$DTS_FILE openwrt/target/linux/mediatek/files-5.15/arch/arm64/boot/dts/mediatek/mt7981-sl-3000-emmc.dts
+        
+        # 2. 物理注入镜像生成脚本 (filogic.mk)
+        cp -f $GITHUB_WORKSPACE/$MK_FILE openwrt/target/linux/mediatek/image/filogic.mk
+        
+        # 3. 加载配置文件
+        [ -e $GITHUB_WORKSPACE/$CONFIG_FILE ] && cp -f $GITHUB_WORKSPACE/$CONFIG_FILE openwrt/.config
+        
         chmod +x $DIY_P2_SH
-        cd openwrt
-        $GITHUB_WORKSPACE/$DIY_P2_SH
-
-    - name: Download package
-      id: package
-      run: |
-        cd openwrt
-        make defconfig
-        make download -j8
-        find dl -size -1024c -exec ls -l {} \;
-        find dl -size -1024c -exec rm -f {} \;
+        cd openwrt && $GITHUB_WORKSPACE/$DIY_P2_SH
 
     - name: Compile the firmware
-      id: compile
       run: |
         cd openwrt
-        # 物理修复：在正式编译前，必须先物理安装工具链，解决 libc 缺失报错
+        # 解决 musl/libc 环境依赖
         make tools/install -j$(nproc)
         make toolchain/install -j$(nproc)
-        echo -e "$(nproc) thread compile"
-        make -j$(nproc) || make -j1 || make -j1 V=s
+        # 优先编译关键引导组件
+        make package/boot/arm-trusted-firmware-mediatek/compile V=s -j1
+        make package/boot/uboot-mediatek/compile V=s -j1
+        # 开始全局编译
+        make -j$(nproc) || make -j1 V=s
         echo "status=success" >> $GITHUB_OUTPUT
-
-    - name: Check space usage
-      if: (!cancelled())
-      run: df -hT
 
     - name: Upload bin directory
       uses: actions/upload-artifact@v4
-      if: steps.compile.outputs.status == 'success'
       with:
-        name: OpenWrt_bin
+        name: SL3000_Final_Firmware
         path: openwrt/bin
