@@ -1,11 +1,12 @@
-name: "SL3000-ImmortalWrt-Final-V12"
+name: "SL3000-Final-Build-V16"
 
 on:
   workflow_dispatch:
 
 env:
-  REPO_URL: https://github.com/ykm888/66
-  REPO_BRANCH: sl3000-immortalwrt-bootstrap
+  # 定义源码仓库和分支
+  SRC_URL: https://github.com/ykm888/66
+  SRC_BRANCH: sl3000-immortalwrt-bootstrap
   TZ: Asia/Shanghai
 
 jobs:
@@ -13,79 +14,86 @@ jobs:
     runs-on: ubuntu-22.04
 
     steps:
-    - name: 1. 物理检出当前仓库 (获取 main 分支三件套)
+    - name: 1. 物理检出 main 分支 (配置三件套所在地)
       uses: actions/checkout@v4
 
-    - name: 2. 初始化环境
-      env:
-        DEBIAN_FRONTEND: noninteractive
+    - name: 2. 物理目录自检 (防止路径死角)
+      run: |
+        echo "=== 当前物理根目录清单 ==="
+        ls -F
+        echo "=== 检查 custom-config 内容 ==="
+        if [ -d "custom-config" ]; then
+          ls -F custom-config/
+        else
+          echo "致命错误：未在根目录找到 custom-config 文件夹！"
+          exit 1
+        fi
+
+    - name: 3. 初始化编译环境
       run: |
         sudo -E apt-get -qq update
         sudo -E apt-get -qq install build-essential clang flex bison g++ gawk gcc-multilib g++-multilib gettext git libncurses5-dev libssl-dev python3-distutils rsync unzip zlib1g-dev swig libpython3-dev device-tree-compiler qemu-utils
         sudo timedatectl set-timezone "$TZ"
 
-    - name: 3. 物理克隆源码分支
+    - name: 4. 物理克隆源码至 openwrt 文件夹
       run: |
-        # 保持在 $GITHUB_WORKSPACE 下操作，避免目录混乱
-        git clone --depth 1 $REPO_URL -b $REPO_BRANCH openwrt
+        git clone --depth 1 -b ${{ env.SRC_BRANCH }} ${{ env.SRC_URL }} openwrt
 
-    - name: 4. 物理注入 DTS 和 MK (绝对路径对齐)
+    - name: 5. 物理注入三件套 (DTS / MK / Config)
       run: |
-        # 使用 $GITHUB_WORKSPACE 绝对路径物理定位
-        DTS_SRC="$GITHUB_WORKSPACE/custom-config/mt7981-sl-3000-emmc.dts"
-        MK_SRC="$GITHUB_WORKSPACE/custom-config/filogic.mk"
+        # 定义绝对物理源路径 (来自 main 分支)
+        CONF_ROOT="$GITHUB_WORKSPACE/custom-config"
         
-        # 物理检查：如果文件不存在直接报错并退出，避免浪费编译时间
-        if [ ! -f "$DTS_SRC" ]; then echo "错误：未找到 $DTS_SRC"; exit 1; fi
+        # 定义物理目标路径 (注入到 openwrt 子目录)
+        DTS_DEST="openwrt/target/linux/mediatek/files-5.15/arch/arm64/boot/dts/mediatek"
+        MK_DEST="openwrt/target/linux/mediatek/image/filogic.mk"
         
-        mkdir -p openwrt/target/linux/mediatek/files-5.15/arch/arm64/boot/dts/mediatek/
-        cp -v "$DTS_SRC" openwrt/target/linux/mediatek/files-5.15/arch/arm64/boot/dts/mediatek/
-        cp -v "$MK_SRC" openwrt/target/linux/mediatek/image/filogic.mk
+        # 执行物理覆盖
+        mkdir -p "$DTS_DEST"
+        cp -v "$CONF_ROOT/mt7981-sl-3000-emmc.dts" "$DTS_DEST/"
+        cp -v "$CONF_ROOT/filogic.mk" "$MK_DEST"
+        cp -v "$CONF_ROOT/sl3000.config" openwrt/.config
+        
+        echo "物理注入完成。"
 
-    - name: 5. 更新并安装 Feeds
+    - name: 6. 更新并安装 Feeds
       run: |
         cd openwrt
         ./scripts/feeds update -a
         ./scripts/feeds install -a
 
-    - name: 6. 加载配置与补齐 5.15 内核
+    - name: 7. 物理构建：强制全依赖 DTS 同步 (关键修复)
       run: |
         cd openwrt
-        CONF_SRC="$GITHUB_WORKSPACE/custom-config/sl3000.config"
-        [ -f "$CONF_SRC" ] && cp -v "$CONF_SRC" .config || (echo "Config缺失"; exit 1)
         echo "CONFIG_LINUX_5_15=y" >> .config
         make defconfig
-        make download -j8
-
-    - name: 7. 物理构建：强制全依赖 DTS 注入
-      run: |
-        cd openwrt
+        
+        # 编译核心工具链
         make tools/install -j$(nproc) || make tools/install V=s -j1
         make toolchain/install -j$(nproc) || make toolchain/install V=s -j1
+        
+        # 物理准备内核并补齐 .dtsi 依赖
         make target/linux/prepare V=s -j1
-        
-        # 物理物理物理：同步所有 .dtsi 依赖项
-        KERNEL_DTS_DEST=$(find build_dir/ -name "linux-5.15*" -type d | head -n 1)/arch/arm64/boot/dts/mediatek
-        SRC_DTS_DIR="target/linux/mediatek/files-5.15/arch/arm64/boot/dts/mediatek"
-        
-        if [ -d "$KERNEL_DTS_DEST" ]; then
-          cp -rv $SRC_DTS_DIR/* "$KERNEL_DTS_DEST/"
-        fi
+        KERNEL_DTS_ROOT=$(find build_dir/ -name "linux-5.15*" -type d | head -n 1)/arch/arm64/boot/dts/mediatek
+        cp -rv target/linux/mediatek/files-5.15/arch/arm64/boot/dts/mediatek/* "$KERNEL_DTS_ROOT/"
 
-        # 编译引导与全量构建
+        # 物理合成救砖组件 (先 ATF/U-Boot 后全量)
         make package/boot/arm-trusted-firmware-mediatek/compile V=s -j1
         make package/boot/uboot-mediatek/compile V=s -j1
         make -j$(nproc) || make -j1 V=s
 
-    - name: 8. 收集产出物
+    - name: 8. 收集 32MB 救砖包与系统镜像
       run: |
         mkdir -p out_final
+        # 搜索并拷贝 nor-programmer-dump.bin 和 sysupgrade.bin
         find openwrt/bin/targets/mediatek/filogic/ -name "*nor-programmer-dump.bin*" -exec cp -v {} out_final/ \;
         find openwrt/bin/targets/mediatek/filogic/ -name "*emmc-sysupgrade.bin*" -exec cp -v {} out_final/ \;
-        cd out_final && sha256sum * > sha256sums.txt
+        if [ -d out_final ]; then
+          cd out_final && sha256sum * > sha256sums.txt
+        fi
 
-    - name: 9. 发布
+    - name: 9. 上传 Artifacts (SL3000 救砖套装)
       uses: actions/upload-artifact@v4
       with:
-        name: SL3000-Rescue-V12
+        name: SL3000-Final-Rescue-V16
         path: out_final/
