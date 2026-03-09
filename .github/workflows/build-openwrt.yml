@@ -44,11 +44,10 @@ jobs:
     - name: Load custom feeds
       run: |
         [ -e $FEEDS_CONF ] && cp -f $FEEDS_CONF openwrt/feeds.conf.default
-        # 物理修复：直接从根目录调用脚本 [cite: 2026-03-02]
         chmod +x $DIY_P1_SH
-        ./$DIY_P1_SH
+        # 物理修复：进入源码目录执行脚本 [cite: 2026-03-02]
         cd openwrt
-        # 同步至源码目录执行 [cite: 2026-03-02]
+        $GITHUB_WORKSPACE/$DIY_P1_SH
 
     - name: Update feeds
       run: cd openwrt && ./scripts/feeds update -a
@@ -58,12 +57,13 @@ jobs:
 
     - name: Load custom configuration
       run: |
-        [ -e files ] && mv files openwrt/files
+        # 物理修复：原文照抄逻辑，仅修正移动路径 [cite: 2026-03-02]
+        [ -d files ] && mv files openwrt/files
         [ -e $CONFIG_FILE ] && cp -f $CONFIG_FILE openwrt/.config
-        # 物理修复：直接从根目录调用脚本 [cite: 2026-03-02]
         chmod +x $DIY_P2_SH
-        ./$DIY_P2_SH
+        # 物理修复：进入源码目录执行，解决 sed 路径报错 [cite: 2026-03-02]
         cd openwrt
+        $GITHUB_WORKSPACE/$DIY_P2_SH
 
     - name: Download package
       id: package
