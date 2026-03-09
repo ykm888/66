@@ -1,4 +1,4 @@
-name: "SL3000-Sync-Config-To-Main-V44"
+name: "SL3000-All-In-One-Sync-V55"
 
 on:
   workflow_dispatch:
@@ -12,38 +12,45 @@ jobs:
     steps:
       - name: 1. 物理克隆主仓库 (main)
         run: |
-          # 克隆 main 分支作为基础
           git clone -b main https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/ykm888/66.git repo-main
 
-      - name: 2. 物理提取开发分支的配置文件
+      - name: 2. 物理提取开发分支的全量核心文件
         run: |
-          # 物理获取开发分支中的 sl3000.config 文件内容
+          # 提取 1: 5.15 内核配置文件
           curl -L https://raw.githubusercontent.com/ykm888/66/sl3000-immortalwrt-bootstrap/custom-config/sl3000.config -o sl3000.config.tmp
           
-          # 物理检查：如果文件为空或下载失败则停止
-          if [ ! -s sl3000.config.tmp ]; then
-            echo "物理错误：未能在开发分支找到配置文件！"
-            exit 1
-          fi
+          # 提取 2: 锁定 5.15 内核路径下的物理设备树 (DTS)
+          curl -L https://raw.githubusercontent.com/ykm888/66/sl3000-immortalwrt-bootstrap/target/linux/mediatek/files-5.15/arch/arm64/boot/dts/mediatek/mt7981-sl-3000-emmc.dts -o sl3000.dts.tmp
+          
+          # 提取 3: 物理镜像合成逻辑 (MK)
+          curl -L https://raw.githubusercontent.com/ykm888/66/sl3000-immortalwrt-bootstrap/target/linux/mediatek/image/filogic.mk -o filogic.mk.tmp
 
-      - name: 3. 物理注入并推送至 main 分支
+      - name: 3. 物理注入核心组件至 main
         run: |
           cd repo-main
-          # 确保目标文件夹存在
+          # A. 物理同步配置
           mkdir -p custom-config/
-          
-          # 物理覆盖 main 分支的文件
           cp ../sl3000.config.tmp custom-config/sl3000.config
           
-          git config user.name "SL3000-Main-Sync-Bot"
+          # B. 物理同步设备树 (物理路径修正为 files-5.15)
+          mkdir -p target/linux/mediatek/files-5.15/arch/arm64/boot/dts/mediatek/
+          cp ../sl3000.dts.tmp target/linux/mediatek/files-5.15/arch/arm64/boot/dts/mediatek/mt7981-sl-3000-emmc.dts
+          
+          # C. 物理同步编译镜像逻辑
+          mkdir -p target/linux/mediatek/image/
+          cp ../filogic.mk.tmp target/linux/mediatek/image/filogic.mk
+
+      - name: 4. 物理提交并推送
+        run: |
+          cd repo-main
+          git config user.name "SL3000-System-Sync-Bot"
           git config user.email "bot@github.com"
           git add .
           
-          # 物理检查是否有变化
           if [ -n "$(git status --porcelain)" ]; then
-            git commit -m "chore: 从开发分支物理同步最新 1024M 配置至 main"
+            git commit -m "feat: 物理修正 DTS 路径至 files-5.15 并同步全量架构"
             git push origin main
-            echo "物理同步完成！"
+            echo "物理全要素同步完成！"
           else
-            echo "文件内容一致，无需重复推送。"
+            echo "物理文件无变化，无需操作。"
           fi
