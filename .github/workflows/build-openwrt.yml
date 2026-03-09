@@ -1,4 +1,4 @@
-name: "SL3000-1024M-Final-Build-V48"
+name: "SL3000-1024M-Final-Build-V61"
 
 on:
   workflow_dispatch:
@@ -12,68 +12,61 @@ jobs:
     steps:
       - name: 1. 物理环境初始化 (工序一)
         run: |
-          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/share/boost
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc
           sudo -E apt-get -qq update
-          # 物理修补：显式添加 device-tree-compiler
-          sudo -E apt-get -qq install build-essential clang flex bison g++ gawk gcc-multilib g++-multilib gettext git libncurses5-dev libssl-dev python3-distutils rsync unzip zlib1g-dev swig libpython3-dev qemu-utils libncursesw5-dev liblzma-dev libpam0g-dev libglib2.0-dev libgpiod-dev device-tree-compiler
+          sudo -E apt-get -qq install build-essential clang flex bison g++ gawk gcc-multilib g++-multilib gettext git libncurses5-dev libssl-dev python3-distutils rsync unzip zlib1g-dev swig libpython3-dev qemu-utils libncursesw5-dev liblzma-dev libpam0g-dev libglib2.0-dev libgpiod-dev device-tree-compiler bc
           sudo timedatectl set-timezone "Asia/Shanghai"
 
       - name: 2. 物理克隆源码 (工序二)
         run: |
           git clone --depth 1 -b sl3000-immortalwrt-bootstrap https://github.com/ykm888/66 openwrt
 
-      - name: 3. 物理同步最新 Makefile (工序三)
+      - name: 3. 物理同步 Feeds (工序三)
         run: |
           cd openwrt
-          mkdir -p package/boot/arm-trusted-firmware-mediatek/
-          curl -L https://raw.githubusercontent.com/ykm888/66/sl3000-immortalwrt-bootstrap/package/boot/arm-trusted-firmware-mediatek/Makefile -o package/boot/arm-trusted-firmware-mediatek/Makefile
-
-      - name: 4. 彻底物理清理索引 (工序四)
-        run: |
-          cd openwrt
-          rm -rf tmp
           ./scripts/feeds update -a
           ./scripts/feeds install -a
-          ./scripts/feeds install -a
+
+      - name: 4. 物理强制注入修复后的 DTS/MK (工序四)
+        run: |
+          cd openwrt
+          # 物理创建 5.15 专用路径（防止源码树缺失层级）
+          mkdir -p target/linux/mediatek/files-5.15/arch/arm64/boot/dts/mediatek/
+          
+          # 从你的 main 分支拉取你刚修好的 DTS
+          curl -L https://raw.githubusercontent.com/ykm888/66/main/target/linux/mediatek/files-5.15/arch/arm64/boot/dts/mediatek/mt7981-sl-3000-emmc.dts -o target/linux/mediatek/files-5.15/arch/arm64/boot/dts/mediatek/mt7981-sl-3000-emmc.dts
+          
+          # 同步 V60 版本的 MK
+          curl -L https://raw.githubusercontent.com/ykm888/66/main/target/linux/mediatek/image/filogic.mk -o target/linux/mediatek/image/filogic.mk
 
       - name: 5. 物理种子配置对齐 (工序五)
         run: |
           cd openwrt
           curl -L https://raw.githubusercontent.com/ykm888/66/main/custom-config/sl3000.config -o .config
-          sed -i 's/CONFIG_TARGET_mediatek_filogic_DEVICE_sl_3000-emmc=y/CONFIG_TARGET_mediatek_filogic_DEVICE_sl_3000-nor=y/g' .config
+          # 物理强制：锁定 5.15 内核与 DDR4 引导
+          echo "CONFIG_LINUX_5_15=y" >> .config
+          echo "# CONFIG_LINUX_5_4 is not set" >> .config
           make defconfig
-          grep "CONFIG_PACKAGE_trusted-firmware-a-mt7981-nor-ddr4=y" .config || (echo "物理报警：配置失效！" && exit 1)
 
-      - name: 6. 物理下载源码包 (工序六)
+      - name: 6. 物理核心包构建 (工序六)
         run: |
           cd openwrt
-          make download -j$(nproc)
-          find dl -size -1024c -exec rm -f {} \;
-
-      - name: 7. 物理工具链预构建 (工序七)
-        run: |
-          cd openwrt
-          make tools/install -j$(nproc)
-          make toolchain/install -j$(nproc)
-
-      - name: 8. 物理核心包构建 (工序八)
-        run: |
-          cd openwrt
+          # 优先编译 1024M 专用的引导组件
           make package/boot/arm-trusted-firmware-mediatek/compile V=s -j1
           make package/boot/uboot-mediatek/compile V=s -j1
+          # 全量编译
           make -j$(nproc) || make -j1 V=s
 
-      - name: 9. 物理搜集救砖产物 (工序九)
+      - name: 7. 物理产出物搜集 (工序七)
         run: |
           cd openwrt
-          mkdir -p out_recovery
-          find bin/targets/mediatek/filogic/ -name "*nor-ddr4-bl2.img*" -exec cp -v {} out_recovery/ \;
-          find bin/targets/mediatek/filogic/ -name "*fip.bin*" -exec cp -v {} out_recovery/ \;
-          find bin/targets/mediatek/filogic/ -name "*sysupgrade.itb*" -exec cp -v {} out_recovery/ \;
-          cd out_recovery && sha256sum * > sha256sums.txt
+          mkdir -p out_final
+          find bin/targets/mediatek/filogic/ -name "*nor-programmer-dump.bin*" -exec cp -v {} out_final/ \;
+          find bin/targets/mediatek/filogic/ -name "*emmc-sysupgrade.bin*" -exec cp -v {} out_final/ \;
+          cd out_final && sha256sum * > sha256sums.txt
 
-      - name: 10. 发布救砖固件 (工序十)
+      - name: 8. 上传全量 1024M 救砖包 (工序八)
         uses: actions/upload-artifact@v4
         with:
-          name: SL3000-1024M-DDR4-Recovery-Pack
-          path: openwrt/out_recovery/
+          name: SL3000-1024M-Final-Firmware
+          path: openwrt/out_final/
