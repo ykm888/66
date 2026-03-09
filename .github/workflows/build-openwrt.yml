@@ -1,7 +1,7 @@
-name: "SL3000-Final-Repair-Build-V76"
+name: "SL3000-Final-Build-V3"
 
 on:
-  workflow_dispatch: # 手动物理触发
+  workflow_dispatch:
 
 jobs:
   build:
@@ -12,7 +12,6 @@ jobs:
     steps:
       - name: 1. 物理环境初始化与空间清理 (工序一)
         run: |
-          # 物理腾出空间，防止编译 toolchain 时因磁盘满导致文件丢失
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/share/boost
           sudo -E apt-get -qq update
           sudo -E apt-get -qq install build-essential clang flex bison g++ gawk gcc-multilib g++-multilib gettext git libncurses5-dev libssl-dev python3-distutils rsync unzip zlib1g-dev swig libpython3-dev qemu-utils libncursesw5-dev liblzma-dev libpam0g-dev libglib2.0-dev libgpiod-dev device-tree-compiler bc python3-yaml python3-setuptools
@@ -20,7 +19,7 @@ jobs:
 
       - name: 2. 物理克隆源码 (工序二)
         run: |
-          # 物理检出包含修复 DTS/MK 的开发分支
+          # 物理锁定包含 DTS 的开发分支
           git clone --depth 1 -b sl3000-immortalwrt-bootstrap https://github.com/ykm888/66 openwrt
 
       - name: 3. 物理同步 Feeds (工序三)
@@ -29,17 +28,10 @@ jobs:
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
-      - name: 4. 物理注入 5.15 DTS 与 32MB 救砖逻辑 (工序四)
+      - name: 4. 物理注入 32MB 救砖逻辑 (工序四)
         run: |
           cd openwrt
-          # 物理确保 5.15 内核路径绝对存在
-          mkdir -p target/linux/mediatek/files-5.15/arch/arm64/boot/dts/mediatek/
-          
-          # 物理同步 DTS (如果开发分支路径不同，强制复制到编译路径)
-          [ -f target/linux/mediatek/files-5.15/arch/arm64/boot/dts/mediatek/mt7981-sl-3000-emmc.dts ] || \
-          cp target/linux/mediatek/dts/mt7981-sl-3000-emmc.dts target/linux/mediatek/files-5.15/arch/arm64/boot/dts/mediatek/ 2>/dev/null || true
-
-          # 物理重写 MK 救砖包逻辑
+          # 物理重写 MK 救砖包逻辑 (延续第 1 版原文)
           sed -i '/Device\/sl_3000-nor-emmc/,/endef/d' target/linux/mediatek/image/filogic.mk
           cat << 'EOF' >> target/linux/mediatek/image/filogic.mk
 
@@ -54,7 +46,7 @@ jobs:
           define Device/sl_3000-nor-emmc
             DEVICE_VENDOR := SL
             DEVICE_MODEL := 3000
-            DEVICE_VARIANT := NOR-1024M-Rescue-V76
+            DEVICE_VARIANT := NOR-1024M-Rescue-V3
             DEVICE_DTS := mt7981-sl-3000-emmc
             IMAGES := nor-programmer-dump.bin emmc-sysupgrade.bin
             IMAGE/nor-programmer-dump.bin := sl3000-nor-bundle
@@ -69,21 +61,38 @@ jobs:
           curl -sL https://raw.githubusercontent.com/ykm888/66/main/custom-config/sl3000.config -o .config
           echo "CONFIG_LINUX_5_15=y" >> .config
           make defconfig
-          # 物理下载源码，防止编译中途因网络中断
           make download -j8
 
-      - name: 6. 物理修复编译：工具链优先 (工序六)
+      - name: 6. 物理修复编译：内核 DTS 强制物理对齐 (工序六 - V3 关键修复)
         run: |
           cd openwrt
-          # 先物理安装工具链，解决 ld-musl 缺失报错
+          # 1. 物理安装基础工具链
           make tools/install -j$(nproc) || make tools/install V=s -j1
           make toolchain/install -j$(nproc) || make toolchain/install V=s -j1
           
-          # 物理编译引导组件
+          # 2. 物理准备内核源码目录
+          make target/linux/prepare V=s -j1
+          
+          # 3. 物理定位内核构建目录并强制拷贝 DTS (解决 V2 报错的核心)
+          # 编译器报错路径是 arch/arm64/boot/dts/mt7981-sl-3000-emmc.dts
+          KERNEL_DTS_PATH=$(find build_dir/target-aarch64_cortex-a53_musl/ -name "linux-5.15*" -type d | head -n 1)/arch/arm64/boot/dts
+          SRC_DTS="target/linux/mediatek/files-5.15/arch/arm64/boot/dts/mediatek/mt7981-sl-3000-emmc.dts"
+          
+          if [ -d "$KERNEL_DTS_PATH" ]; then
+            echo "物理对齐 DTS 到内核路径: $KERNEL_DTS_PATH"
+            cp -v "$SRC_DTS" "$KERNEL_DTS_PATH/"
+            # 同时在 dts 根目录下也放一份，彻底消除 cc1 寻找路径的盲区
+            cp -v "$SRC_DTS" "$KERNEL_DTS_PATH/mediatek/" || mkdir -p "$KERNEL_DTS_PATH/mediatek/" && cp -v "$SRC_DTS" "$KERNEL_DTS_PATH/mediatek/"
+          else
+            echo "错误：未找到内核物理路径，请检查 target/linux/prepare 状态"
+            exit 1
+          fi
+
+          # 4. 物理编译引导组件
           make package/boot/arm-trusted-firmware-mediatek/compile V=s -j1
           make package/boot/uboot-mediatek/compile V=s -j1
           
-          # 全量物理构建
+          # 5. 全量物理构建
           make -j$(nproc) || make -j1 V=s
 
       - name: 7. 物理产出物搜集 (工序七)
@@ -97,5 +106,5 @@ jobs:
       - name: 8. 上传 1024M 物理救砖固件 (工序八)
         uses: actions/upload-artifact@v4
         with:
-          name: SL3000-V76-Rescue-Package
+          name: SL3000-V3-Rescue-Package
           path: openwrt/out_final/
