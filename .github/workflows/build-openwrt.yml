@@ -1,20 +1,16 @@
-name: "OpenWrt Builder SL3000 Final V28"
+name: SL3000-23.05-5.15-Build
 
 on:
+  repository_dispatch:
   workflow_dispatch:
 
 env:
-  # 物理仓库信息锁定
   REPO_URL: https://github.com/ykm888/66
   REPO_BRANCH: sl3000-immortalwrt-bootstrap
-  UBOOT_REPO_URL: https://github.com/ykm888/66
-  UBOOT_BRANCH: sl3000-uboot-base
-  # 物理文件路径锁定 (来自 main 分支)
+  FEEDS_CONF: feeds.conf.default
   CONFIG_FILE: custom-config/sl3000.config
-  DTS_FILE: custom-config/mt7981-sl-3000-emmc.dts
-  MK_FILE: custom-config/filogic.mk
-  DIY_P1_SH: scripts/diy-part1.sh
-  DIY_P2_SH: scripts/diy-part2.sh
+  DIY_P1_SH: diy-part1.sh
+  DIY_P2_SH: diy-part2.sh
   TZ: Asia/Shanghai
 
 jobs:
@@ -22,95 +18,77 @@ jobs:
     runs-on: ubuntu-22.04
 
     steps:
-    - name: 1. 物理检出配置源 (main)
+    - name: Checkout
       uses: actions/checkout@v4
-      with:
-        ref: main
 
-    - name: 2. 物理初始化环境 (成功案例瘦身版)
+    - name: Initialization environment
+      env:
+        DEBIAN_FRONTEND: noninteractive
       run: |
-        sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/share/boost /usr/local/share/vcpkg
+        sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc
         sudo -E apt-get -qq update
         sudo -E apt-get -qq install $(curl -fsSL https://is.gd/depends_ubuntu_2204)
-        sudo -E apt-get -qq install device-tree-compiler libyaml-dev
+        sudo -E apt-get -qq autoremove --purge
+        sudo -E apt-get -qq clean
         sudo timedatectl set-timezone "$TZ"
+        sudo mkdir -p /workdir
+        sudo chown $USER:$USER /workdir
 
-    - name: 3. 物理克隆源码与 U-Boot 注入
+    - name: Clone source code
+      working-directory: /workdir
       run: |
-        # 克隆主源码分支
-        git clone --depth 1 $REPO_URL -b $REPO_BRANCH openwrt
-        # 物理注入：直接使用本地 src 编译 U-Boot (延续成功案例核心技巧)
-        rm -rf openwrt/package/boot/uboot-mediatek/src
-        git clone --depth 1 $UBOOT_REPO_URL -b $UBOOT_BRANCH openwrt/package/boot/uboot-mediatek/src
+        df -hT $PWD
+        git clone $REPO_URL -b $REPO_BRANCH openwrt
+        ln -sf /workdir/openwrt $GITHUB_WORKSPACE/openwrt
 
-    - name: 4. 执行 DIY 脚本 Part 1 (Before Feeds)
+    - name: Load custom feeds
       run: |
-        if [ -f "$DIY_P1_SH" ]; then
-          chmod +x $DIY_P1_SH
-          cd openwrt && $GITHUB_WORKSPACE/$DIY_P1_SH
-        else
-          echo "⚠️ 未找到 scripts/diy-part1.sh，物理跳过"
-        fi
+        [ -e $FEEDS_CONF ] && cp -f $FEEDS_CONF openwrt/feeds.conf.default
+        # 物理修复：直接从根目录调用脚本 [cite: 2026-03-02]
+        chmod +x $DIY_P1_SH
+        ./$DIY_P1_SH
+        cd openwrt
+        # 同步至源码目录执行 [cite: 2026-03-02]
 
-    - name: 5. 更新并安装 Feeds
+    - name: Update feeds
+      run: cd openwrt && ./scripts/feeds update -a
+
+    - name: Install feeds
+      run: cd openwrt && ./scripts/feeds install -a
+
+    - name: Load custom configuration
+      run: |
+        [ -e files ] && mv files openwrt/files
+        [ -e $CONFIG_FILE ] && cp -f $CONFIG_FILE openwrt/.config
+        # 物理修复：直接从根目录调用脚本 [cite: 2026-03-02]
+        chmod +x $DIY_P2_SH
+        ./$DIY_P2_SH
+        cd openwrt
+
+    - name: Download package
+      id: package
       run: |
         cd openwrt
-        ./scripts/feeds update -a
-        ./scripts/feeds install -a
-
-    - name: 6. 物理注入三件套 (绝对路径锁定)
-      run: |
-        # 定义绝对物理源
-        SRC_DIR="$GITHUB_WORKSPACE/custom-config"
-        DTS_DEST="openwrt/target/linux/mediatek/files-5.15/arch/arm64/boot/dts/mediatek"
-        
-        # 物理注入
-        mkdir -p "$DTS_DEST"
-        cp -vf "$SRC_DIR/mt7981-sl-3000-emmc.dts" "$DTS_DEST/"
-        cp -vf "$SRC_DIR/filogic.mk" "openwrt/target/linux/mediatek/image/filogic.mk"
-        cp -vf "$SRC_DIR/sl3000.config" "openwrt/.config"
-
-    - name: 7. 执行 DIY 脚本 Part 2 (After Feeds)
-      run: |
-        if [ -f "$DIY_P2_SH" ]; then
-          chmod +x $DIY_P2_SH
-          cd openwrt && $GITHUB_WORKSPACE/$DIY_P2_SH
-        else
-          echo "⚠️ 未找到 scripts/diy-part2.sh，物理跳过"
-        fi
-
-    - name: 8. 物理构建准备 (同步 5.15 内核 DTS)
-      run: |
-        cd openwrt
-        echo "CONFIG_LINUX_5_15=y" >> .config
         make defconfig
-        # 编译核心工具链
-        make tools/install -j$(nproc) || make tools/install V=s -j1
-        make toolchain/install -j$(nproc) || make toolchain/install V=s -j1
-        # 物理同步关键 DTS 依赖到内核坑位 (针对 23.05)
-        make target/linux/prepare V=s -j1
-        K_DTS=$(find build_dir/ -name "linux-5.15*" -type d | head -n 1)/arch/arm64/boot/dts/mediatek
-        [ -d "$K_DTS" ] && cp -rf target/linux/mediatek/files-5.15/arch/arm64/boot/dts/mediatek/* "$K_DTS/"
+        make download -j8
+        find dl -size -1024c -exec ls -l {} \;
+        find dl -size -1024c -exec rm -f {} \;
 
-    - name: 9. 物理顺序编译 (ATF -> U-Boot -> FW)
+    - name: Compile the firmware
+      id: compile
       run: |
         cd openwrt
-        make package/boot/arm-trusted-firmware-mediatek/compile V=s -j1
-        make package/boot/uboot-mediatek/compile V=s -j1
-        make -j$(nproc) || make -j1 V=s
+        echo -e "$(nproc) thread compile"
+        make -j$(nproc) || make -j1 || make -j1 V=s
+        echo "status=success" >> $GITHUB_OUTPUT
 
-    - name: 10. 整理产出与发布
-      run: |
-        mkdir -p out_final
-        # 物理搜索并拷贝所有产出镜像
-        find openwrt/bin/targets/ -name "*sl_3000*" -exec cp -f {} out_final/ \;
-        cd out_final && sha256sum * > sha256sums.txt
-        echo "TAG_NAME=SL3000-V28-$(date +%Y%m%d-%H%M)" >> $GITHUB_ENV
+    - name: Check space usage
+      if: (!cancelled())
+      run: df -hT
 
-    - name: 11. 发布 SL3000 终极救砖套装
-      uses: softprops/action-gh-release@v2
+    - name: Upload bin directory
+      uses: actions/upload-artifact@v4
+      if: steps.compile.outputs.status == 'success'
       with:
-        tag_name: ${{ env.TAG_NAME }}
-        files: out_final/*
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        name: OpenWrt_bin
+        path: openwrt/bin
