@@ -1,60 +1,60 @@
-name: "SL3000-Core-Sync-V65"
+name: "SL3000-Full-8000-Config-Sync-V69"
 
 on:
-  workflow_dispatch: # 手动触发物理同步
+  workflow_dispatch: # 手动触发物理全量备份
 
 jobs:
-  sync_and_push_assets:
+  backup_full_config:
     runs-on: ubuntu-22.04
     permissions:
-      contents: write # 必须开启物理写入权限
+      contents: write
 
     steps:
-      - name: 1. 物理检出当前分支 (main)
+      - name: 1. 物理检出 main 分支
         uses: actions/checkout@v4
         with:
           ref: main
-          fetch-depth: 0
 
-      - name: 2. 物理目录结构初始化
+      - name: 2. 物理初始化源码环境
         run: |
-          # 物理确保 5.15 路径存在
-          mkdir -p target/linux/mediatek/files-5.15/arch/arm64/boot/dts/mediatek/
-          mkdir -p target/linux/mediatek/image/
-          mkdir -p custom-config/
+          # 物理检出开发分支作为配置基准
+          git clone --depth 1 -b sl3000-immortalwrt-bootstrap https://github.com/ykm888/66 openwrt
+          cd openwrt
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
 
-      - name: 3. 物理抓取并注入最新配置 (Injection)
+      - name: 3. 物理合成全量 8000 行配置
         run: |
-          # A. 注入 1024M 修正版 DTS
-          curl -sL "https://raw.githubusercontent.com/ykm888/66/sl3000-immortalwrt-bootstrap/target/linux/mediatek/files-5.15/arch/arm64/boot/dts/mediatek/mt7981-sl-3000-emmc.dts" \
-               -o target/linux/mediatek/files-5.15/arch/arm64/boot/dts/mediatek/mt7981-sl-3000-emmc.dts
+          cd openwrt
+          # A. 物理注入核心关键锁点
+          cat << 'EOF' > .config
+          CONFIG_TARGET_mediatek=y
+          CONFIG_TARGET_mediatek_filogic=y
+          CONFIG_TARGET_mediatek_filogic_DEVICE_sl_3000-nor-emmc=y
+          CONFIG_LINUX_5_15=y
+          # 锁定物理内存与存储性能组件
+          CONFIG_PACKAGE_kmod-mmc-mtk=y
+          CONFIG_PACKAGE_kmod-mt7531=y
+          CONFIG_PACKAGE_f2fs-tools=y
+          EOF
           
-          # B. 注入 32MB 救砖逻辑 MK
-          curl -sL "https://raw.githubusercontent.com/ykm888/66/sl3000-immortalwrt-bootstrap/target/linux/mediatek/image/filogic.mk" \
-               -o target/linux/mediatek/image/filogic.mk
-          
-          # C. 注入核心种子配置 .config
-          curl -sL "https://raw.githubusercontent.com/ykm888/66/sl3000-immortalwrt-bootstrap/custom-config/sl3000.config" \
-               -o custom-config/sl3000.config
+          # B. 物理展开：将核心锁点扩充为 8000 行的全量依赖树
+          make defconfig
 
-      - name: 4. 物理状态校验 (Verification)
+      - name: 4. 物理推送到 main 分支 custom-config/
         run: |
-          echo "=== 物理文件大小检查 (若为0则说明路径脱靶) ==="
-          ls -lh target/linux/mediatek/files-5.15/arch/arm64/boot/dts/mediatek/mt7981-sl-3000-emmc.dts
-          ls -lh target/linux/mediatek/image/filogic.mk
-          ls -lh custom-config/sl3000.config
-
-      - name: 5. 物理提交并推送至仓库 (Push)
-        run: |
-          git config user.name "SL3000-System-Bot"
+          git config user.name "SL3000-Full-Config-Bot"
           git config user.email "bot@github.com"
           
-          git add .
-          # 物理判定是否有内容更新
+          mkdir -p custom-config/
+          # 物理拷贝全量 .config (这就是那 8000 行文件)
+          cp openwrt/.config custom-config/sl3000.config
+          
+          git add custom-config/sl3000.config
           if [ -n "$(git status --porcelain)" ]; then
-            git commit -m "chore: 物理对齐 5.15 内核 DTS/MK/Config 配置至 1024M 架构"
+            git commit -m "chore: 物理备份 8000 行全量依赖配置 (5.15 内核版)"
             git push origin main
-            echo "物理同步已成功推送到仓库！"
+            echo "8000 行全量配置已物理就位！"
           else
-            echo "物理文件内容已是最新，无需推送。"
+            echo "配置内容物理一致，无需更新。"
           fi
