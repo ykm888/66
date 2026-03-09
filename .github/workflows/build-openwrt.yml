@@ -1,4 +1,4 @@
-name: "SL3000-Final-Build-V7"
+name: "SL3000-Final-Build-V9"
 
 on:
   workflow_dispatch:
@@ -22,17 +22,15 @@ jobs:
         with:
           ref: main
 
-      - name: 3. 物理克隆构建源码
+      - name: 3. 物理克隆构建源码 (分支: sl3000-immortalwrt-bootstrap)
         run: |
           git clone --depth 1 -b sl3000-immortalwrt-bootstrap https://github.com/ykm888/66 openwrt
 
-      - name: 4. 物理注入 DTS/MK
+      - name: 4. 物理注入三件套 (DTS/MK)
         run: |
-          # A. 物理覆盖 DTS 到 5.15 路径
+          # 物理覆盖主分支定制的 DTS 和 MK 到源码对应的 files 目录
           mkdir -p openwrt/target/linux/mediatek/files-5.15/arch/arm64/boot/dts/mediatek/
           cp -v custom-config/mt7981-sl-3000-emmc.dts openwrt/target/linux/mediatek/files-5.15/arch/arm64/boot/dts/mediatek/
-          
-          # B. 物理覆盖 MK 文件
           cp -v custom-config/filogic.mk openwrt/target/linux/mediatek/image/filogic.mk
 
       - name: 5. 物理同步 Feeds 与加载配置
@@ -50,21 +48,31 @@ jobs:
           make defconfig
           make download -j8
 
-      - name: 6. 物理构建：工具链与内核对齐
+      - name: 6. 物理构建：全依赖 DTS 强制对齐 (V9 修复点)
         run: |
           cd openwrt
-          # 物理确保核心工具链就位
+          # 物理安装工具链
           make tools/install -j$(nproc) || make tools/install V=s -j1
           make toolchain/install -j$(nproc) || make toolchain/install V=s -j1
           
-          # 物理准备内核并注入 DTS (双坑位注入)
+          # 物理准备内核
           make target/linux/prepare V=s -j1
-          KERNEL_DTS_PATH=$(find build_dir/target-aarch64_cortex-a53_musl/ -name "linux-5.15*" -type d | head -n 1)/arch/arm64/boot/dts
-          mkdir -p "$KERNEL_DTS_PATH/mediatek/"
-          cp -v ../custom-config/mt7981-sl-3000-emmc.dts "$KERNEL_DTS_PATH/"
-          cp -v ../custom-config/mt7981-sl-3000-emmc.dts "$KERNEL_DTS_PATH/mediatek/"
+          
+          # 物理定位内核构建中的 DTS 物理坑位
+          KERNEL_DTS_DEST=$(find build_dir/target-aarch64_cortex-a53_musl/ -name "linux-5.15*" -type d | head -n 1)/arch/arm64/boot/dts/mediatek
+          SRC_DTS_DIR="target/linux/mediatek/files-5.15/arch/arm64/boot/dts/mediatek"
+          
+          # 【物理核心修复】将整个 files-5.15 目录下的所有 dtsi 和 dts 强制同步进去
+          # 这样 mt7981-sl-3000-emmc.dts 就能看到同级目录的 mt7981.dtsi 了
+          if [ -d "$KERNEL_DTS_DEST" ]; then
+            echo "物理同步 DTS 依赖项至: $KERNEL_DTS_DEST"
+            cp -rv $SRC_DTS_DIR/* "$KERNEL_DTS_DEST/"
+          else
+            echo "物理报错：找不到内核 DTS 目标目录"
+            exit 1
+          fi
 
-          # 物理编译 ATF 与 U-Boot
+          # 物理编译引导组件 (产出 bl2.img 和 fip.bin)
           make package/boot/arm-trusted-firmware-mediatek/compile V=s -j1
           make package/boot/uboot-mediatek/compile V=s -j1
           
@@ -77,10 +85,10 @@ jobs:
           mkdir -p out_final
           find bin/targets/mediatek/filogic/ -name "*nor-programmer-dump.bin*" -exec cp -v {} out_final/ \;
           find bin/targets/mediatek/filogic/ -name "*emmc-sysupgrade.bin*" -exec cp -v {} out_final/ \;
-          [ -d out_final ] && cd out_final && sha256sum * > sha256sums.txt || echo "未找到产出物"
+          [ -d out_final ] && cd out_final && sha256sum * > sha256sums.txt
 
-      - name: 8. 发布 1024M 物理救砖固件
+      - name: 8. 发布 SL3000 终极救砖包
         uses: actions/upload-artifact@v4
         with:
-          name: SL3000-Final-Rescue-V7
+          name: SL3000-Final-Rescue-V9
           path: openwrt/out_final/
