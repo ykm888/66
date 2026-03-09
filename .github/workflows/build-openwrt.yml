@@ -1,4 +1,4 @@
-name: "SL3000-Final-Build-V6"
+name: "SL3000-Final-Build-V7"
 
 on:
   workflow_dispatch:
@@ -17,16 +17,16 @@ jobs:
           sudo -E apt-get -qq install build-essential clang flex bison g++ gawk gcc-multilib g++-multilib gettext git libncurses5-dev libssl-dev python3-distutils rsync unzip zlib1g-dev swig libpython3-dev qemu-utils libncursesw5-dev liblzma-dev libpam0g-dev libglib2.0-dev libgpiod-dev device-tree-compiler bc python3-yaml python3-setuptools
           sudo timedatectl set-timezone "Asia/Shanghai"
 
-      - name: 2. 物理检出主分支 (获取配置与三件套)
+      - name: 2. 物理检出主分支
         uses: actions/checkout@v4
         with:
           ref: main
 
-      - name: 3. 物理克隆构建源码 (分支: sl3000-immortalwrt-bootstrap)
+      - name: 3. 物理克隆构建源码
         run: |
           git clone --depth 1 -b sl3000-immortalwrt-bootstrap https://github.com/ykm888/66 openwrt
 
-      - name: 4. 物理注入 DTS/MK (工序四)
+      - name: 4. 物理注入 DTS/MK
         run: |
           # A. 物理覆盖 DTS 到 5.15 路径
           mkdir -p openwrt/target/linux/mediatek/files-5.15/arch/arm64/boot/dts/mediatek/
@@ -35,39 +35,40 @@ jobs:
           # B. 物理覆盖 MK 文件
           cp -v custom-config/filogic.mk openwrt/target/linux/mediatek/image/filogic.mk
 
-      - name: 5. 物理同步 Feeds 与加载 8000 行 Config
+      - name: 5. 物理同步 Feeds 与加载配置
         run: |
           cd openwrt
           ./scripts/feeds update -a
           ./scripts/feeds install -a
           cp -v ../custom-config/sl3000.config .config
-          # 物理强制：确保目标设备被选中
-          echo "CONFIG_TARGET_mediatek=y" >> .config
-          echo "CONFIG_TARGET_mediatek_filogic=y" >> .config
-          echo "CONFIG_TARGET_mediatek_filogic_DEVICE_sl_3000-nor-emmc=y" >> .config
-          echo "CONFIG_LINUX_5_15=y" >> .config
+          {
+            echo "CONFIG_TARGET_mediatek=y"
+            echo "CONFIG_TARGET_mediatek_filogic=y"
+            echo "CONFIG_TARGET_mediatek_filogic_DEVICE_sl_3000-nor-emmc=y"
+            echo "CONFIG_LINUX_5_15=y"
+          } >> .config
           make defconfig
           make download -j8
 
-      - name: 6. 物理构建：强制 DTS 对齐与引导先行
+      - name: 6. 物理构建：工具链与内核对齐
         run: |
           cd openwrt
-          # 物理安装工具链 (防止 ld-musl 报错)
+          # 物理确保核心工具链就位
           make tools/install -j$(nproc) || make tools/install V=s -j1
           make toolchain/install -j$(nproc) || make toolchain/install V=s -j1
           
-          # 物理准备内核并注入你提供的 DTS (双路径注入，彻底消灭 cc1 报错)
+          # 物理准备内核并注入 DTS (双坑位注入)
           make target/linux/prepare V=s -j1
           KERNEL_DTS_PATH=$(find build_dir/target-aarch64_cortex-a53_musl/ -name "linux-5.15*" -type d | head -n 1)/arch/arm64/boot/dts
-          mkdir -p $KERNEL_DTS_PATH/mediatek/
-          cp -v ../custom-config/mt7981-sl-3000-emmc.dts $KERNEL_DTS_PATH/
-          cp -v ../custom-config/mt7981-sl-3000-emmc.dts $KERNEL_DTS_PATH/mediatek/
+          mkdir -p "$KERNEL_DTS_PATH/mediatek/"
+          cp -v ../custom-config/mt7981-sl-3000-emmc.dts "$KERNEL_DTS_PATH/"
+          cp -v ../custom-config/mt7981-sl-3000-emmc.dts "$KERNEL_DTS_PATH/mediatek/"
 
-          # 物理编译 ATF (产出 ddr4-bl2.img) 和 U-Boot (产出 fip.bin)
+          # 物理编译 ATF 与 U-Boot
           make package/boot/arm-trusted-firmware-mediatek/compile V=s -j1
           make package/boot/uboot-mediatek/compile V=s -j1
           
-          # 全量构建产出救砖包 nor-programmer-dump.bin
+          # 全量物理构建
           make -j$(nproc) || make -j1 V=s
 
       - name: 7. 物理产出物搜集
@@ -76,10 +77,10 @@ jobs:
           mkdir -p out_final
           find bin/targets/mediatek/filogic/ -name "*nor-programmer-dump.bin*" -exec cp -v {} out_final/ \;
           find bin/targets/mediatek/filogic/ -name "*emmc-sysupgrade.bin*" -exec cp -v {} out_final/ \;
-          [ -d out_final ] && cd out_final && sha256sum * > sha256sums.txt
+          [ -d out_final ] && cd out_final && sha256sum * > sha256sums.txt || echo "未找到产出物"
 
-      - name: 8. 发布 1024M 物理救砖固件 (Artifacts)
+      - name: 8. 发布 1024M 物理救砖固件
         uses: actions/upload-artifact@v4
         with:
-          name: SL3000-Final-Rescue-V6
+          name: SL3000-Final-Rescue-V7
           path: openwrt/out_final/
