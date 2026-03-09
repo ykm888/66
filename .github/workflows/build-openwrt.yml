@@ -1,18 +1,9 @@
-name: "OpenWrt Builder SL3000 Final V21"
+name: "OpenWrt Builder SL3000 Final V23"
 
 on:
   workflow_dispatch:
 
 env:
-  # 源码与分支配置（严格锁定你的仓库）
-  REPO_URL: https://github.com/ykm888/66
-  REPO_BRANCH: sl3000-immortalwrt-bootstrap
-  UBOOT_REPO_URL: https://github.com/ykm888/66
-  UBOOT_BRANCH: sl3000-uboot-base
-  # 配置文件路径（物理锁定 main 分支路径）
-  CONFIG_FILE: custom-config/sl3000.config
-  DTS_FILE: custom-config/mt7981-sl-3000-emmc.dts
-  MK_FILE: custom-config/filogic.mk
   TZ: Asia/Shanghai
 
 jobs:
@@ -20,85 +11,78 @@ jobs:
     runs-on: ubuntu-22.04
 
     steps:
-    - name: 1. 检出配置 (main 分支)
+    - name: 1. 物理检出配置 (main 分支)
       uses: actions/checkout@v4
       with:
         ref: main
 
-    - name: 2. 初始化环境 (物理依赖补全)
+    - name: 2. 物理定位核实 (这一步会打印出所有文件，如果不显示 custom-config，说明检出失败)
       run: |
-        sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/share/boost
+        echo "=== 当前工作目录: $PWD ==="
+        echo "=== 根目录文件清单 ==="
+        ls -R
+
+    - name: 3. 初始化环境与源码
+      run: |
         sudo -E apt-get -qq update
         sudo -E apt-get -qq install $(curl -fsSL https://is.gd/depends_ubuntu_2204)
-        sudo -E apt-get -qq install device-tree-compiler libyaml-dev
         sudo timedatectl set-timezone "$TZ"
-
-    - name: 3. 克隆源码与 U-Boot 源码注入
-      run: |
-        # 克隆主源码
-        git clone --depth 1 $REPO_URL -b $REPO_BRANCH openwrt
         
-        # 【物理重点】注入你的 U-Boot 分支代码到 package 的 src 目录
-        # 这种方式会强制编译器使用你的 uboot-base 代码
+        # 记录当前的绝对路径
+        GLOBAL_WORKSPACE=$PWD
+        
+        # 克隆源码和 U-Boot
+        git clone --depth 1 https://github.com/ykm888/66 -b sl3000-immortalwrt-bootstrap openwrt
         rm -rf openwrt/package/boot/uboot-mediatek/src
-        git clone --depth 1 $UBOOT_REPO_URL -b $UBOOT_BRANCH openwrt/package/boot/uboot-mediatek/src
+        git clone --depth 1 https://github.com/ykm888/66 -b sl3000-uboot-base openwrt/package/boot/uboot-mediatek/src
 
-    - name: 4. 物理注入三件套 (DTS/MK/Config)
+    - name: 4. 物理强行覆盖 (使用 find 动态定位)
       run: |
-        cd openwrt
-        # 物理注入 DTS 到 5.15 坑位
-        mkdir -p target/linux/mediatek/files-5.15/arch/arm64/boot/dts/mediatek
-        cp -f $GITHUB_WORKSPACE/$DTS_FILE target/linux/mediatek/files-5.15/arch/arm64/boot/dts/mediatek/
+        # 无论 custom-config 在哪，强行搜索并定义变量
+        CONF_SRC=$(find $PWD -name "custom-config" -type d | head -n 1)
+        echo "确定的配置源物理路径: $CONF_SRC"
         
-        # 物理注入 MK 镜像逻辑
-        cp -f $GITHUB_WORKSPACE/$MK_FILE target/linux/mediatek/image/filogic.mk
+        # 定义目标路径
+        DTS_DEST="openwrt/target/linux/mediatek/files-5.15/arch/arm64/boot/dts/mediatek"
+        MK_DEST="openwrt/target/linux/mediatek/image/filogic.mk"
         
-        # 物理加载 .config
-        cp -f $GITHUB_WORKSPACE/$CONFIG_FILE .config
+        # 执行注入
+        mkdir -p "$DTS_DEST"
+        cp -vf "$CONF_SRC/mt7981-sl-3000-emmc.dts" "$DTS_DEST/"
+        cp -vf "$CONF_SRC/filogic.mk" "$MK_DEST"
+        cp -vf "$CONF_SRC/sl3000.config" "openwrt/.config"
 
-    - name: 5. 更新/安装 Feeds
+    - name: 5. 编译准备
       run: |
         cd openwrt
-        ./scripts/feeds update -a
-        ./scripts/feeds install -a
-
-    - name: 6. 物理编译内核准备与 DTS 补齐
-      run: |
-        cd openwrt
+        ./scripts/feeds update -a && ./scripts/feeds install -a
         echo "CONFIG_LINUX_5_15=y" >> .config
         make defconfig
+        make tools/install -j$(nproc)
+        make toolchain/install -j$(nproc)
         
-        # 预编译工具链
-        make tools/install -j$(nproc) || make tools/install V=s -j1
-        make toolchain/install -j$(nproc) || make toolchain/install V=s -j1
-        
-        # 关键物理同步：将 files-5.15 的内容同步到构建目录
+        # 补齐 5.15 内核依赖
         make target/linux/prepare V=s -j1
-        KERNEL_DTS_DEST=$(find build_dir/ -name "linux-5.15*" -type d | head -n 1)/arch/arm64/boot/dts/mediatek
-        if [ -d "$KERNEL_DTS_DEST" ]; then
-           cp -rf target/linux/mediatek/files-5.15/arch/arm64/boot/dts/mediatek/* "$KERNEL_DTS_DEST/"
-        fi
+        K_DTS=$(find build_dir/ -name "linux-5.15*" -type d | head -n 1)/arch/arm64/boot/dts/mediatek
+        cp -rf target/linux/mediatek/files-5.15/arch/arm64/boot/dts/mediatek/* "$K_DTS/"
 
-    - name: 7. 执行固件编译
+    - name: 6. 物理构建
       run: |
         cd openwrt
-        # 顺序：ATF -> U-Boot -> 全量
         make package/boot/arm-trusted-firmware-mediatek/compile V=s -j1
         make package/boot/uboot-mediatek/compile V=s -j1
         make -j$(nproc) || make -j1 V=s
 
-    - name: 8. 整理产出物 (32MB 救砖包 + eMMC 升级包)
-      id: organize
+    - name: 7. 发布产出
       run: |
-        mkdir -p $GITHUB_WORKSPACE/FIRMWARE_OUT
-        # 根据你的 MK 逻辑，搜索生成的 bin 文件
-        find openwrt/bin/targets/ -name "*sl_3000*" -exec cp -f {} $GITHUB_WORKSPACE/FIRMWARE_OUT/ \;
-        echo "FIRMWARE=$GITHUB_WORKSPACE/FIRMWARE_OUT" >> $GITHUB_ENV
+        mkdir -p FIRMWARE_OUT
+        find openwrt/bin/targets/ -name "*sl_3000*" -exec cp -f {} FIRMWARE_OUT/ \;
+        echo "FIRMWARE_DIR=$PWD/FIRMWARE_OUT" >> $GITHUB_ENV
 
-    - name: 9. 发布至 Release
+    - name: 8. Release
       uses: softprops/action-gh-release@v2
       with:
-        tag_name: SL3000_23.05_5.15_Build
-        files: ${{ env.FIRMWARE }}/*
+        tag_name: SL3000_V23_Build
+        files: FIRMWARE_OUT/*
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
