@@ -1,4 +1,4 @@
-name: SL3000-23.05-5.15-Build
+name: "SL3000-23.05-5.15-Build-V2"
 
 on:
   repository_dispatch:
@@ -7,10 +7,16 @@ on:
 env:
   REPO_URL: https://github.com/ykm888/66
   REPO_BRANCH: sl3000-immortalwrt-bootstrap
+  # 物理锁定：补齐 U-Boot 变量
+  UBOOT_REPO_URL: https://github.com/ykm888/66
+  UBOOT_BRANCH: sl3000-uboot-base
   FEEDS_CONF: feeds.conf.default
   CONFIG_FILE: custom-config/sl3000.config
-  DIY_P1_SH: diy-part1.sh
-  DIY_P2_SH: diy-part2.sh
+  # 物理锁定：补齐 DTS 和 MK 变量
+  DTS_FILE: custom-config/mt7981-sl-3000-emmc.dts
+  MK_FILE: custom-config/filogic.mk
+  DIY_P1_SH: scripts/diy-part1.sh
+  DIY_P2_SH: scripts/diy-part2.sh
   TZ: Asia/Shanghai
 
 jobs:
@@ -40,12 +46,14 @@ jobs:
         df -hT $PWD
         git clone $REPO_URL -b $REPO_BRANCH openwrt
         ln -sf /workdir/openwrt $GITHUB_WORKSPACE/openwrt
+        # 物理修补：注入 U-Boot 源码分支 (延续 1 版逻辑)
+        rm -rf openwrt/package/boot/uboot-mediatek/src
+        git clone --depth 1 $UBOOT_REPO_URL -b $UBOOT_BRANCH openwrt/package/boot/uboot-mediatek/src
 
     - name: Load custom feeds
       run: |
         [ -e $FEEDS_CONF ] && cp -f $FEEDS_CONF openwrt/feeds.conf.default
         chmod +x $DIY_P1_SH
-        # 物理修复：进入源码目录执行脚本 [cite: 2026-03-02]
         cd openwrt
         $GITHUB_WORKSPACE/$DIY_P1_SH
 
@@ -57,11 +65,12 @@ jobs:
 
     - name: Load custom configuration
       run: |
-        # 物理修复：原文照抄逻辑，仅修正移动路径 [cite: 2026-03-02]
         [ -d files ] && mv files openwrt/files
+        # 物理修补：物理注入 DTS、MK 和 Config
+        cp -f $DTS_FILE openwrt/target/linux/mediatek/files-5.15/arch/arm64/boot/dts/mediatek/
+        cp -f $MK_FILE openwrt/target/linux/mediatek/image/filogic.mk
         [ -e $CONFIG_FILE ] && cp -f $CONFIG_FILE openwrt/.config
         chmod +x $DIY_P2_SH
-        # 物理修复：进入源码目录执行，解决 sed 路径报错 [cite: 2026-03-02]
         cd openwrt
         $GITHUB_WORKSPACE/$DIY_P2_SH
 
@@ -78,17 +87,28 @@ jobs:
       id: compile
       run: |
         cd openwrt
-        echo -e "$(nproc) thread compile"
-        make -j$(nproc) || make -j1 || make -j1 V=s
+        # 物理修正：23.05 必须先编译 ATF 和 U-Boot 确保生成 FIP
+        make package/boot/arm-trusted-firmware-mediatek/compile V=s -j1
+        make package/boot/uboot-mediatek/compile V=s -j1
+        make -j$(nproc) || make -j1 V=s
         echo "status=success" >> $GITHUB_OUTPUT
 
     - name: Check space usage
       if: (!cancelled())
       run: df -hT
 
-    - name: Upload bin directory
-      uses: actions/upload-artifact@v4
+    - name: Organize files (物理收集救砖全家桶)
+      id: organize
       if: steps.compile.outputs.status == 'success'
+      run: |
+        mkdir -p $GITHUB_WORKSPACE/FIRMWARE_OUT
+        # 物理搜索并提取 nor-programmer-dump 和 emmc-sysupgrade
+        find openwrt/bin/targets/ -name "*sl_3000*" -exec cp -f {} $GITHUB_WORKSPACE/FIRMWARE_OUT/ \;
+        echo "FIRMWARE=$GITHUB_WORKSPACE/FIRMWARE_OUT" >> $GITHUB_ENV
+
+    - name: Upload firmware directory
+      uses: actions/upload-artifact@v4
+      if: steps.organize.outputs.FIRMWARE != ''
       with:
-        name: OpenWrt_bin
-        path: openwrt/bin
+        name: SL3000_Recovery_Kit
+        path: ${{ env.FIRMWARE }}
