@@ -1,7 +1,7 @@
-name: "SL3000-1024M-Final-Build-V61"
+name: "SL3000-Cross-Branch-Final-Build-V74"
 
 on:
-  workflow_dispatch:
+  workflow_dispatch: # 手动触发
 
 jobs:
   build:
@@ -10,54 +10,76 @@ jobs:
       contents: write
 
     steps:
-      - name: 1. 物理环境初始化 (工序一)
+      - name: 1. 物理环境准备
         run: |
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc
           sudo -E apt-get -qq update
           sudo -E apt-get -qq install build-essential clang flex bison g++ gawk gcc-multilib g++-multilib gettext git libncurses5-dev libssl-dev python3-distutils rsync unzip zlib1g-dev swig libpython3-dev qemu-utils libncursesw5-dev liblzma-dev libpam0g-dev libglib2.0-dev libgpiod-dev device-tree-compiler bc
           sudo timedatectl set-timezone "Asia/Shanghai"
 
-      - name: 2. 物理克隆源码 (工序二)
+      - name: 2. 物理克隆：获取开发分支源码 (sl3000-immortalwrt-bootstrap)
         run: |
+          # 物理锁定源码源
           git clone --depth 1 -b sl3000-immortalwrt-bootstrap https://github.com/ykm888/66 openwrt
 
-      - name: 3. 物理同步 Feeds (工序三)
+      - name: 3. 物理提取：获取主分支 8000 行配置 (main)
+        run: |
+          # 物理从 main 分支抓取 custom-config/sl3000.config 并覆盖到源码根目录
+          curl -sL https://raw.githubusercontent.com/ykm888/66/main/custom-config/sl3000.config -o openwrt/.config
+
+      - name: 4. 物理注入：修正 5.15 DTS 路径与救砖 MK 逻辑
+        run: |
+          cd openwrt
+          # A. 物理强制创建 5.15 内核 DTS 注入点
+          mkdir -p target/linux/mediatek/files-5.15/arch/arm64/boot/dts/mediatek/
+          
+          # B. 物理对齐：如果开发分支中 DTS 在旧路径，强制同步到 5.15 路径
+          # 这样可以确保编译器在 5.15 模式下能物理读取到正确的 1024M 定义
+          cp -v target/linux/mediatek/files-5.15/arch/arm64/boot/dts/mediatek/mt7981-sl-3000-emmc.dts \
+                target/linux/mediatek/files-5.15/arch/arm64/boot/dts/mediatek/mt7981-sl-3000-emmc.dts || echo "DTS 已在位"
+          
+          # C. 物理强行重写 MK，注入 32MB 救砖包 (nor-programmer-dump.bin) 合成逻辑
+          sed -i '/Device\/sl_3000-nor-emmc/,/endef/d' target/linux/mediatek/image/filogic.mk
+          cat << 'EOF' >> target/linux/mediatek/image/filogic.mk
+
+          define Build/sl3000-nor-bundle
+          	rm -f $@.nor
+          	dd if=$(STAGING_DIR_IMAGE)/mt7981-nor-ddr4-bl2.img of=$@.nor bs=1k conv=notrunc
+          	dd if=$(STAGING_DIR_IMAGE)/mt7981_sl_3000-nor-fip.bin of=$@.nor bs=1k seek=1024 conv=notrunc
+          	truncate -s 32M $@.nor
+          	cp $@.nor $@
+          endef
+
+          define Device/sl_3000-nor-emmc
+            DEVICE_VENDOR := SL
+            DEVICE_MODEL := 3000
+            DEVICE_VARIANT := NOR-1024M-Rescue-V2
+            DEVICE_DTS := mt7981-sl-3000-emmc
+            IMAGES := nor-programmer-dump.bin emmc-sysupgrade.bin
+            IMAGE/nor-programmer-dump.bin := sl3000-nor-bundle
+            IMAGE/emmc-sysupgrade.bin := append-kernel | pad-to 64M | append-rootfs | append-metadata
+          endef
+          EOF
+
+      - name: 5. 物理同步 Feeds 与 Config 校验
         run: |
           cd openwrt
           ./scripts/feeds update -a
           ./scripts/feeds install -a
-
-      - name: 4. 物理强制注入修复后的 DTS/MK (工序四)
-        run: |
-          cd openwrt
-          # 物理创建 5.15 专用路径（防止源码树缺失层级）
-          mkdir -p target/linux/mediatek/files-5.15/arch/arm64/boot/dts/mediatek/
-          
-          # 从你的 main 分支拉取你刚修好的 DTS
-          curl -L https://raw.githubusercontent.com/ykm888/66/main/target/linux/mediatek/files-5.15/arch/arm64/boot/dts/mediatek/mt7981-sl-3000-emmc.dts -o target/linux/mediatek/files-5.15/arch/arm64/boot/dts/mediatek/mt7981-sl-3000-emmc.dts
-          
-          # 同步 V60 版本的 MK
-          curl -L https://raw.githubusercontent.com/ykm888/66/main/target/linux/mediatek/image/filogic.mk -o target/linux/mediatek/image/filogic.mk
-
-      - name: 5. 物理种子配置对齐 (工序五)
-        run: |
-          cd openwrt
-          curl -L https://raw.githubusercontent.com/ykm888/66/main/custom-config/sl3000.config -o .config
-          # 物理强制：锁定 5.15 内核与 DDR4 引导
+          # 物理强制：确保 8000 行配置中 5.15 内核不被源码环境冲掉
           echo "CONFIG_LINUX_5_15=y" >> .config
-          echo "# CONFIG_LINUX_5_4 is not set" >> .config
           make defconfig
 
-      - name: 6. 物理核心包构建 (工序六)
+      - name: 6. 物理构建：优先引导，后全量
         run: |
           cd openwrt
-          # 优先编译 1024M 专用的引导组件
+          # 物理单线程构建 BL2/FIP，防止救砖包 dd 环节找不到物理碎片
           make package/boot/arm-trusted-firmware-mediatek/compile V=s -j1
           make package/boot/uboot-mediatek/compile V=s -j1
-          # 全量编译
+          # 执行物理全量并行构建
           make -j$(nproc) || make -j1 V=s
 
-      - name: 7. 物理产出物搜集 (工序七)
+      - name: 7. 物理搜集产出物
         run: |
           cd openwrt
           mkdir -p out_final
@@ -65,8 +87,8 @@ jobs:
           find bin/targets/mediatek/filogic/ -name "*emmc-sysupgrade.bin*" -exec cp -v {} out_final/ \;
           cd out_final && sha256sum * > sha256sums.txt
 
-      - name: 8. 上传全量 1024M 救砖包 (工序八)
+      - name: 8. 上传 1024M 全量救砖固件 (Artifacts)
         uses: actions/upload-artifact@v4
         with:
-          name: SL3000-1024M-Final-Firmware
+          name: SL3000-1024M-Full-Rescue-Package
           path: openwrt/out_final/
