@@ -1,44 +1,60 @@
-name: "SL3000-Main-Self-Update-V62"
+name: "SL3000-Core-Sync-V65"
 
 on:
-  workflow_dispatch:
+  workflow_dispatch: # 手动触发物理同步
 
 jobs:
-  sync_and_push:
+  sync_and_push_assets:
     runs-on: ubuntu-22.04
     permissions:
-      contents: write
+      contents: write # 必须开启物理写入权限
 
     steps:
       - name: 1. 物理检出当前分支 (main)
         uses: actions/checkout@v4
         with:
           ref: main
+          fetch-depth: 0
 
-      - name: 2. 物理跨分支拉取最新核心组件
+      - name: 2. 物理目录结构初始化
         run: |
-          # 物理抓取：开发分支的 Config
-          curl -L https://raw.githubusercontent.com/ykm888/66/sl3000-immortalwrt-bootstrap/custom-config/sl3000.config -o custom-config/sl3000.config
-          
-          # 物理抓取：开发分支的 5.15 专用 DTS
+          # 物理确保 5.15 路径存在
           mkdir -p target/linux/mediatek/files-5.15/arch/arm64/boot/dts/mediatek/
-          curl -L https://raw.githubusercontent.com/ykm888/66/sl3000-immortalwrt-bootstrap/target/linux/mediatek/files-5.15/arch/arm64/boot/dts/mediatek/mt7981-sl-3000-emmc.dts -o target/linux/mediatek/files-5.15/arch/arm64/boot/dts/mediatek/mt7981-sl-3000-emmc.dts
-          
-          # 物理抓取：开发分支的 MK 逻辑 (包含 V60 的 32MB 救砖定义)
           mkdir -p target/linux/mediatek/image/
-          curl -L https://raw.githubusercontent.com/ykm888/66/sl3000-immortalwrt-bootstrap/target/linux/mediatek/image/filogic.mk -o target/linux/mediatek/image/filogic.mk
+          mkdir -p custom-config/
 
-      - name: 3. 物理检测并同步回仓库
+      - name: 3. 物理抓取并注入最新配置 (Injection)
         run: |
-          git config user.name "SL3000-Sync-Bot"
+          # A. 注入 1024M 修正版 DTS
+          curl -sL "https://raw.githubusercontent.com/ykm888/66/sl3000-immortalwrt-bootstrap/target/linux/mediatek/files-5.15/arch/arm64/boot/dts/mediatek/mt7981-sl-3000-emmc.dts" \
+               -o target/linux/mediatek/files-5.15/arch/arm64/boot/dts/mediatek/mt7981-sl-3000-emmc.dts
+          
+          # B. 注入 32MB 救砖逻辑 MK
+          curl -sL "https://raw.githubusercontent.com/ykm888/66/sl3000-immortalwrt-bootstrap/target/linux/mediatek/image/filogic.mk" \
+               -o target/linux/mediatek/image/filogic.mk
+          
+          # C. 注入核心种子配置 .config
+          curl -sL "https://raw.githubusercontent.com/ykm888/66/sl3000-immortalwrt-bootstrap/custom-config/sl3000.config" \
+               -o custom-config/sl3000.config
+
+      - name: 4. 物理状态校验 (Verification)
+        run: |
+          echo "=== 物理文件大小检查 (若为0则说明路径脱靶) ==="
+          ls -lh target/linux/mediatek/files-5.15/arch/arm64/boot/dts/mediatek/mt7981-sl-3000-emmc.dts
+          ls -lh target/linux/mediatek/image/filogic.mk
+          ls -lh custom-config/sl3000.config
+
+      - name: 5. 物理提交并推送至仓库 (Push)
+        run: |
+          git config user.name "SL3000-System-Bot"
           git config user.email "bot@github.com"
           
-          # 物理检查是否有变化
           git add .
+          # 物理判定是否有内容更新
           if [ -n "$(git status --porcelain)" ]; then
-            git commit -m "chore: 物理对齐开发分支的 1024M 核心组件 (DTS/MK/Config)"
+            git commit -m "chore: 物理对齐 5.15 内核 DTS/MK/Config 配置至 1024M 架构"
             git push origin main
-            echo "物理同步成功！"
+            echo "物理同步已成功推送到仓库！"
           else
-            echo "物理文件已是最新，无需更新。"
+            echo "物理文件内容已是最新，无需推送。"
           fi
