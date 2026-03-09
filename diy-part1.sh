@@ -1,18 +1,11 @@
 #!/bin/bash
-#
-# https://github.com/P3TERX/Actions-OpenWrt
-# File name: diy-part1.sh
-# Description: OpenWrt DIY script part 1 (Before Update feeds)
-#
-# Copyright (c) 2019-2024 P3TERX <https://p3terx.com>
-#
-# This is free software, licensed under the MIT License.
-# See /LICENSE for more information.
-#
+# 物理操作：添加第三方插件源
 
-# Uncomment a feed source
-#sed -i 's/^#\(.*helloworld\)/\1/' feeds.conf.default
-
-# Add a feed source
+# 1. 添加 helloworld (SSR-plus) - 保持你参考案例的逻辑
 echo 'src-git helloworld https://github.com/fw876/helloworld' >>feeds.conf.default
-#echo 'src-git passwall https://github.com/xiaorouji/openwrt-passwall' >>feeds.conf.default
+
+# 2. 如果你需要常用的 PassWall (可选，去掉前面的 # 即可生效)
+# echo 'src-git passwall https://github.com/xiaorouji/openwrt-passwall' >>feeds.conf.default
+
+# 3. 如果你需要更多的常用插件包 (建议添加，物理补全常用组件)
+echo 'src-git packages_custom https://github.com/kenzok8/openwrt-packages' >>feeds.conf.default
