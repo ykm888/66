@@ -8,21 +8,21 @@
 	compatible = "sl,3000-emmc", "mediatek,mt7981";
 
 	chosen {
-		/* 物理对齐：指定控制台并锁定 eMMC 上的 production 分区作为根文件系统 */
+		/* 物理对齐：rootwait 必须保留，给 eMMC 物理初始化留出时间 */
 		bootargs = "console=ttyS0,115200n1 loglevel=8 earlycon=uart8250,mmio32,0x11002000 root=PARTLABEL=production rootwait rootfstype=squashfs,f2fs";
 	};
 
 	memory {
-		/* 物理锁定：精确定义 1024M (1GB) 内存起始与长度 */
 		device_type = "memory";
 		reg = <0 0x40000000 0 0x40000000>;
 	};
 
 	leds {
 		compatible = "gpio-leds";
-		status_red_led: led-0 { label = "red:status"; gpios = <&pio 10 GPIO_ACTIVE_LOW>; };
-		status_green_led: led-1 { label = "green:status"; gpios = <&pio 11 GPIO_ACTIVE_LOW>; };
-		status_blue_led: led-2 { label = "blue:status"; gpios = <&pio 12 GPIO_ACTIVE_LOW>; };
+		/* 修正 label 格式，确保物理识别 */
+		red { label = "red:status"; gpios = <&pio 10 GPIO_ACTIVE_LOW>; };
+		green { label = "green:status"; gpios = <&pio 11 GPIO_ACTIVE_LOW>; };
+		blue { label = "blue:status"; gpios = <&pio 12 GPIO_ACTIVE_LOW>; default-state = "on"; };
 	};
 
 	gpio-keys {
@@ -43,7 +43,6 @@
 &uart0 { status = "okay"; };
 &watchdog { status = "okay"; };
 
-/* 物理网络架构修复：双 MAC 映射提高 1024M 内存环境下的吞吐 */
 &eth {
 	status = "okay";
 	gmac0: mac@0 {
@@ -73,7 +72,6 @@
 				port@0 { reg = <0>; label = "lan1"; };
 				port@1 { reg = <1>; label = "lan2"; };
 				port@2 { reg = <2>; label = "lan3"; };
-				/* 物理隔离：将 WAN 口绑定到第二路 MAC (gmac1) */
 				port@3 { reg = <3>; label = "wan"; ethernet = <&gmac1>; };
 				port@6 {
 					reg = <6>;
@@ -101,13 +99,11 @@
 	status = "okay";
 };
 
-/* 物理存储修复：引导在 NOR，内核必须通过 mmc0 接管 eMMC 上的数据 */
+/* 物理存储加固：降级至 DDR52 模式以确保 eMMC 挂载 100% 成功 */
 &mmc0 {
 	bus-width = <8>;
 	cap-mmc-highspeed;
-	/* 1.8V 模式是 HS200 的物理前提，如果主板供电不稳请注释掉下面两行 */
-	mmc-hs200-1_8v;               
-	max-frequency = <200000000>;   
+	max-frequency = <52000000>;   
 	no-sd;
 	no-sdio;
 	non-removable;
