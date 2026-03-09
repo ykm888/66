@@ -82,6 +82,12 @@
 &eth {
 	status = "okay";
 
+	/* 物理注入：在 eth 内部手动定义 ppe 节点及其 Label
+	   这解决了 mt7981.dtsi 缺失 ppe 标签导致的编译失败 */
+	ppe: ppe {
+		status = "okay";
+	};
+
 	gmac0: mac@0 {
 		compatible = "mediatek,eth-mac";
 		reg = <0>;
@@ -157,7 +163,7 @@
 	};
 };
 
-/* 物理修复：使用 ppe 节点（5.15内核标准命名）代替 hnat */
+/* 此时引用 &ppe 标签已经是安全的，因为上面已经定义了它 */
 &ppe {
 	status = "okay";
 };
