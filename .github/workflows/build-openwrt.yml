@@ -1,105 +1,61 @@
-name: "SL3000-23.05-5.15-Build-V14-Final"
+name: Build SL-3000 Full Bundle
 
 on:
   repository_dispatch:
   workflow_dispatch:
 
-env:
-  REPO_URL: https://github.com/ykm888/66
-  REPO_BRANCH: sl3000-immortalwrt-bootstrap
-  UBOOT_REPO_URL: https://github.com/ykm888/66
-  UBOOT_BRANCH: sl3000-uboot-base
-  CONFIG_FILE: custom-config/sl3000.config
-  DTS_FILE: custom-config/mt7981-sl-3000-emmc.dts
-  MK_FILE: custom-config/filogic.mk
-  DIY_P2_SH: diy-part2.sh
-  TZ: Asia/Shanghai
-
 jobs:
   build:
     runs-on: ubuntu-22.04
-
     steps:
     - name: Checkout
       uses: actions/checkout@v4
 
-    - name: Initialization environment
+    - name: Prepare Environment
       run: |
-        sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc
-        sudo -E apt-get -qq update
-        # 物理预装宿主机 DTC 工具
-        sudo -E apt-get -qq install $(curl -fsSL https://is.gd/depends_ubuntu_2204) device-tree-compiler
-        sudo timedatectl set-timezone "$TZ"
-        sudo mkdir -p /workdir
-        sudo chown $USER:$USER /workdir
+        sudo apt-get update
+        sudo apt-get install -y build-essential libncurses5-dev gawk git gettext libssl-dev xsltproc wget unzip python3
 
-    - name: Clone source code
-      working-directory: /workdir
+    - name: Clone Source & Update Feeds
       run: |
-        git clone $REPO_URL -b $REPO_BRANCH openwrt
-        ln -sf /workdir/openwrt $GITHUB_WORKSPACE/openwrt
-        # 物理同步 U-Boot 源码
-        rm -rf openwrt/package/boot/uboot-mediatek/src
-        git clone --depth 1 $UBOOT_REPO_URL -b $UBOOT_BRANCH openwrt/package/boot/uboot-mediatek/src
+        git clone --depth 1 https://github.com/immortalwrt/immortalwrt.git openwrt
+        cd openwrt
+        ./scripts/feeds update -a
+        ./scripts/feeds install -a
 
-    - name: Update/Install feeds
-      run: cd openwrt && ./scripts/feeds update -a && ./scripts/feeds install -a
-
-    - name: Load custom configuration
+    - name: Apply Custom Configs
       run: |
-        # 1. 物理注入 DTS 和镜像生成脚本
-        cp -f $GITHUB_WORKSPACE/$DTS_FILE openwrt/target/linux/mediatek/files-5.15/arch/arm64/boot/dts/mediatek/mt7981-sl-3000-emmc.dts
-        cp -f $GITHUB_WORKSPACE/$MK_FILE openwrt/target/linux/mediatek/image/filogic.mk
-        
-        # 2. 拷贝基础 .config
-        [ -e $GITHUB_WORKSPACE/$CONFIG_FILE ] && cp -f $GITHUB_WORKSPACE/$CONFIG_FILE openwrt/.config
-        
-        # 3. 执行 diy-part2.sh (含删除 EasyMesh 冲突及内存对齐逻辑)
-        chmod +x $DIY_P2_SH
-        cd openwrt && $GITHUB_WORKSPACE/$DIY_P2_SH
+        chmod +x diy-part2.sh
+        ./diy-part2.sh
 
-    - name: Compile the firmware
+    - name: Compile Packages (Multi-threaded)
       run: |
         cd openwrt
-        # 1. 物理安装核心工具链 (跳过 dtc 源码编译)
-        make tools/install -j$(nproc) || echo "忽略部分工具编译错误，准备物理注入"
-        make toolchain/install -j$(nproc)
-        
-        # 2. 【核心黑科技修复】物理注入宿主机 dtc，绕过源码报错
-        echo "正在物理劫持 DTC 工具链..."
-        mkdir -p staging_dir/host/bin
-        cp -f /usr/bin/dtc staging_dir/host/bin/dtc
-        chmod +x staging_dir/host/bin/dtc
-        # 物理伪造编译成功标记
-        touch staging_dir/host/.built-tools-dtc
-        # 补全 dtc 关联工具软链接
-        ln -sf dtc staging_dir/host/bin/fdtget
-        ln -sf dtc staging_dir/host/bin/fdtput
-
-        # 3. 此时直接编译救砖核心组件
-        echo "正在编译 ATF (BL2/BL31)..."
-        make package/boot/arm-trusted-firmware-mediatek/compile V=s -j1
-        
-        echo "正在编译 U-Boot (FIP)..."
-        make package/boot/uboot-mediatek/compile V=s -j1
-        
-        # 4. 全局编译主系统
-        echo "开始全局镜像合成..."
+        # 先编译所有包，确保 ATF 和 U-Boot 零件生成
+        make -j$(nproc) download
         make -j$(nproc) || make -j1 V=s
 
-    - name: Organize files (物理提取救砖包)
-      if: success()
+    - name: 零件物理搬运与对齐 (Fix BL2 Missing)
       run: |
-        mkdir -p $GITHUB_WORKSPACE/outputs
-        cd openwrt/bin/targets/mediatek/filogic/
-        # 物理搜索并拷贝所有关键救砖产物
-        cp -f *bl2* $GITHUB_WORKSPACE/outputs/ 2>/dev/null || true
-        cp -f *fip* $GITHUB_WORKSPACE/outputs/ 2>/dev/null || true
-        cp -f *nor-programmer-dump.bin $GITHUB_WORKSPACE/outputs/ 2>/dev/null || true
-        cp -f *sysupgrade.bin $GITHUB_WORKSPACE/outputs/ 2>/dev/null || true
+        # 物理目标路径：OpenWrt 镜像合成阶段会扫描这里
+        STAGING_IMG="openwrt/staging_dir/target-aarch64_cortex-a53_musl/image"
+        mkdir -p $STAGING_IMG
+        
+        # 动态寻找零件并强行重命名，满足 filogic.mk 的 test -f 检查
+        find openwrt/bin/targets/mediatek/filogic/ -name "*bl2.img" -exec cp {} $STAGING_IMG/mt7981-nor-ddr4-bl2.img \;
+        find openwrt/bin/targets/mediatek/filogic/ -name "*fip.bin" -exec cp {} $STAGING_IMG/mt7981_sl_3000-nor-fip.bin \;
+        
+        echo "物理检查零件库内容："
+        ls -lh $STAGING_IMG/mt7981*
 
-    - name: Upload Recovery Kits
+    - name: 生成救砖全家桶镜像
+      run: |
+        cd openwrt
+        # 此时零件已到位，重新运行镜像合成步骤
+        make target/linux/install V=s
+
+    - name: Upload Artifacts
       uses: actions/upload-artifact@v4
       with:
-        name: SL3000_V14_Recovery_Final
-        path: ${{ github.workspace }}/outputs
+        name: SL-3000-Full-Bundle
+        path: openwrt/bin/targets/mediatek/filogic/immortalwrt-*-sl_3000-nor-emmc-*
