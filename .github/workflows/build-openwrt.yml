@@ -61,6 +61,11 @@ jobs:
       id: compile
       run: |
         cd openwrt
+        # --- 物理修正：必须先构建工具链基础，否则单包编译零件会因缺失 ld-musl 报错 ---
+        echo -e "Building tools & toolchain..."
+        make tools/install -j$(nproc)
+        make toolchain/install -j$(nproc)
+
         # --- 物理先行：核心救砖零件预编译 ---
         # 1. 编译 ATF (产出 bl2.img) - 延续 1 版物理路径
         make package/boot/arm-trusted-firmware-mediatek/compile V=s -j1
