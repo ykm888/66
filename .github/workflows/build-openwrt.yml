@@ -11,8 +11,6 @@ env:
   CONFIG_FILE: custom-config/sl3000.config
   DIY_P1_SH: diy-part1.sh
   DIY_P2_SH: diy-part2.sh
-  UPLOAD_FIRMWARE: true
-  UPLOAD_RELEASE: true
   TZ: Asia/Shanghai
 
 jobs:
@@ -56,14 +54,6 @@ jobs:
         cd openwrt && $GITHUB_WORKSPACE/$DIY_P2_SH
         make defconfig
 
-    - name: Physical Kernel Prepare
-      run: |
-        cd openwrt
-        # 物理预解压：确保 5.15 内核路径生成
-        make target/linux/prepare -j$(nproc)
-        # 物理兜底注入：确保 DTS 覆盖到 build_dir 现场
-        find build_dir/ -name "mediatek" -type d -path "*/dts/mediatek" -exec cp -f $GITHUB_WORKSPACE/custom-config/mt7981-sl-3000-emmc.dts {} \;
-
     - name: Download package
       run: cd openwrt && make download -j8
 
@@ -71,9 +61,15 @@ jobs:
       id: compile
       run: |
         cd openwrt
-        # 物理加固：强制先行编译 TFA，确保 bl2.img 零件物理就绪
-        make package/boot/trusted-firmware-a-mt7981/compile V=s -j1
-        # 执行主编译
+        # --- 物理先行：核心救砖零件预编译 ---
+        # 1. 编译 ATF (产出 bl2.img) - 延续 1 版物理路径
+        make package/boot/arm-trusted-firmware-mediatek/compile V=s -j1
+        
+        # 2. 编译 U-Boot (产出 fip.bin) - 延续 1 版物理路径
+        make package/boot/uboot-mediatek/compile V=s -j1
+        
+        # --- 物理收尾：执行整机合成 ---
+        echo -e "$(nproc) thread compile"
         make -j$(nproc) || make -j1 || make -j1 V=s
         echo "status=success" >> $GITHUB_OUTPUT
         echo "FILE_DATE=_$(date +"%Y%m%d%H%M")" >> $GITHUB_ENV
