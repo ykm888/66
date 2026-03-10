@@ -37,9 +37,9 @@ endef
 define U-Boot/mt7981_sl_3000-nor-emmc
   NAME:=SL-3000 (NOR-Boot-eMMC-1024M)
   BUILD_SUBTARGET:=filogic
-  # 【核心修复】：物理对齐源码 configs/ 下的真实文件名
+  # 物理对齐源码 configs/ 下的真实文件名
   UBOOT_CONFIG:=mt7981_nor_emmc_rfb
-  # 物理对齐：产物文件名必须与 filogic.mk 的合成逻辑匹配
+  # 产物内部定义名
   UBOOT_IMAGE:=mt7981_sl_3000-nor-u-boot.fip
   BL2_BOOTDEV:=nor
   BL2_SOC:=mt7981
@@ -63,17 +63,19 @@ define Build/Compile
 	$(call Build/fip-image)
 endef
 
-# --- 物理分发逻辑：修复“No such file or directory”报错 ---
+# --- 物理分发逻辑：解决 filogic.mk 路径对齐报错 ---
 define Package/u-boot-mediatek/install
 	$(INSTALL_DIR) $(STAGING_DIR_IMAGE) $(BIN_DIR)/sl3000-recovery-kits
 
-	# 1. 物理同步 FIP 到 Staging 目录供 filogic.mk 使用
-	$(CP) $(PKG_BUILD_DIR)/$(UBOOT_IMAGE) $(STAGING_DIR_IMAGE)/
-	# 物理同步 FIP 到 Bin 目录供用户救砖下载
+	# 1. 物理对齐：将生成的 FIP 同步到 Staging 目录并重命名为 .bin
+	# 确保 filogic.mk 里的 test -f $(STAGING_DIR_IMAGE)/mt7981_sl_3000-nor-fip.bin 能够通过
+	$(CP) $(PKG_BUILD_DIR)/$(UBOOT_IMAGE) $(STAGING_DIR_IMAGE)/mt7981_sl_3000-nor-fip.bin
+	
+	# 物理备份：供用户手动下载
 	$(CP) $(PKG_BUILD_DIR)/$(UBOOT_IMAGE) $(BIN_DIR)/sl3000-recovery-kits/uboot-fip-nor-recovery.bin
 
-	# 2. 物理桥接：将 ATF 生成的 .bin 同步为 .img 
-	# 逻辑：既然 filogic.mk 在找 .img，我们在这里物理创建一个副本
+	# 2. 逻辑桥接：ATF 的 .bin 转换为 filogic.mk 期待的 .img
+	# 即使 ATF 只生成了 .bin，我们在这里物理克隆一份 .img
 	if [ -f $(STAGING_DIR_IMAGE)/mt7981-nor-ddr4-bl2.bin ]; then \
 		$(CP) $(STAGING_DIR_IMAGE)/mt7981-nor-ddr4-bl2.bin $(STAGING_DIR_IMAGE)/mt7981-nor-ddr4-bl2.img; \
 		$(CP) $(STAGING_DIR_IMAGE)/mt7981-nor-ddr4-bl2.bin $(BIN_DIR)/sl3000-recovery-kits/bl2-nor-ddr4.bin; \
