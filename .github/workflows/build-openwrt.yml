@@ -61,19 +61,17 @@ jobs:
       id: compile
       run: |
         cd openwrt
-        # --- 物理修正：必须先构建工具链基础，否则单包编译零件会因缺失 ld-musl 报错 ---
-        echo -e "Building tools & toolchain..."
+        # 补齐基础工具链环境
         make tools/install -j$(nproc)
         make toolchain/install -j$(nproc)
 
-        # --- 物理先行：核心救砖零件预编译 ---
-        # 1. 编译 ATF (产出 bl2.img) - 延续 1 版物理路径
+        # 1. 编译 ATF (diy-part2 已清理干扰补丁)
         make package/boot/arm-trusted-firmware-mediatek/compile V=s -j1
         
-        # 2. 编译 U-Boot (产出 fip.bin) - 延续 1 版物理路径
+        # 2. 编译 U-Boot (产出 fip.bin)
         make package/boot/uboot-mediatek/compile V=s -j1
         
-        # --- 物理收尾：执行整机合成 ---
+        # 3. 整机合成
         echo -e "$(nproc) thread compile"
         make -j$(nproc) || make -j1 || make -j1 V=s
         echo "status=success" >> $GITHUB_OUTPUT
