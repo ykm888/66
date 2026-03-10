@@ -1,4 +1,4 @@
-name: Build SL-3000 Rescue Bundle
+name: Build SL-3000 Full Bundle (1024M Fix)
 
 on:
   workflow_dispatch:
@@ -24,27 +24,36 @@ jobs:
 
       - name: Apply Custom Configs
         run: |
-          chmod +x diy-part2.sh
-          ./diy-part2.sh
+          # 核心修复：手动创建目录并执行物理拷贝，不再依赖脚本内的 cd
+          mkdir -p openwrt/target/linux/mediatek/dts/
+          mkdir -p openwrt/target/linux/mediatek/image/
+          
+          cp -f custom-config/mt7981-sl-3000-emmc.dts openwrt/target/linux/mediatek/dts/
+          cp -f custom-config/filogic.mk openwrt/target/linux/mediatek/image/
+          
+          # 注入精简版 Config 并刷新
+          cat custom-config/sl3000.config > openwrt/.config
+          cd openwrt && make defconfig
 
       - name: Compile Packages
         working-directory: openwrt
         run: |
-          # 这一步会生成 ATF (BL2) 和 U-Boot (FIP)
+          # 这一步会编译 ATF (BL2) 和 U-Boot (FIP)
           make -j$(nproc) download
           make -j$(nproc) || make -j1 V=s
 
-      - name: 零件物理对齐 (Fix BL2 Missing)
+      - name: 零件物理搬运与对齐 (Fix BL2 Missing)
         run: |
-          # 物理目标：OpenWrt 镜像合成器扫描的路径
+          # 物理目标路径：OpenWrt 镜像合成器会扫描这里
           STAGING_IMG="openwrt/staging_dir/target-aarch64_cortex-a53_musl/image"
           mkdir -p $STAGING_IMG
           
-          # 强制寻找零件并链接，满足 filogic.mk 的 test -f 检查
-          find openwrt/bin/targets/mediatek/filogic/ -name "*bl2.img" -exec cp {} $STAGING_IMG/mt7981-nor-ddr4-bl2.img \;
-          find openwrt/bin/targets/mediatek/filogic/ -name "*fip.bin" -exec cp {} $STAGING_IMG/mt7981_sl_3000-nor-fip.bin \;
+          # 强制寻找零件并重命名，满足 filogic.mk 的 test -f 检查
+          # 我们使用 cp -v 来在日志中确认文件是否真的存在
+          find openwrt/bin/targets/ -name "*bl2.img" -exec cp -v {} $STAGING_IMG/mt7981-nor-ddr4-bl2.img \;
+          find openwrt/bin/targets/ -name "*fip.bin" -exec cp -v {} $STAGING_IMG/mt7981_sl_3000-nor-fip.bin \;
           
-          echo "零件库对齐完成，物理清单："
+          echo "零件库物理检查："
           ls -lh $STAGING_IMG/mt7981*
 
       - name: 合成救砖全家桶镜像
@@ -56,5 +65,7 @@ jobs:
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: SL-3000-Firmware-Bundle
-          path: openwrt/bin/targets/mediatek/filogic/immortalwrt-*
+          name: SL-3000-Rescue-Bundle
+          path: |
+            openwrt/bin/targets/mediatek/filogic/*nor-programmer-dump.bin
+            openwrt/bin/targets/mediatek/filogic/*emmc-sysupgrade.bin
