@@ -8,20 +8,11 @@
 	compatible = "sl,3000-emmc", "mediatek,mt7981";
 
 	chosen {
-		/* 物理对齐：root 必须匹配 filogic.mk 中的 -N production 标签 */
-		/* rootwait 确保 eMMC 驱动初始化完成，f2fs 优先挂载以提升物理性能 */
+		/* 物理对齐：PARTLABEL 必须匹配 mk 文件中的 -N production */
 		bootargs = "console=ttyS0,115200n1 loglevel=8 earlycon=uart8250,mmio32,0x11002000 root=PARTLABEL=production rootwait rootfstype=f2fs,squashfs";
 	};
 
-	aliases {
-		led-boot = &status_red_led;
-		led-failsafe = &status_red_led;
-		led-running = &status_green_led;
-		led-upgrade = &status_blue_led;
-	};
-
-	/* 物理锁定：强制定义 1024M (1GB) 内存边界 */
-	/* 使用单元地址 @40000000 以获得物理优先级，防止与 dtsi 冲突 */
+	/* 物理锁定：强制定义 1024M (1GB) 运行内存 */
 	memory@40000000 {
 		device_type = "memory";
 		reg = <0 0x40000000 0 0x40000000>;
@@ -29,137 +20,57 @@
 
 	leds {
 		compatible = "gpio-leds";
-
-		status_red_led: led-0 {
-			label = "red:status";
-			gpios = <&pio 10 GPIO_ACTIVE_LOW>;
-		};
-
-		status_green_led: led-1 {
-			label = "green:status";
-			gpios = <&pio 11 GPIO_ACTIVE_LOW>;
-		};
-
-		status_blue_led: led-2 {
-			label = "blue:status";
-			gpios = <&pio 12 GPIO_ACTIVE_LOW>;
-		};
+		status_red_led: led-0 { label = "red:status"; gpios = <&pio 10 GPIO_ACTIVE_LOW>; };
+		status_green_led: led-1 { label = "green:status"; gpios = <&pio 11 GPIO_ACTIVE_LOW>; };
+		status_blue_led: led-2 { label = "blue:status"; gpios = <&pio 12 GPIO_ACTIVE_LOW>; };
 	};
 
 	gpio-keys {
 		compatible = "gpio-keys";
-
-		reset {
-			label = "reset";
-			linux,code = <KEY_RESTART>;
-			gpios = <&pio 1 GPIO_ACTIVE_LOW>;
-		};
-
-		mesh {
-			label = "mesh";
-			gpios = <&pio 0 GPIO_ACTIVE_LOW>;
-			linux,code = <BTN_9>;
-			linux,input-type = <EV_SW>;
-		};
+		reset { label = "reset"; linux,code = <KEY_RESTART>; gpios = <&pio 1 GPIO_ACTIVE_LOW>; };
 	};
 };
 
-&uart0 {
-	status = "okay";
-};
-
-&watchdog {
-	status = "okay";
-};
-
-
-
 &eth {
 	status = "okay";
-
 	gmac0: mac@0 {
 		compatible = "mediatek,eth-mac";
 		reg = <0>;
 		phy-mode = "2500base-x";
-
-		fixed-link {
-			speed = <2500>;
-			full-duplex;
-			pause;
-		};
+		fixed-link { speed = <2500>; full-duplex; pause; };
 	};
 
-	gmac1: mac@1 {
-		/* 物理修正：所有网口均在 MT7531 交换机上，gmac1 悬空需禁用 */
-		status = "disabled";
-	};
+	gmac1: mac@1 { status = "disabled"; };
 
 	mdio: mdio-bus {
 		#address-cells = <1>;
 		#size-cells = <0>;
-
 		switch@0 {
 			compatible = "mediatek,mt7531";
 			reg = <31>;
-			/* 物理修正：交换机复位为低电平有效，增加物理复位延迟 */
 			reset-gpios = <&pio 39 GPIO_ACTIVE_LOW>;
 			reset-delay-us = <10000>;
-
 			ports {
 				#address-cells = <1>;
 				#size-cells = <0>;
-
-				port@0 {
-					reg = <0>;
-					label = "lan1";
-				};
-
-				port@1 {
-					reg = <1>;
-					label = "lan2";
-				};
-
-				port@2 {
-					reg = <2>;
-					label = "lan3";
-				};
-
-				port@3 {
-					reg = <3>;
-					label = "wan";
-					/* 物理架构修正：WAN/LAN 统一通过 Port 6 CPU 端口转发至 GMAC0 */
-				};
-
+				port@0 { reg = <0>; label = "lan1"; };
+				port@1 { reg = <1>; label = "lan2"; };
+				port@2 { reg = <2>; label = "lan3"; };
+				port@3 { reg = <3>; label = "wan"; };
 				port@6 {
-					reg = <6>;
-					label = "cpu";
-					ethernet = <&gmac0>;
+					reg = <6>; label = "cpu"; ethernet = <&gmac0>;
 					phy-mode = "2500base-x";
-
-					fixed-link {
-						speed = <2500>;
-						full-duplex;
-						pause;
-					};
+					fixed-link { speed = <2500>; full-duplex; pause; };
 				};
 			};
 		};
 	};
 };
 
-&xhci {
-	mediatek,u3p-dis-msk = <0x0>;
-	phys = <&u2port0 PHY_TYPE_USB2>,
-		   <&u3port0 PHY_TYPE_USB3>;
-	status = "okay";
-};
-
 &mmc0 {
 	bus-width = <8>;
 	cap-mmc-highspeed;
 	max-frequency = <52000000>;
-	no-sd;
-	no-sdio;
 	non-removable;
 	pinctrl-names = "default", "state_uhs";
 	pinctrl-0 = <&mmc0_pins_default>;
@@ -168,19 +79,6 @@
 };
 
 &pio {
-	mmc0_pins_default: mmc0-pins-default {
-		mux {
-			function = "flash";
-			groups = "emmc_45";
-		};
-	};
-
-	mmc0_pins_uhs: mmc0-pins-uhs {
-		mux {
-			function = "flash";
-			groups = "emmc_45";
-		};
-	};
+	mmc0_pins_default: mmc0-pins-default { mux { function = "flash"; groups = "emmc_45"; }; };
+	mmc0_pins_uhs: mmc0-pins-uhs { mux { function = "flash"; groups = "emmc_45"; }; };
 };
-
-/* 物理锁定保护：刻意隐藏 &spi0 (NOR Flash)，从 Linux 层面防止救砖底座被误刷破坏 */
