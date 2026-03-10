@@ -8,7 +8,7 @@
 	compatible = "sl,3000-emmc", "mediatek,mt7981";
 
 	chosen {
-		/* 物理修正：对齐 eMMC production 分区挂载标签 */
+		/* 物理对齐：root 必须匹配 filogic.mk 中的 -N production 标签 */
 		bootargs = "console=ttyS0,115200n1 loglevel=8 earlycon=uart8250,mmio32,0x11002000 root=PARTLABEL=production rootwait rootfstype=squashfs,f2fs";
 	};
 
@@ -20,7 +20,7 @@
 	};
 
 	memory {
-		/* 物理锁定：精确定义 1024M (1GB) */
+		/* 物理锁定：强制定义 1024M (1GB) 内存边界 */
 		device_type = "memory";
 		reg = <0 0x40000000 0 0x40000000>;
 	};
@@ -60,15 +60,8 @@
 			linux,input-type = <EV_SW>;
 		};
 	};
-
-	/* 物理电源定义 */
-	reg_3p3v: regulator-3p3v {
-		compatible = "regulator-fixed";
-		regulator-name = "fixed-3.3V";
-		regulator-min-microvolt = <3300000>;
-		regulator-max-microvolt = <3300000>;
-		regulator-always-on;
-	};
+	
+	/* 物理去重：已删除重复的 reg_3p3v，直接继承 dtsi 配置 */
 };
 
 &uart0 {
@@ -79,14 +72,10 @@
 	status = "okay";
 };
 
+
+
 &eth {
 	status = "okay";
-
-	/* 物理注入：在 eth 内部手动定义 ppe 节点及其 Label
-	   这解决了 mt7981.dtsi 缺失 ppe 标签导致的编译失败 */
-	ppe: ppe {
-		status = "okay";
-	};
 
 	gmac0: mac@0 {
 		compatible = "mediatek,eth-mac";
@@ -101,15 +90,8 @@
 	};
 
 	gmac1: mac@1 {
-		compatible = "mediatek,eth-mac";
-		reg = <1>;
-		phy-mode = "2500base-x";
-
-		fixed-link {
-			speed = <2500>;
-			full-duplex;
-			pause;
-		};
+		/* 物理修正：既然 4 个网口都在 MT7531 交换机上，gmac1 物理悬空，必须禁用以防冲突 */
+		status = "disabled";
 	};
 
 	mdio: mdio-bus {
@@ -119,7 +101,8 @@
 		switch@0 {
 			compatible = "mediatek,mt7531";
 			reg = <31>;
-			reset-gpios = <&pio 39 0>;
+			/* 物理修正：明确交换机复位为低电平有效 */
+			reset-gpios = <&pio 39 GPIO_ACTIVE_LOW>;
 
 			ports {
 				#address-cells = <1>;
@@ -143,7 +126,7 @@
 				port@3 {
 					reg = <3>;
 					label = "wan";
-					ethernet = <&gmac1>;
+					/* 物理修复：已删除错误的 ethernet = <&gmac1>，遵循 DSA 架构统一走 CPU 端口转发 */
 				};
 
 				port@6 {
@@ -163,11 +146,6 @@
 	};
 };
 
-/* 此时引用 &ppe 标签已经是安全的，因为上面已经定义了它 */
-&ppe {
-	status = "okay";
-};
-
 &xhci {
 	mediatek,u3p-dis-msk = <0x0>;
 	phys = <&u2port0 PHY_TYPE_USB2>,
@@ -185,7 +163,6 @@
 	pinctrl-names = "default", "state_uhs";
 	pinctrl-0 = <&mmc0_pins_default>;
 	pinctrl-1 = <&mmc0_pins_uhs>;
-	vmmc-supply = <&reg_3p3v>;
 	status = "okay";
 };
 
@@ -204,3 +181,5 @@
 		};
 	};
 };
+
+/* 物理隔离：刻意不开启 &spi0 (NOR Flash)，从系统层面隐藏救砖底座，防止用户误刷破坏引导 */
