@@ -9,7 +9,8 @@
 
 	chosen {
 		/* 物理对齐：root 必须匹配 filogic.mk 中的 -N production 标签 */
-		bootargs = "console=ttyS0,115200n1 loglevel=8 earlycon=uart8250,mmio32,0x11002000 root=PARTLABEL=production rootwait rootfstype=squashfs,f2fs";
+		/* rootwait 确保 eMMC 驱动初始化完成，f2fs 优先挂载以提升物理性能 */
+		bootargs = "console=ttyS0,115200n1 loglevel=8 earlycon=uart8250,mmio32,0x11002000 root=PARTLABEL=production rootwait rootfstype=f2fs,squashfs";
 	};
 
 	aliases {
@@ -19,8 +20,9 @@
 		led-upgrade = &status_blue_led;
 	};
 
-	memory {
-		/* 物理锁定：强制定义 1024M (1GB) 内存边界 */
+	/* 物理锁定：强制定义 1024M (1GB) 内存边界 */
+	/* 使用单元地址 @40000000 以获得物理优先级，防止与 dtsi 冲突 */
+	memory@40000000 {
 		device_type = "memory";
 		reg = <0 0x40000000 0 0x40000000>;
 	};
@@ -60,8 +62,6 @@
 			linux,input-type = <EV_SW>;
 		};
 	};
-	
-	/* 物理去重：已删除重复的 reg_3p3v，直接继承 dtsi 配置 */
 };
 
 &uart0 {
@@ -90,7 +90,7 @@
 	};
 
 	gmac1: mac@1 {
-		/* 物理修正：既然 4 个网口都在 MT7531 交换机上，gmac1 物理悬空，必须禁用以防冲突 */
+		/* 物理修正：所有网口均在 MT7531 交换机上，gmac1 悬空需禁用 */
 		status = "disabled";
 	};
 
@@ -101,8 +101,9 @@
 		switch@0 {
 			compatible = "mediatek,mt7531";
 			reg = <31>;
-			/* 物理修正：明确交换机复位为低电平有效 */
+			/* 物理修正：交换机复位为低电平有效，增加物理复位延迟 */
 			reset-gpios = <&pio 39 GPIO_ACTIVE_LOW>;
+			reset-delay-us = <10000>;
 
 			ports {
 				#address-cells = <1>;
@@ -126,7 +127,7 @@
 				port@3 {
 					reg = <3>;
 					label = "wan";
-					/* 物理修复：已删除错误的 ethernet = <&gmac1>，遵循 DSA 架构统一走 CPU 端口转发 */
+					/* 物理架构修正：WAN/LAN 统一通过 Port 6 CPU 端口转发至 GMAC0 */
 				};
 
 				port@6 {
@@ -182,4 +183,4 @@
 	};
 };
 
-/* 物理隔离：刻意不开启 &spi0 (NOR Flash)，从系统层面隐藏救砖底座，防止用户误刷破坏引导 */
+/* 物理锁定保护：刻意隐藏 &spi0 (NOR Flash)，从 Linux 层面防止救砖底座被误刷破坏 */
