@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
 
 env:
-  # 物理对齐：使用你指定的构建克隆源码分支
+  # 物理锁死：主仓库地址与构建克隆源码分支
   REPO_URL: https://github.com/ykm888/66
   REPO_BRANCH: sl3000-immortalwrt-bootstrap
   FEEDS_CONF: feeds.conf.default
@@ -42,7 +42,6 @@ jobs:
       working-directory: /workdir
       run: |
         df -hT $PWD
-        # 物理执行：克隆构建框架仓库及指定分支
         git clone $REPO_URL -b $REPO_BRANCH openwrt
         ln -sf /workdir/openwrt $GITHUB_WORKSPACE/openwrt
 
@@ -61,19 +60,21 @@ jobs:
 
     - name: Load custom configuration
       run: |
-        [ -e $CONFIG_FILE ] && cp -f $CONFIG_FILE openwrt/.config
+        # 物理修正：使用绝对路径确保配置文件拉取成功
+        [ -e $GITHUB_WORKSPACE/$CONFIG_FILE ] && cp -f $GITHUB_WORKSPACE/$CONFIG_FILE openwrt/.config
         chmod +x $DIY_P2_SH
-        ./$DIY_P2_SH
         cd openwrt
+        # 物理注入：在此环境下执行脚本，脚本内部已修正路径逻辑
+        $GITHUB_WORKSPACE/$DIY_P2_SH
         make defconfig
 
     - name: Physical Injection (Minimal Patch)
       run: |
         cd openwrt
-        # 物理对齐：执行内核预解压，锁定 12 道工序顺序
+        # 物理对齐：执行内核预解压，锁定 5.15 工序
         make target/linux/prepare -j$(nproc)
-        # 最小物理修补：直接向 6.12.74 报错路径复刻文件
-        cp -f ../custom-config/mt7981-sl-3000-emmc.dts build_dir/target-aarch64_cortex-a53_musl/linux-mediatek_filogic/linux-6.12.74/arch/arm64/boot/dts/mediatek/
+        # 物理对齐：使用 find 兜底，物理定位 5.15 的 DTS 目录并注入
+        find build_dir/ -name "mediatek" -type d -path "*/dts/mediatek" -exec cp -f $GITHUB_WORKSPACE/custom-config/mt7981-sl-3000-emmc.dts {} \;
 
     - name: Download package
       id: package
