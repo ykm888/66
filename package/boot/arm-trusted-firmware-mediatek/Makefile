@@ -43,11 +43,10 @@ TFA_TARGETS:=mt7981-nor-ddr4
 TFA_MAKE_FLAGS += DRAM_USE_DDR4=1
 
 # --- 核心物理修复：建立 bl2.img 桥梁 ---
-# 解释：OpenWrt 框架默认生成 $(变体名)-bl2.bin
-# 但镜像合成脚本 (filogic.mk) 在物理寻找不带前缀的 bl2.img
-# 此函数拦截安装工序，在 $(STAGING_DIR_IMAGE) 建立物理副本
+# 此函数物理解决了 "ERROR: BL2零件(bl2.img)缺失"
 define Package/arm-trusted-firmware-mediatek-$(1)/install
 	$(call Package/trusted-firmware-a-$(1)/install/default,$(1))
+	# 物理强行复刻：将带变体前缀的 .bin 复制为合成脚本所需的 bl2.img
 	$(CP) $(STAGING_DIR_IMAGE)/$(1)-bl2.bin $(STAGING_DIR_IMAGE)/bl2.img
 	$(CP) $(STAGING_DIR_IMAGE)/$(1)-bl31.bin $(STAGING_DIR_IMAGE)/bl31.bin
 endef
