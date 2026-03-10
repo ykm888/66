@@ -5,8 +5,9 @@ on:
   workflow_dispatch:
 
 env:
-  REPO_URL: https://github.com/immortalwrt/immortalwrt
-  REPO_BRANCH: master
+  # 物理对齐：使用你指定的构建克隆源码分支
+  REPO_URL: https://github.com/ykm888/66
+  REPO_BRANCH: sl3000-immortalwrt-bootstrap
   FEEDS_CONF: feeds.conf.default
   CONFIG_FILE: custom-config/sl3000.config
   DIY_P1_SH: diy-part1.sh
@@ -41,6 +42,7 @@ jobs:
       working-directory: /workdir
       run: |
         df -hT $PWD
+        # 物理执行：克隆构建框架仓库及指定分支
         git clone $REPO_URL -b $REPO_BRANCH openwrt
         ln -sf /workdir/openwrt $GITHUB_WORKSPACE/openwrt
 
@@ -68,9 +70,9 @@ jobs:
     - name: Physical Injection (Minimal Patch)
       run: |
         cd openwrt
-        # 物理对齐：解压内核前置工序
+        # 物理对齐：执行内核预解压，锁定 12 道工序顺序
         make target/linux/prepare -j$(nproc)
-        # 最小物理修补：直接向报错路径复刻文件
+        # 最小物理修补：直接向 6.12.74 报错路径复刻文件
         cp -f ../custom-config/mt7981-sl-3000-emmc.dts build_dir/target-aarch64_cortex-a53_musl/linux-mediatek_filogic/linux-6.12.74/arch/arm64/boot/dts/mediatek/
 
     - name: Download package
