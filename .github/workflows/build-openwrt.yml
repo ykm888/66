@@ -11,7 +11,6 @@ env:
   CONFIG_FILE: custom-config/sl3000.config
   DIY_P1_SH: diy-part1.sh
   DIY_P2_SH: diy-part2.sh
-  UPLOAD_BIN_DIR: false
   UPLOAD_FIRMWARE: true
   UPLOAD_RELEASE: true
   TZ: Asia/Shanghai
@@ -45,27 +44,24 @@ jobs:
       run: |
         [ -e $FEEDS_CONF ] && cp -f $FEEDS_CONF openwrt/feeds.conf.default
         chmod +x $DIY_P1_SH
-        cd openwrt
-        $GITHUB_WORKSPACE/$DIY_P1_SH
+        cd openwrt && $GITHUB_WORKSPACE/$DIY_P1_SH
 
-    - name: Update feeds
-      run: cd openwrt && ./scripts/feeds update -a
-
-    - name: Install feeds
-      run: cd openwrt && ./scripts/feeds install -a
+    - name: Update/Install feeds
+      run: cd openwrt && ./scripts/feeds update -a && ./scripts/feeds install -a
 
     - name: Load custom configuration
       run: |
         [ -e $GITHUB_WORKSPACE/$CONFIG_FILE ] && cp -f $GITHUB_WORKSPACE/$CONFIG_FILE openwrt/.config
         chmod +x $DIY_P2_SH
-        cd openwrt
-        $GITHUB_WORKSPACE/$DIY_P2_SH
+        cd openwrt && $GITHUB_WORKSPACE/$DIY_P2_SH
         make defconfig
 
-    - name: Physical Injection (Minimal Patch)
+    - name: Physical Kernel Prepare
       run: |
         cd openwrt
+        # 物理预解压：确保 5.15 内核路径生成
         make target/linux/prepare -j$(nproc)
+        # 物理兜底注入：确保 DTS 覆盖到 build_dir 现场
         find build_dir/ -name "mediatek" -type d -path "*/dts/mediatek" -exec cp -f $GITHUB_WORKSPACE/custom-config/mt7981-sl-3000-emmc.dts {} \;
 
     - name: Download package
@@ -75,15 +71,16 @@ jobs:
       id: compile
       run: |
         cd openwrt
-        # 物理加固：先独立编译 TFA，确保软链接目标存在
+        # 物理加固：强制先行编译 TFA，确保 bl2.img 零件物理就绪
         make package/boot/trusted-firmware-a-mt7981/compile V=s -j1
+        # 执行主编译
         make -j$(nproc) || make -j1 || make -j1 V=s
         echo "status=success" >> $GITHUB_OUTPUT
         echo "FILE_DATE=_$(date +"%Y%m%d%H%M")" >> $GITHUB_ENV
 
     - name: Organize files
       id: organize
-      if: env.UPLOAD_FIRMWARE == 'true' && !cancelled()
+      if: steps.compile.outputs.status == 'success'
       run: |
         cd openwrt/bin/targets/*/*
         rm -rf packages
@@ -92,7 +89,7 @@ jobs:
 
     - name: Upload firmware to release
       uses: softprops/action-gh-release@v2
-      if: steps.organize.outputs.status == 'success' && env.UPLOAD_RELEASE == 'true' && !cancelled()
+      if: steps.organize.outputs.status == 'success'
       with:
         tag_name: SL3000${{ env.FILE_DATE }}
         files: ${{ env.FIRMWARE }}/*
