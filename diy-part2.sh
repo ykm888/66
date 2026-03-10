@@ -1,24 +1,21 @@
 #!/bin/bash
 
-# 1. 物理目录复刻：创建目标架构索引目录
+# 1. 物理目录复刻：构建目标架构索引环境（原文逻辑延续）
 mkdir -p target/linux/mediatek/dts/
 mkdir -p target/linux/mediatek/image/
+mkdir -p target/linux/mediatek/files-5.15/arch/arm64/boot/dts/mediatek/
 
-# 2. 绝对路径物理注入：使用 $GITHUB_WORKSPACE 引用主仓库配置
-# 物理同步你刚刚保存好的 filogic.mk
+# 2. 物理注入配置：同步 DTS 和已经修复语法错误（Tab 缩进对齐）的 filogic.mk
+# 确保 $GITHUB_WORKSPACE 路径下的 custom-config 文件夹内已有这两个文件
 cp -f $GITHUB_WORKSPACE/custom-config/mt7981-sl-3000-emmc.dts target/linux/mediatek/dts/
 cp -f $GITHUB_WORKSPACE/custom-config/filogic.mk target/linux/mediatek/image/
-
-# 3. 5.15 内核物理路径锁死：确保编译现场 DTS 命中（严禁偏移到 6.12）
-mkdir -p target/linux/mediatek/files-5.15/arch/arm64/boot/dts/mediatek/
 cp -f $GITHUB_WORKSPACE/custom-config/mt7981-sl-3000-emmc.dts target/linux/mediatek/files-5.15/arch/arm64/boot/dts/mediatek/
 
-# 4. 救砖零件仓库物理同步：切换至最新的 sl3000-uboot-base 分支
-# 注意：此仓库内包含我们刚刚修复的 Makefile
+# 3. 救砖零件仓库物理同步：延续上一版逻辑，强制使用 sl3000-uboot-base 分支
+# 这是为了确保 Makefile 能物理产出 filogic.mk 需要的 fip.bin
 rm -rf package/boot/uboot-mediatek
 git clone https://github.com/ykm888/66 -b sl3000-uboot-base package/boot/uboot-mediatek
 
-# 5. 修正：确保 arm-trusted-firmware-mediatek 文件夹物理存在
-# 如果你的 uboot-base 分支里没包含 TFA，这里可以手动补齐路径
+# 4. (可选) 物理修正：如果 ATF 仓库不在默认列表，可在此手动补齐
 # rm -rf package/boot/arm-trusted-firmware-mediatek
-# git clone https://github.com/ykm888/atf-link -b main package/boot/arm-trusted-firmware-mediatek
+# git clone https://github.com/ykm888/66 -b sl3000-atf-base package/boot/arm-trusted-firmware-mediatek
