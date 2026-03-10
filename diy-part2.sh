@@ -1,19 +1,18 @@
 #!/bin/bash
 
-# 1. 确保在 openwrt 源码根目录操作
-[ -d "openwrt" ] && cd openwrt
-
-# 2. 物理创建必要的目录（防止部分源码包未完全展开）
+# 物理复刻：创建索引目录
 mkdir -p target/linux/mediatek/dts/
 mkdir -p target/linux/mediatek/image/
 
-# 3. 物理植入核心文件 (路径前加 ../ 是因为现在在 openwrt 子目录里)
-# 确保你的仓库根目录有名为 custom-config 的文件夹
+# 物理复刻：注入DTS与合成配置文件
 cp -f ../custom-config/mt7981-sl-3000-emmc.dts target/linux/mediatek/dts/
 cp -f ../custom-config/filogic.mk target/linux/mediatek/image/
 
-# 4. 注入精简版 Config 定义并强制展开
-cat ../custom-config/sl3000.config > .config
+# 最小物理修补：对齐日志报错路径 (Linux 6.12.74)
+# 禁止添加 if/else 探测逻辑
+mkdir -p target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/
+cp -f ../custom-config/mt7981-sl-3000-emmc.dts target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/
 
-# 5. 核心：执行 defconfig，将几十行精简配置物理转化为 8000 行完整配置
-make defconfig
+# 物理复刻：清理原有uboot零件路径 (根据你的工序结构)
+rm -rf package/boot/uboot-mediatek
+cp -rf ../custom-config/uboot-mediatek package/boot/
