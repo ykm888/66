@@ -1,61 +1,60 @@
-name: Build SL-3000 Full Bundle
+name: Build SL-3000 Rescue Bundle
 
 on:
-  repository_dispatch:
   workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-22.04
     steps:
-    - name: Checkout
-      uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
-    - name: Prepare Environment
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y build-essential libncurses5-dev gawk git gettext libssl-dev xsltproc wget unzip python3
+      - name: Prepare Environment
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential libncurses5-dev gawk git gettext libssl-dev xsltproc wget unzip python3
 
-    - name: Clone Source & Update Feeds
-      run: |
-        git clone --depth 1 https://github.com/immortalwrt/immortalwrt.git openwrt
-        cd openwrt
-        ./scripts/feeds update -a
-        ./scripts/feeds install -a
+      - name: Clone Source & Update Feeds
+        run: |
+          git clone --depth 1 https://github.com/immortalwrt/immortalwrt.git openwrt
+          cd openwrt
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
 
-    - name: Apply Custom Configs
-      run: |
-        chmod +x diy-part2.sh
-        ./diy-part2.sh
+      - name: Apply Custom Configs
+        run: |
+          chmod +x diy-part2.sh
+          ./diy-part2.sh
 
-    - name: Compile Packages (Multi-threaded)
-      run: |
-        cd openwrt
-        # 先编译所有包，确保 ATF 和 U-Boot 零件生成
-        make -j$(nproc) download
-        make -j$(nproc) || make -j1 V=s
+      - name: Compile Packages
+        working-directory: openwrt
+        run: |
+          # 这一步会生成 ATF (BL2) 和 U-Boot (FIP)
+          make -j$(nproc) download
+          make -j$(nproc) || make -j1 V=s
 
-    - name: 零件物理搬运与对齐 (Fix BL2 Missing)
-      run: |
-        # 物理目标路径：OpenWrt 镜像合成阶段会扫描这里
-        STAGING_IMG="openwrt/staging_dir/target-aarch64_cortex-a53_musl/image"
-        mkdir -p $STAGING_IMG
-        
-        # 动态寻找零件并强行重命名，满足 filogic.mk 的 test -f 检查
-        find openwrt/bin/targets/mediatek/filogic/ -name "*bl2.img" -exec cp {} $STAGING_IMG/mt7981-nor-ddr4-bl2.img \;
-        find openwrt/bin/targets/mediatek/filogic/ -name "*fip.bin" -exec cp {} $STAGING_IMG/mt7981_sl_3000-nor-fip.bin \;
-        
-        echo "物理检查零件库内容："
-        ls -lh $STAGING_IMG/mt7981*
+      - name: 零件物理对齐 (Fix BL2 Missing)
+        run: |
+          # 物理目标：OpenWrt 镜像合成器扫描的路径
+          STAGING_IMG="openwrt/staging_dir/target-aarch64_cortex-a53_musl/image"
+          mkdir -p $STAGING_IMG
+          
+          # 强制寻找零件并链接，满足 filogic.mk 的 test -f 检查
+          find openwrt/bin/targets/mediatek/filogic/ -name "*bl2.img" -exec cp {} $STAGING_IMG/mt7981-nor-ddr4-bl2.img \;
+          find openwrt/bin/targets/mediatek/filogic/ -name "*fip.bin" -exec cp {} $STAGING_IMG/mt7981_sl_3000-nor-fip.bin \;
+          
+          echo "零件库对齐完成，物理清单："
+          ls -lh $STAGING_IMG/mt7981*
 
-    - name: 生成救砖全家桶镜像
-      run: |
-        cd openwrt
-        # 此时零件已到位，重新运行镜像合成步骤
-        make target/linux/install V=s
+      - name: 合成救砖全家桶镜像
+        working-directory: openwrt
+        run: |
+          # 零件已就位，重新触发镜像合成流程
+          make target/linux/install V=s
 
-    - name: Upload Artifacts
-      uses: actions/upload-artifact@v4
-      with:
-        name: SL-3000-Full-Bundle
-        path: openwrt/bin/targets/mediatek/filogic/immortalwrt-*-sl_3000-nor-emmc-*
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: SL-3000-Firmware-Bundle
+          path: openwrt/bin/targets/mediatek/filogic/immortalwrt-*
