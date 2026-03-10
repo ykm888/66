@@ -1,71 +1,121 @@
-name: Build SL-3000 Full Bundle (1024M Fix)
+name: Build SL-3000 Firmware
 
 on:
+  repository_dispatch:
   workflow_dispatch:
+
+env:
+  REPO_URL: https://github.com/immortalwrt/immortalwrt
+  REPO_BRANCH: master
+  FEEDS_CONF: feeds.conf.default
+  CONFIG_FILE: custom-config/sl3000.config
+  DIY_P1_SH: diy-part1.sh
+  DIY_P2_SH: diy-part2.sh
+  UPLOAD_BIN_DIR: false
+  UPLOAD_FIRMWARE: true
+  UPLOAD_RELEASE: true
+  TZ: Asia/Shanghai
 
 jobs:
   build:
     runs-on: ubuntu-22.04
+
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+    - name: Checkout
+      uses: actions/checkout@v3
 
-      - name: Prepare Environment
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential libncurses5-dev gawk git gettext libssl-dev xsltproc wget unzip python3
+    - name: Initialization environment
+      env:
+        DEBIAN_FRONTEND: noninteractive
+      run: |
+        sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc
+        sudo -E apt-get -qq update
+        sudo -E apt-get -qq install $(curl -fsSL https://is.gd/depends_ubuntu_2204)
+        sudo -E apt-get -qq autoremove --purge
+        sudo -E apt-get -qq clean
+        sudo timedatectl set-timezone "$TZ"
+        sudo mkdir -p /workdir
+        sudo chown $USER:$USER /workdir
 
-      - name: Clone Source & Update Feeds
-        run: |
-          git clone --depth 1 https://github.com/immortalwrt/immortalwrt.git openwrt
-          cd openwrt
-          ./scripts/feeds update -a
-          ./scripts/feeds install -a
+    - name: Clone source code
+      working-directory: /workdir
+      run: |
+        df -hT $PWD
+        git clone $REPO_URL -b $REPO_BRANCH openwrt
+        ln -sf /workdir/openwrt $GITHUB_WORKSPACE/openwrt
 
-      - name: Apply Custom Configs
-        run: |
-          # 核心修复：手动创建目录并执行物理拷贝，不再依赖脚本内的 cd
-          mkdir -p openwrt/target/linux/mediatek/dts/
-          mkdir -p openwrt/target/linux/mediatek/image/
-          
-          cp -f custom-config/mt7981-sl-3000-emmc.dts openwrt/target/linux/mediatek/dts/
-          cp -f custom-config/filogic.mk openwrt/target/linux/mediatek/image/
-          
-          # 注入精简版 Config 并刷新
-          cat custom-config/sl3000.config > openwrt/.config
-          cd openwrt && make defconfig
+    - name: Load custom feeds
+      run: |
+        [ -e $FEEDS_CONF ] && cp -f $FEEDS_CONF openwrt/feeds.conf.default
+        chmod +x $DIY_P1_SH
+        cd openwrt
+        $GITHUB_WORKSPACE/$DIY_P1_SH
 
-      - name: Compile Packages
-        working-directory: openwrt
-        run: |
-          # 这一步会编译 ATF (BL2) 和 U-Boot (FIP)
-          make -j$(nproc) download
-          make -j$(nproc) || make -j1 V=s
+    - name: Update feeds
+      run: cd openwrt && ./scripts/feeds update -a
 
-      - name: 零件物理搬运与对齐 (Fix BL2 Missing)
-        run: |
-          # 物理目标路径：OpenWrt 镜像合成器会扫描这里
-          STAGING_IMG="openwrt/staging_dir/target-aarch64_cortex-a53_musl/image"
-          mkdir -p $STAGING_IMG
-          
-          # 强制寻找零件并重命名，满足 filogic.mk 的 test -f 检查
-          # 我们使用 cp -v 来在日志中确认文件是否真的存在
-          find openwrt/bin/targets/ -name "*bl2.img" -exec cp -v {} $STAGING_IMG/mt7981-nor-ddr4-bl2.img \;
-          find openwrt/bin/targets/ -name "*fip.bin" -exec cp -v {} $STAGING_IMG/mt7981_sl_3000-nor-fip.bin \;
-          
-          echo "零件库物理检查："
-          ls -lh $STAGING_IMG/mt7981*
+    - name: Install feeds
+      run: cd openwrt && ./scripts/feeds install -a
 
-      - name: 合成救砖全家桶镜像
-        working-directory: openwrt
-        run: |
-          # 零件已就位，重新触发镜像合成流程
-          make target/linux/install V=s
+    - name: Load custom configuration
+      run: |
+        [ -e $CONFIG_FILE ] && cp -f $CONFIG_FILE openwrt/.config
+        chmod +x $DIY_P2_SH
+        ./$DIY_P2_SH
+        cd openwrt
+        make defconfig
 
-      - name: Upload Artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: SL-3000-Rescue-Bundle
-          path: |
-            openwrt/bin/targets/mediatek/filogic/*nor-programmer-dump.bin
-            openwrt/bin/targets/mediatek/filogic/*emmc-sysupgrade.bin
+    - name: Physical Injection (Minimal Patch)
+      run: |
+        cd openwrt
+        # 物理对齐：解压内核前置工序
+        make target/linux/prepare -j$(nproc)
+        # 最小物理修补：直接向报错路径复刻文件
+        cp -f ../custom-config/mt7981-sl-3000-emmc.dts build_dir/target-aarch64_cortex-a53_musl/linux-mediatek_filogic/linux-6.12.74/arch/arm64/boot/dts/mediatek/
+
+    - name: Download package
+      id: package
+      run: |
+        cd openwrt
+        make download -j8
+        find dl -size -1024c -exec ls -l {} \;
+        find dl -size -1024c -exec rm -f {} \;
+
+    - name: Compile the firmware
+      id: compile
+      run: |
+        cd openwrt
+        echo -e "$(nproc) thread compile"
+        make -j$(nproc) || make -j1 || make -j1 V=s
+        echo "status=success" >> $GITHUB_OUTPUT
+        grep "CONFIG_TARGET" .config > DEVICE_NAME
+        grep "CONFIG_TARGET_DEVICE_.*_DEVICE_.*=y" .config | sed -r 's/.*DEVICE_(.*)=y/\1/' > DEVICE_ID
+        echo "FILE_DATE=_$(date +"%Y%m%d%H%M")" >> $GITHUB_ENV
+
+    - name: Check space usage
+      if: (!cancelled())
+      run: df -hT
+
+    - name: Upload firmware directory
+      uses: actions/upload-artifact@v3
+      if: steps.compile.outputs.status == 'success' && env:UPLOAD_BIN_DIR == 'true'
+      with:
+        name: OpenWrt_bin${{ env.DEVICE_NAME }}${{ env.FILE_DATE }}
+        path: openwrt/bin
+
+    - name: Organize files
+      id: organize
+      if: env.UPLOAD_FIRMWARE == 'true' && !cancelled()
+      run: |
+        cd openwrt/bin/targets/*/*
+        rm -rf packages
+        echo "FIRMWARE=$PWD" >> $GITHUB_ENV
+        echo "status=success" >> $GITHUB_OUTPUT
+
+    - name: Upload firmware to release
+      uses: softprops/action-gh-release@v1
+      if: steps.organize.outputs.status == 'success' && env.UPLOAD_RELEASE == 'true' && !cancelled()
+      with:
+        tag_name: ${{ env.DEVICE_ID }}${{ env.FILE_DATE }}
+        files: ${{ env.FIRMWARE }}/*
+        token: ${{ secrets.GITHUB_TOKEN }}
