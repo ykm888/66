@@ -5,7 +5,6 @@ on:
   workflow_dispatch:
 
 env:
-  # 物理锁死：主仓库地址与构建克隆源码分支
   REPO_URL: https://github.com/ykm888/66
   REPO_BRANCH: sl3000-immortalwrt-bootstrap
   FEEDS_CONF: feeds.conf.default
@@ -26,8 +25,6 @@ jobs:
       uses: actions/checkout@v4
 
     - name: Initialization environment
-      env:
-        DEBIAN_FRONTEND: noninteractive
       run: |
         sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc
         sudo -E apt-get -qq update
@@ -41,7 +38,6 @@ jobs:
     - name: Clone source code
       working-directory: /workdir
       run: |
-        df -hT $PWD
         git clone $REPO_URL -b $REPO_BRANCH openwrt
         ln -sf /workdir/openwrt $GITHUB_WORKSPACE/openwrt
 
@@ -60,51 +56,30 @@ jobs:
 
     - name: Load custom configuration
       run: |
-        # 物理修正：使用绝对路径确保配置文件拉取成功
         [ -e $GITHUB_WORKSPACE/$CONFIG_FILE ] && cp -f $GITHUB_WORKSPACE/$CONFIG_FILE openwrt/.config
         chmod +x $DIY_P2_SH
         cd openwrt
-        # 物理注入：在此环境下执行脚本，脚本内部已修正路径逻辑
         $GITHUB_WORKSPACE/$DIY_P2_SH
         make defconfig
 
     - name: Physical Injection (Minimal Patch)
       run: |
         cd openwrt
-        # 物理对齐：执行内核预解压，锁定 5.15 工序
         make target/linux/prepare -j$(nproc)
-        # 物理对齐：使用 find 兜底，物理定位 5.15 的 DTS 目录并注入
         find build_dir/ -name "mediatek" -type d -path "*/dts/mediatek" -exec cp -f $GITHUB_WORKSPACE/custom-config/mt7981-sl-3000-emmc.dts {} \;
 
     - name: Download package
-      id: package
-      run: |
-        cd openwrt
-        make download -j8
-        find dl -size -1024c -exec ls -l {} \;
-        find dl -size -1024c -exec rm -f {} \;
+      run: cd openwrt && make download -j8
 
     - name: Compile the firmware
       id: compile
       run: |
         cd openwrt
-        echo -e "$(nproc) thread compile"
+        # 物理加固：先独立编译 TFA，确保软链接目标存在
+        make package/boot/trusted-firmware-a-mt7981/compile V=s -j1
         make -j$(nproc) || make -j1 || make -j1 V=s
         echo "status=success" >> $GITHUB_OUTPUT
-        grep "CONFIG_TARGET" .config > DEVICE_NAME
-        grep "CONFIG_TARGET_DEVICE_.*_DEVICE_.*=y" .config | sed -r 's/.*DEVICE_(.*)=y/\1/' > DEVICE_ID
         echo "FILE_DATE=_$(date +"%Y%m%d%H%M")" >> $GITHUB_ENV
-
-    - name: Check space usage
-      if: (!cancelled())
-      run: df -hT
-
-    - name: Upload firmware directory
-      uses: actions/upload-artifact@v4
-      if: steps.compile.outputs.status == 'success' && env.UPLOAD_BIN_DIR == 'true'
-      with:
-        name: OpenWrt_bin${{ env.DEVICE_NAME }}${{ env.FILE_DATE }}
-        path: openwrt/bin
 
     - name: Organize files
       id: organize
@@ -119,6 +94,6 @@ jobs:
       uses: softprops/action-gh-release@v2
       if: steps.organize.outputs.status == 'success' && env.UPLOAD_RELEASE == 'true' && !cancelled()
       with:
-        tag_name: ${{ env.DEVICE_ID }}${{ env.FILE_DATE }}
+        tag_name: SL3000${{ env.FILE_DATE }}
         files: ${{ env.FIRMWARE }}/*
         token: ${{ secrets.GITHUB_TOKEN }}
