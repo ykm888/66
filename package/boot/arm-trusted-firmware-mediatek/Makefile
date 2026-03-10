@@ -1,4 +1,3 @@
-# --- 【4版】 物理重构 Makefile ---
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=trusted-firmware-a-mt7981
@@ -17,25 +16,26 @@ define Trusted-Firmware-A/Default
   BUILD_TARGET:=mediatek
   BUILD_SUBTARGET:=filogic
   PLAT:=mt7981
-  # 物理修正：只保留框架支持的 .bin，bl2.img 交给 diy-part2.sh 物理软链接
+  # 物理锁定框架产出
   TFA_IMAGE:=bl2.bin bl31.bin
 endef
 
 define Trusted-Firmware-A/mt7981-nor-ddr4
   NAME:=SL-3000 (NOR-DDR4-1024M)
-  # 物理对齐：框架会自动解析这些变量并传递给 Make
   BOOT_DEVICE:=nor
   DDR_TYPE:=ddr4
 endef
 
 TFA_TARGETS:=mt7981-nor-ddr4
 
-# 物理加固：确保 DDR4 标志位强制进入编译链
-TFA_MAKE_FLAGS += \
-	DRAM_USE_DDR4=1
+TFA_MAKE_FLAGS += DRAM_USE_DDR4=1
 
-# --- 关键：移除所有自定义 define Package/.../install ---
-# 理由：框架 $(eval $(call BuildPackage/Trusted-Firmware-A)) 会自动处理
-# 它会将产物自动拷贝到 $(STAGING_DIR_IMAGE)/$(BUILD_VARIANT)-bl2.bin
+# --- 【8版核心物理补丁】：拦截框架安装流 ---
+# 我们在框架安装完成后，立即物理拷贝出一份不带前缀的 .img 文件
+define Package/trusted-firmware-a-$(1)/install
+	$(call Package/trusted-firmware-a-$(1)/install/default,$(1))
+	$(CP) $(STAGING_DIR_IMAGE)/$(1)-bl2.bin $(STAGING_DIR_IMAGE)/bl2.img
+	$(CP) $(STAGING_DIR_IMAGE)/$(1)-bl31.bin $(STAGING_DIR_IMAGE)/bl31.bin
+endef
 
 $(eval $(call BuildPackage/Trusted-Firmware-A))
