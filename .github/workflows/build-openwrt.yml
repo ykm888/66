@@ -1,4 +1,4 @@
-name: Build SL-3000 Firmware
+name: Build SL3000 1024M Firmware
 
 on:
   repository_dispatch:
@@ -22,6 +22,8 @@ jobs:
       uses: actions/checkout@v4
 
     - name: Initialization environment
+      env:
+        DEBIAN_FRONTEND: noninteractive
       run: |
         sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc
         sudo -E apt-get -qq update
@@ -30,95 +32,51 @@ jobs:
         sudo -E apt-get -qq clean
         sudo timedatectl set-timezone "$TZ"
         sudo mkdir -p /workdir
-        sudo chown $USER:$USER /workdir
+        sudo chown $USER:$GROUPS /workdir
 
     - name: Clone source code
       working-directory: /workdir
       run: |
+        df -hT $PWD
         git clone $REPO_URL -b $REPO_BRANCH openwrt
         ln -sf /workdir/openwrt $GITHUB_WORKSPACE/openwrt
 
-    - name: Load custom feeds
+    - name: Load custom feeds & diy-part1
       run: |
         [ -e $FEEDS_CONF ] && cp -f $FEEDS_CONF openwrt/feeds.conf.default
         chmod +x $DIY_P1_SH
         cd openwrt && $GITHUB_WORKSPACE/$DIY_P1_SH
 
-    - name: Update/Install feeds
+    - name: Update & Install feeds
       run: cd openwrt && ./scripts/feeds update -a && ./scripts/feeds install -a
 
-    - name: Load custom configuration
+    - name: Load custom configuration & diy-part2
       run: |
-        [ -e $GITHUB_WORKSPACE/$CONFIG_FILE ] && cp -f $GITHUB_WORKSPACE/$CONFIG_FILE openwrt/.config
+        [ -e $CONFIG_FILE ] && cp -f $CONFIG_FILE openwrt/.config
         chmod +x $DIY_P2_SH
         cd openwrt && $GITHUB_WORKSPACE/$DIY_P2_SH
-        # 物理预处理：生成最终 .config 并下载零件
-        make defconfig
+        # 强制在 defconfig 前再次物理粉碎缓存
+        cd openwrt && rm -rf tmp/ && make defconfig
 
     - name: Download package
-      run: cd openwrt && make download -j8
+      id: package
+      run: |
+        cd openwrt
+        make download -j8
+        find dl -size -1024c -exec ls -l {} \;
+        find dl -size -1024c -exec rm -f {} \;
 
     - name: Compile the firmware
       id: compile
       run: |
         cd openwrt
-        echo "::group::Building Toolchain"
-        make tools/install -j$(nproc) || make tools/install -j1 V=s
-        make toolchain/install -j$(nproc) || make toolchain/install -j1 V=s
-        echo "::endgroup::"
-
-        # 1. 物理编译 ATF (此时 diy-part2 已物理移除官方 Patch)
-        echo "::group::Compiling ATF (1024M DDR4 Optimized)"
-        make package/boot/arm-trusted-firmware-mediatek/compile V=s -j1
-        echo "::endgroup::"
-
-        # 2. 物理编译 U-Boot (基于您的 sl3000-uboot-base)
-        echo "::group::Compiling U-Boot"
-        make package/boot/uboot-mediatek/compile V=s -j1
-        echo "::endgroup::"
-
-        # 3. 物理断言：检查关键零件是否成功产出
-        if [ ! -f "bin/targets/mediatek/filogic/bl2.img" ] && [ ! -f "staging_dir/target-aarch64_cortex-a53_musl/image/bl2.img" ]; then
-          echo "警告：关键零件 bl2.img 未能在预期路径生成，尝试搜索..."
-          find bin/targets/ -name "bl2.img"
-        fi
-
-        # 4. 整机全量合成编译
-        echo "::group::Full Firmware Synthesis"
-        make -j$(nproc) || make -j1 V=s
-        echo "::endgroup::"
-        
+        echo -e "$(nproc) thread compile"
+        make -j$(nproc) || make -j1 || make -j1 V=s
         echo "status=success" >> $GITHUB_OUTPUT
-        echo "FILE_DATE=_$(date +"%Y%m%d%H%M")" >> $GITHUB_ENV
 
-    - name: Organize files
-      id: organize
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v4
       if: steps.compile.outputs.status == 'success'
-      run: |
-        cd openwrt/bin/targets/*/*
-        # 物理提取救砖零件到独立目录
-        mkdir -p SL3000_Recovery_Pack
-        [ -f bl2.img ] && cp bl2.img SL3000_Recovery_Pack/
-        cp *fip.bin SL3000_Recovery_Pack/ 2>/dev/null || true
-        
-        # 清理 packages 目录减小 Release 体积
-        rm -rf packages
-        echo "FIRMWARE=$PWD" >> $GITHUB_ENV
-        echo "status=success" >> $GITHUB_OUTPUT
-
-    - name: Upload firmware to release
-      uses: softprops/action-gh-release@v2
-      if: steps.organize.outputs.status == 'success'
       with:
-        tag_name: SL3000${{ env.FILE_DATE }}
-        files: |
-          ${{ env.FIRMWARE }}/*.bin
-          ${{ env.FIRMWARE }}/*.img
-          ${{ env.FIRMWARE }}/SL3000_Recovery_Pack/*
-        token: ${{ secrets.GITHUB_TOKEN }}
-        body: |
-          ### SL-3000 (MT7981) 定制固件
-          - **内存适配**: 1024MB DDR4 物理对齐
-          - **源码来源**: ATF (${{ env.REPO_URL }}/tree/atf-sl3000-base)
-          - **编译时间**: ${{ env.FILE_DATE }}
-          - **包含零件**: 包含救砖专用 `bl2.img` 和 `fip.bin`
+        name: SL3000_1024M_Firmware
+        path: openwrt/bin/targets/
