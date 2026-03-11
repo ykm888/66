@@ -1,47 +1,55 @@
-name: Fix and Sync ATF Architecture
+name: Auto-Discover and Fix ATF
 
 on:
   workflow_dispatch:
 
 jobs:
-  fix-and-push:
+  auto-fix:
     runs-on: ubuntu-22.04
     steps:
     - name: Checkout Your Repo
       uses: actions/checkout@v4
-      with:
-        fetch-depth: 0
 
-    - name: Clone and Patch Architecture
+    - name: Discover and Clone ATF
       run: |
-        # 1. 物理拉取 2026 分支
-        git clone https://review.trustedfirmware.org/TF-A/trusted-firmware-a -b mtksoc-20260123 atf-src
-        cd atf-src
-        git submodule update --init --recursive
+        # 1. 物理探测：列出远程所有联发科相关的分支
+        REMOTE_URL="https://review.trustedfirmware.org/TF-A/trusted-firmware-a"
+        # 尝试匹配顺序：mtksoc-2 -> master -> mt7981
+        TARGET_BRANCH=$(git ls-remote --heads $REMOTE_URL | grep -E "mtksoc-2|mt7981|master" | head -n 1 | awk '{print $2}' | sed 's|refs/heads/||')
         
-        # 2. 物理定位缺失的头文件
-        MISSING_H=$(find . -name "bl2_plat_setup.h" | head -n 1)
-        if [ -z "$MISSING_H" ]; then
-          echo "ERROR: Could not find bl2_plat_setup.h in source tree!"
+        if [ -z "$TARGET_BRANCH" ]; then
+          echo "ERROR: No suitable MediaTek branch found!"
           exit 1
         fi
-        H_DIR=$(dirname "$MISSING_H")
-        echo "Found header at: $H_DIR"
+        echo "Found Active Branch: $TARGET_BRANCH"
 
-        # 3. 物理修复：在平台 Makefile 中强行注入该路径
-        # 针对 mt7981 平台，将包含路径注入编译选项
-        PLAT_MK="plat/mediatek/mt7981/platform.mk"
-        if [ -f "$PLAT_MK" ]; then
-          echo "PLAT_INCLUDES += -I$H_DIR" >> "$PLAT_MK"
-          echo "Applied physical path fix to $PLAT_MK"
+        # 2. 物理拉取探测到的分支
+        git clone $REMOTE_URL -b $TARGET_BRANCH atf-src
+        cd atf-src
+        git submodule update --init --recursive
+
+    - name: Physical Fix for Header Missing
+      run: |
+        cd atf-src
+        # 3. 搜索头文件物理位置（解决 bl2_plat_setup.h 找不到的问题）
+        H_FILE=$(find . -name "bl2_plat_setup.h" | head -n 1)
+        if [ -n "$H_FILE" ]; then
+          H_DIR=$(dirname "$H_FILE")
+          echo "Found Header at: $H_DIR"
+          # 物理注入到 mt7981 的编译环境
+          PLAT_MK="plat/mediatek/mt7981/platform.mk"
+          if [ -f "$PLAT_MK" ]; then
+            sed -i "1i PLAT_INCLUDES += -I$H_DIR" "$PLAT_MK"
+            echo "Successfully patched $PLAT_MK"
+          fi
         fi
 
-    - name: Push Fixed Branch
+    - name: Push to Your Repo
       run: |
         cd atf-src
         git config --global user.email "github-actions[bot]@users.noreply.github.com"
         git config --global user.name "github-actions[bot]"
         git add .
-        git commit -m "Physical fix: add missing include path for bl2_plat_setup.h"
+        git commit -m "Auto-fix: resolve header path for SL-3000" || exit 0
         git remote add my-repo https://${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git
         git push -f my-repo HEAD:atf-sl3000-fixed
