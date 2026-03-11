@@ -1,49 +1,40 @@
-name: Sync ATF Source Only
+name: Sync Perfect ATF for SL3000
 
 on:
   workflow_dispatch:
 
 jobs:
-  sync-source:
+  sync-task:
     runs-on: ubuntu-22.04
     permissions:
-      contents: write  # 赋予推送到仓库的物理权限
+      contents: write
 
     steps:
     - name: Checkout Your Repo
       uses: actions/checkout@v4
 
-    - name: Discover and Clone ATF
+    - name: Clone Verified Source
       run: |
-        # 1. 物理探测远程 MediaTek 活跃分支
-        REMOTE_URL="https://review.trustedfirmware.org/TF-A/trusted-firmware-a"
+        # 物理克隆你确认过的这个 mtksoc 仓库和分支
+        git clone https://github.com/mtk-openwrt/arm-trusted-firmware.git -b mtksoc atf-src
+        cd atf-src
         
-        # 优先匹配 mtksoc-2, 其次 master, 再次包含 mt7981 的分支
-        TARGET_BRANCH=$(git ls-remote --heads $REMOTE_URL | grep -E "mtksoc-2|master|mt7981" | head -n 1 | awk '{print $2}' | sed 's|refs/heads/||')
-        
-        if [ -z "$TARGET_BRANCH" ]; then
-          echo "ERROR: 无法在远程服务器物理定位到 MediaTek 相关分支"
+        # 物理验证关键文件是否存在
+        if [ -f "plat/mediatek/mt7981/platform.mk" ]; then
+          echo "SUCCESS: MT7981 platform config verified!"
+        else
+          echo "ERROR: File not found! Check branch name."
           exit 1
         fi
-        echo "目标分支物理定位成功: $TARGET_BRANCH"
-
-        # 2. 物理克隆源码（不包含构建环境）
-        git clone $REMOTE_URL -b $TARGET_BRANCH atf-src
-        cd atf-src
         
-        # 3. 物理同步子模块（补全 libeventlog 等架构基础零件）
+        # 同步子模块，补齐核心零件
         git submodule update --init --recursive
 
-    - name: Push to Your Repository
+    - name: Push to atf-sl3000-base
       run: |
         cd atf-src
-        # 4. 配置 Git 身份
-        git config --global user.email "github-actions[bot]@users.noreply.github.com"
-        git config --global user.name "github-actions[bot]"
-        
-        # 5. 物理推送到你当前仓库的 atf-sl3000-base 分支
-        # 使用 ${{ secrets.GITHUB_TOKEN }} 确保认证通过
-        git remote add my-origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git
-        
-        echo "正在将架构源码推送到分支: atf-sl3000-base"
-        git push -f my-origin HEAD:refs/heads/atf-sl3000-base
+        git config --global user.email "bot@github.com"
+        git config --global user.name "Arch-Sync-Bot"
+        git remote add my-repo https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git
+        # 强制推送到你指定的路径
+        git push -f my-repo HEAD:atf-sl3000-base
