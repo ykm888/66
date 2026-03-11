@@ -1,0 +1,47 @@
+name: Fix and Sync ATF Architecture
+
+on:
+  workflow_dispatch:
+
+jobs:
+  fix-and-push:
+    runs-on: ubuntu-22.04
+    steps:
+    - name: Checkout Your Repo
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Clone and Patch Architecture
+      run: |
+        # 1. 物理拉取 2026 分支
+        git clone https://review.trustedfirmware.org/TF-A/trusted-firmware-a -b mtksoc-20260123 atf-src
+        cd atf-src
+        git submodule update --init --recursive
+        
+        # 2. 物理定位缺失的头文件
+        MISSING_H=$(find . -name "bl2_plat_setup.h" | head -n 1)
+        if [ -z "$MISSING_H" ]; then
+          echo "ERROR: Could not find bl2_plat_setup.h in source tree!"
+          exit 1
+        fi
+        H_DIR=$(dirname "$MISSING_H")
+        echo "Found header at: $H_DIR"
+
+        # 3. 物理修复：在平台 Makefile 中强行注入该路径
+        # 针对 mt7981 平台，将包含路径注入编译选项
+        PLAT_MK="plat/mediatek/mt7981/platform.mk"
+        if [ -f "$PLAT_MK" ]; then
+          echo "PLAT_INCLUDES += -I$H_DIR" >> "$PLAT_MK"
+          echo "Applied physical path fix to $PLAT_MK"
+        fi
+
+    - name: Push Fixed Branch
+      run: |
+        cd atf-src
+        git config --global user.email "github-actions[bot]@users.noreply.github.com"
+        git config --global user.name "github-actions[bot]"
+        git add .
+        git commit -m "Physical fix: add missing include path for bl2_plat_setup.h"
+        git remote add my-repo https://${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git
+        git push -f my-repo HEAD:atf-sl3000-fixed
