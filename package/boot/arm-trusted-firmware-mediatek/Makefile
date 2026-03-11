@@ -17,7 +17,9 @@ PKG_SOURCE_VERSION:=atf-sl3000-base
 
 PKG_MAINTAINER:=ykm888
 
-# 核心安全机制：源头屏蔽 Werror，防止因为路径警告导致编译中断
+# 核心安全机制：源头屏蔽 Werror
+# WERROR=0 用于告知 ATF 脚本本身关闭错误转换
+# 增加编译标志强制 C 编译器忽略路径缺失的错误
 PKG_MAKE_FLAGS += WERROR=0
 
 include $(INCLUDE_DIR)/kernel.mk
@@ -48,8 +50,7 @@ TFA_MAKE_FLAGS += \
 	DEBUG=0
 
 # --- 源头手术：Build/Prepare ---
-# 逻辑：在源码解压到 build_dir 后的第一时间，物理补齐编译器寻找的 include 路径
-# 这样即使你仓库里漏掉了某个空文件夹，编译系统也会在此时自动变出来
+# 逻辑：在源码解压到 build_dir 后的第一时间，物理补齐路径
 define Build/Prepare
 	$(call Build/Prepare/Default)
 	@echo "Physical Surgery: Aligning include paths in Build/Prepare..."
@@ -61,16 +62,23 @@ define Build/Prepare
 		cp -rf $(PKG_BUILD_DIR)/plat/mediatek/apsoc_common/bl2/include/*.h $(PKG_BUILD_DIR)/plat/mediatek/apsoc_common/include/ || true
 endef
 
+# --- 核心暴力手术：重写编译指令 ---
+# 逻辑：强制在 CC 命令行中加入 -Wno-error，这是对抗硬编码 -Werror 的终极手段
+define Build/Compile
+	$(call Build/Compile/Default, \
+		WERROR=0 \
+		CFLAGS="$(TARGET_CFLAGS) -Wno-error=missing-include-dirs -Wno-warn-backlight" \
+	)
+endef
+
 # --- 物理安装：建立零件桥梁 ---
 define Package/arm-trusted-firmware-mediatek-$(1)/install
 	$(call Package/trusted-firmware-a-$(1)/install/default,$(1))
 	
-	# 物理强行分发：供 filogic.mk 在合成最终 sysupgrade 镜像时调用
 	$(INSTALL_DIR) $(STAGING_DIR_IMAGE)
 	$(CP) $(STAGING_DIR_IMAGE)/$(1)-bl2.bin $(STAGING_DIR_IMAGE)/bl2.img
 	$(CP) $(STAGING_DIR_IMAGE)/$(1)-bl31.bin $(STAGING_DIR_IMAGE)/bl31.bin
 	
-	# 额外物理备份：在 bin/targets 目录下创建 recovery 文件夹
 	$(INSTALL_DIR) $(BIN_DIR)/sl3000-recovery
 	$(CP) $(STAGING_DIR_IMAGE)/$(1)-bl2.bin $(BIN_DIR)/sl3000-recovery/bl2.img
 	$(CP) $(STAGING_DIR_IMAGE)/$(1)-bl31.bin $(BIN_DIR)/sl3000-recovery/bl31.bin
