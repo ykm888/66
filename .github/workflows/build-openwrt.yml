@@ -52,6 +52,7 @@ jobs:
         [ -e $GITHUB_WORKSPACE/$CONFIG_FILE ] && cp -f $GITHUB_WORKSPACE/$CONFIG_FILE openwrt/.config
         chmod +x $DIY_P2_SH
         cd openwrt && $GITHUB_WORKSPACE/$DIY_P2_SH
+        # 物理预处理：生成最终 .config 并下载零件
         make defconfig
 
     - name: Download package
@@ -61,19 +62,32 @@ jobs:
       id: compile
       run: |
         cd openwrt
-        # 补齐基础工具链环境
-        make tools/install -j$(nproc)
-        make toolchain/install -j$(nproc)
+        echo "::group::Building Toolchain"
+        make tools/install -j$(nproc) || make tools/install -j1 V=s
+        make toolchain/install -j$(nproc) || make toolchain/install -j1 V=s
+        echo "::endgroup::"
 
-        # 1. 编译 ATF (diy-part2 已清理干扰补丁)
+        # 1. 物理编译 ATF (此时 diy-part2 已物理移除官方 Patch)
+        echo "::group::Compiling ATF (1024M DDR4 Optimized)"
         make package/boot/arm-trusted-firmware-mediatek/compile V=s -j1
-        
-        # 2. 编译 U-Boot (产出 fip.bin)
+        echo "::endgroup::"
+
+        # 2. 物理编译 U-Boot (基于您的 sl3000-uboot-base)
+        echo "::group::Compiling U-Boot"
         make package/boot/uboot-mediatek/compile V=s -j1
+        echo "::endgroup::"
+
+        # 3. 物理断言：检查关键零件是否成功产出
+        if [ ! -f "bin/targets/mediatek/filogic/bl2.img" ] && [ ! -f "staging_dir/target-aarch64_cortex-a53_musl/image/bl2.img" ]; then
+          echo "警告：关键零件 bl2.img 未能在预期路径生成，尝试搜索..."
+          find bin/targets/ -name "bl2.img"
+        fi
+
+        # 4. 整机全量合成编译
+        echo "::group::Full Firmware Synthesis"
+        make -j$(nproc) || make -j1 V=s
+        echo "::endgroup::"
         
-        # 3. 整机合成
-        echo -e "$(nproc) thread compile"
-        make -j$(nproc) || make -j1 || make -j1 V=s
         echo "status=success" >> $GITHUB_OUTPUT
         echo "FILE_DATE=_$(date +"%Y%m%d%H%M")" >> $GITHUB_ENV
 
@@ -82,6 +96,12 @@ jobs:
       if: steps.compile.outputs.status == 'success'
       run: |
         cd openwrt/bin/targets/*/*
+        # 物理提取救砖零件到独立目录
+        mkdir -p SL3000_Recovery_Pack
+        [ -f bl2.img ] && cp bl2.img SL3000_Recovery_Pack/
+        cp *fip.bin SL3000_Recovery_Pack/ 2>/dev/null || true
+        
+        # 清理 packages 目录减小 Release 体积
         rm -rf packages
         echo "FIRMWARE=$PWD" >> $GITHUB_ENV
         echo "status=success" >> $GITHUB_OUTPUT
@@ -91,5 +111,14 @@ jobs:
       if: steps.organize.outputs.status == 'success'
       with:
         tag_name: SL3000${{ env.FILE_DATE }}
-        files: ${{ env.FIRMWARE }}/*
+        files: |
+          ${{ env.FIRMWARE }}/*.bin
+          ${{ env.FIRMWARE }}/*.img
+          ${{ env.FIRMWARE }}/SL3000_Recovery_Pack/*
         token: ${{ secrets.GITHUB_TOKEN }}
+        body: |
+          ### SL-3000 (MT7981) 定制固件
+          - **内存适配**: 1024MB DDR4 物理对齐
+          - **源码来源**: ATF (${{ env.REPO_URL }}/tree/atf-sl3000-base)
+          - **编译时间**: ${{ env.FILE_DATE }}
+          - **包含零件**: 包含救砖专用 `bl2.img` 和 `fip.bin`
