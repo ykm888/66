@@ -31,45 +31,41 @@ jobs:
         sudo -E apt-get -qq autoremove --purge
         sudo -E apt-get -qq clean
         sudo timedatectl set-timezone "$TZ"
-        sudo mkdir -p /workdir
-        sudo chown $USER:$GROUPS /workdir
 
     - name: Clone source code
-      working-directory: /workdir
       run: |
-        df -hT $PWD
         git clone $REPO_URL -b $REPO_BRANCH openwrt
-        ln -sf /workdir/openwrt $GITHUB_WORKSPACE/openwrt
-
-    - name: Load custom feeds & diy-part1
-      run: |
-        [ -e $FEEDS_CONF ] && cp -f $FEEDS_CONF openwrt/feeds.conf.default
-        chmod +x $DIY_P1_SH
-        cd openwrt && $GITHUB_WORKSPACE/$DIY_P1_SH
 
     - name: Update & Install feeds
-      run: cd openwrt && ./scripts/feeds update -a && ./scripts/feeds install -a
+      working-directory: openwrt
+      run: |
+        [ -e ../$FEEDS_CONF ] && cp -f ../$FEEDS_CONF feeds.conf.default
+        ./scripts/feeds update -a
+        ./scripts/feeds install -a
 
     - name: Load custom configuration & diy-part2
+      working-directory: openwrt
       run: |
-        [ -e $CONFIG_FILE ] && cp -f $CONFIG_FILE openwrt/.config
-        chmod +x $DIY_P2_SH
-        cd openwrt && $GITHUB_WORKSPACE/$DIY_P2_SH
-        # 强制在 defconfig 前再次物理粉碎缓存
-        cd openwrt && rm -rf tmp/ && make defconfig
+        # 复制配置文件
+        [ -e ../$CONFIG_FILE ] && cp -f ../$CONFIG_FILE .config
+        # 执行脚本 (此时已经在 openwrt 目录下)
+        chmod +x ../$DIY_P2_SH
+        ../$DIY_P2_SH
+        # 物理粉碎缓存并生成配置
+        rm -rf tmp/
+        make defconfig
 
     - name: Download package
-      id: package
+      working-directory: openwrt
       run: |
-        cd openwrt
         make download -j8
         find dl -size -1024c -exec ls -l {} \;
         find dl -size -1024c -exec rm -f {} \;
 
     - name: Compile the firmware
+      working-directory: openwrt
       id: compile
       run: |
-        cd openwrt
         echo -e "$(nproc) thread compile"
         make -j$(nproc) || make -j1 || make -j1 V=s
         echo "status=success" >> $GITHUB_OUTPUT
