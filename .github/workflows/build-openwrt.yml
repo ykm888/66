@@ -1,4 +1,4 @@
-name: Build SL3000 1024M Firmware
+name: Build SL-3000 1024M (Native Fix)
 
 on:
   repository_dispatch:
@@ -7,10 +7,7 @@ on:
 env:
   REPO_URL: https://github.com/ykm888/66
   REPO_BRANCH: sl3000-immortalwrt-bootstrap
-  FEEDS_CONF: feeds.conf.default
   CONFIG_FILE: custom-config/sl3000.config
-  DIY_P1_SH: diy-part1.sh
-  DIY_P2_SH: diy-part2.sh
   TZ: Asia/Shanghai
 
 jobs:
@@ -21,58 +18,54 @@ jobs:
     - name: Checkout
       uses: actions/checkout@v4
 
-    - name: Initialization environment
-      env:
-        DEBIAN_FRONTEND: noninteractive
+    - name: Initialization Environment
       run: |
-        sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc
         sudo -E apt-get -qq update
         sudo -E apt-get -qq install $(curl -fsSL https://is.gd/depends_ubuntu_2204)
         sudo -E apt-get -qq autoremove --purge
         sudo -E apt-get -qq clean
-        sudo timedatectl set-timezone "$TZ"
 
-    - name: Clone source code
+    - name: Clone Source Code
       run: |
-        git clone $REPO_URL -b $REPO_BRANCH openwrt
+        git clone --depth 1 $REPO_URL -b $REPO_BRANCH openwrt
 
-    - name: Update & Install feeds
+    - name: Update & Install Feeds
       working-directory: openwrt
       run: |
-        [ -e ../$FEEDS_CONF ] && cp -f ../$FEEDS_CONF feeds.conf.default
         ./scripts/feeds update -a
         ./scripts/feeds install -a
 
-    - name: Load custom configuration & diy-part2
+    - name: Load Custom Configuration
       working-directory: openwrt
       run: |
-        # 复制配置文件
-        [ -e ../$CONFIG_FILE ] && cp -f ../$CONFIG_FILE .config
-        # 执行脚本 (此时已经在 openwrt 目录下)
-        chmod +x ../$DIY_P2_SH
-        ../$DIY_P2_SH
-        # 物理粉碎缓存并生成配置
-        rm -rf tmp/
+        # 物理移动你的 1024M 配置文件
+        [ -f ../$CONFIG_FILE ] && cp ../$CONFIG_FILE .config
+        # 执行源头对齐：由于 Makefile 已修复，此处只需生成最终 .config
         make defconfig
 
-    - name: Download package
+    - name: Download Library Packages
       working-directory: openwrt
       run: |
         make download -j8
         find dl -size -1024c -exec ls -l {} \;
         find dl -size -1024c -exec rm -f {} \;
 
-    - name: Compile the firmware
+    - name: Compile Firmware
       working-directory: openwrt
-      id: compile
       run: |
-        echo -e "$(nproc) thread compile"
-        make -j$(nproc) || make -j1 || make -j1 V=s
-        echo "status=success" >> $GITHUB_OUTPUT
+        # 开启详细日志，以便观察我们刚才注入的 Makefile 手术是否生效
+        make -j$(nproc) || make -j1 V=s
 
-    - name: Upload artifacts
+    - name: Organize Files
+      run: |
+        mkdir -p bin/firmware
+        # 提取最终生成的 sysupgrade 固件
+        cp -f openwrt/bin/targets/mediatek/filogic/*sysupgrade.bin bin/firmware/
+        # 提取我们在 Makefile 中专门物理备份的救砖零件
+        cp -rf openwrt/bin/targets/mediatek/filogic/sl3000-recovery bin/ 2>/dev/null || true
+
+    - name: Upload Artifact
       uses: actions/upload-artifact@v4
-      if: steps.compile.outputs.status == 'success'
       with:
-        name: SL3000_1024M_Firmware
-        path: openwrt/bin/targets/
+        name: SL3000-1024M-Firmware
+        path: bin/
