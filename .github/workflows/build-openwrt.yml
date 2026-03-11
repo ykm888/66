@@ -21,11 +21,11 @@ jobs:
 
     - name: Initialization Environment
       run: |
-        # 物理释放 IO 空间
+        # 物理释放 IO 空间，确保编译 1024M 固件空间充裕
         sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/share/powershell /usr/share/swift /usr/local/.ghcup
         
         sudo -E apt-get -qq update
-        # 补全关键编译工具：bc(内核计算), dtc(设备树), dos2unix(格式转换)
+        # 安装核心编译工具及 dos2unix (防止 Windows 换行符导致脚本报错)
         sudo -E apt-get -qq install $(curl -fsSL https://is.gd/depends_ubuntu_2204)
         sudo -E apt-get -qq install bc python3-setuptools device-tree-compiler dos2unix
         
@@ -46,7 +46,7 @@ jobs:
     - name: Execute DIY-Part2 Script
       working-directory: openwrt
       run: |
-        # 物理手术：强制转换脚本格式，彻底解决 Windows 编码导致的 Exit 1
+        # 物理手术：通过 dos2unix 强制消除脚本中的隐藏字符 \r
         if [ -f "../$DIY_P2_SH" ]; then
             dos2unix "../$DIY_P2_SH"
             chmod +x ../$DIY_P2_SH
@@ -72,18 +72,18 @@ jobs:
     - name: Compile Firmware
       working-directory: openwrt
       run: |
-        # 物理编译过程，开启详细日志
+        # 物理编译开启详细模式
         make -j$(nproc) || make -j1 V=s
 
     - name: Organize Files
       run: |
         mkdir -p bin/firmware
         cp -f openwrt/bin/targets/mediatek/filogic/*sysupgrade.bin bin/firmware/
-        # 物理提取 Makefile 中备份的救砖零件
+        # 物理提取 Makefile 中物理备份的救砖零件
         cp -rf openwrt/bin/targets/mediatek/filogic/sl3000-recovery bin/ 2>/dev/null || true
 
     - name: Upload Artifact
-      uses: artifacts/upload-artifact@v4
+      uses: actions/upload-artifact@v4
       with:
         name: SL3000-1024M-Firmware
         path: bin/
