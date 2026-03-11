@@ -1,20 +1,18 @@
 #
 # Copyright (C) 2024-2026 ykm888
-# 物理修复：SL-3000 (MT7981) 救砖零件物理对齐
-# 源码分支：mtksoc-20260123
+# 物理修复：重定向至本地固化分支 atf-sl3000-base
 #
 
 include $(TOPDIR)/rules.mk
 
-# 物理归位：必须与目录名保持一致，确保 OpenWrt 编译索引命中
 PKG_NAME:=arm-trusted-firmware-mediatek
 PKG_RELEASE:=1
 
+# 物理重定向：改为你自己的仓库地址
 PKG_SOURCE_PROTO:=git
-PKG_SOURCE_URL:=https://github.com/mtk-openwrt/arm-trusted-firmware.git
-# 物理升级：使用 2026 最新稳定 SOC 分支
-PKG_SOURCE_BRANCH:=mtksoc-20260123
-PKG_SOURCE_VERSION:=$(PKG_SOURCE_BRANCH)
+PKG_SOURCE_URL:=https://github.com/ykm888/66.git
+# 物理锁定：使用你刚刚同步成功的干净分支
+PKG_SOURCE_VERSION:=atf-sl3000-base
 
 PKG_MAINTAINER:=ykm888
 
@@ -26,7 +24,6 @@ define Trusted-Firmware-A/Default
   BUILD_TARGET:=mediatek
   BUILD_SUBTARGET:=filogic
   PLAT:=mt7981
-  # 框架标准产出 bin 文件
   TFA_IMAGE:=bl2.bin bl31.bin
 endef
 
@@ -39,16 +36,18 @@ endef
 
 TFA_TARGETS:=mt7981-nor-ddr4
 
-# 物理加固：锁定 DDR4 初始化参数，确保 1024M 内存物理可用
+# 物理加固：锁定 DDR4 初始化参数
 TFA_MAKE_FLAGS += DRAM_USE_DDR4=1
 
-# --- 核心物理修复：建立 bl2.img 桥梁 ---
-# 此函数物理解决了 "ERROR: BL2零件(bl2.img)缺失"
+# --- 核心物理修复：建立零件桥梁 ---
 define Package/arm-trusted-firmware-mediatek-$(1)/install
 	$(call Package/trusted-firmware-a-$(1)/install/default,$(1))
-	# 物理强行复刻：将带变体前缀的 .bin 复制为合成脚本所需的 bl2.img
+	# 物理强行分发：确保合成脚本 (filogic.mk) 能够通过固定名称找到零件
 	$(CP) $(STAGING_DIR_IMAGE)/$(1)-bl2.bin $(STAGING_DIR_IMAGE)/bl2.img
 	$(CP) $(STAGING_DIR_IMAGE)/$(1)-bl31.bin $(STAGING_DIR_IMAGE)/bl31.bin
+	# 额外物理备份：方便在 bin/targets 目录下直接下载
+	$(INSTALL_DIR) $(BIN_DIR)/sl3000-recovery
+	$(CP) $(STAGING_DIR_IMAGE)/bl2.img $(BIN_DIR)/sl3000-recovery/bl2.img
 endef
 
 $(eval $(call BuildPackage/Trusted-Firmware-A))
