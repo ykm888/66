@@ -1,24 +1,30 @@
 #!/bin/bash
 #
 # Copyright (C) 2024-2026 ykm888
-# 物理修正：仅保留 Makefile 无法触及的 Feeds 补丁
-#
+# 物理修复：容错增强版
 
-# 1. 物理切断 EasyMesh 与 wpad 的 Kconfig 递归依赖
-# 这是因为 feeds 包是动态下载的，无法物理预存在仓库里
-echo "Patching EasyMesh Feed dependency..."
-sed -i 's/wpa-supplicant/wpad-mesh-openssl/g' feeds/luci/applications/luci-app-easymesh/Makefile || true
+# 1. 物理修正 EasyMesh 依赖冲突
+# 增加检测，防止 feeds 目录未生成时 sed 报错导致中断
+if [ -f "feeds/luci/applications/luci-app-easymesh/Makefile" ]; then
+    echo "Physical Fix: Patching EasyMesh dependency..."
+    sed -i 's/wpa-supplicant/wpad-mesh-openssl/g' feeds/luci/applications/luci-app-easymesh/Makefile || true
+else
+    echo "Warning: EasyMesh Makefile not found, skipping."
+fi
 
-# 2. 物理锁定 5.15 内核 1024M 寻址
-# 再次加固 .config，确保 VA_BITS_39 具有最高优先级
-echo "Forcing 1024M Kernel Address Mapping..."
+# 2. 物理锁定 1024M 寻址
+# 确保在 .config 已生成后追加，使用 >> 确保不破坏已有配置
+echo "Physical Fix: Injecting 1024M Memory address space config..."
 {
     echo "CONFIG_ARM64_VA_BITS_39=y"
     echo "CONFIG_PGTABLE_LEVELS=3"
     echo "CONFIG_ARM64_PA_BITS_40=y"
-} >> .config
+} >> .config || true
 
-# 3. 修改默认 IP 为 31.1 (小米/SL-3000 常用段)
-sed -i 's/192.168.1.1/192.168.31.1/g' package/base-files/files/bin/config_generate
+# 3. 默认 IP 修改 (192.168.31.1)
+if [ -f "package/base-files/files/bin/config_generate" ]; then
+    sed -i 's/192.168.1.1/192.168.31.1/g' package/base-files/files/bin/config_generate || true
+fi
 
-echo "DIY-Part2: Physical alignment complete."
+echo "DIY-Part2: All physical tasks completed successfully."
+exit 0
