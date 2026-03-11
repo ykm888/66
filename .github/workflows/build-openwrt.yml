@@ -8,7 +8,8 @@ env:
   REPO_URL: https://github.com/ykm888/66
   REPO_BRANCH: sl3000-immortalwrt-bootstrap
   CONFIG_FILE: custom-config/sl3000.config
-  DIY_P2_SH: scripts/diy-part2.sh
+  # 物理修正：脚本就在根目录，直接写文件名
+  DIY_P2_SH: diy-part2.sh
   TZ: Asia/Shanghai
 
 jobs:
@@ -21,11 +22,11 @@ jobs:
 
     - name: Initialization Environment
       run: |
-        # 物理释放 IO 空间，确保编译 1024M 固件空间充裕
+        # 物理空间清理：腾出空间给 MT7981 编译链
         sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/share/powershell /usr/share/swift /usr/local/.ghcup
         
         sudo -E apt-get -qq update
-        # 安装核心编译工具及 dos2unix (防止 Windows 换行符导致脚本报错)
+        # 物理补全：bc, dtc, dos2unix 是 1024M 固件编译的关键零件
         sudo -E apt-get -qq install $(curl -fsSL https://is.gd/depends_ubuntu_2204)
         sudo -E apt-get -qq install bc python3-setuptools device-tree-compiler dos2unix
         
@@ -46,20 +47,25 @@ jobs:
     - name: Execute DIY-Part2 Script
       working-directory: openwrt
       run: |
-        # 物理手术：通过 dos2unix 强制消除脚本中的隐藏字符 \r
+        # 物理诊断与调用：寻址根目录下的脚本
         if [ -f "../$DIY_P2_SH" ]; then
+            echo "✅ 物理定位成功：处理根目录下的 $DIY_P2_SH"
             dos2unix "../$DIY_P2_SH"
-            chmod +x ../$DIY_P2_SH
+            chmod +x "../$DIY_P2_SH"
             ../$DIY_P2_SH
         else
-            echo "Error: $DIY_P2_SH not found in root repository."
+            echo "❌ 物理定位失败：根目录下未发现 $DIY_P2_SH"
+            echo "当前根目录文件清单如下："
+            ls -F ..
             exit 1
         fi
 
     - name: Load Custom Configuration
       working-directory: openwrt
       run: |
+        # 物理同步 1024M 配置文件
         [ -f ../$CONFIG_FILE ] && cp ../$CONFIG_FILE .config
+        # 此时执行 defconfig，会合并 diy-part2.sh 注入的 1024M 参数
         make defconfig
 
     - name: Download Library Packages
@@ -72,14 +78,15 @@ jobs:
     - name: Compile Firmware
       working-directory: openwrt
       run: |
-        # 物理编译开启详细模式
+        # 核心编译步骤
         make -j$(nproc) || make -j1 V=s
 
     - name: Organize Files
       run: |
         mkdir -p bin/firmware
+        # 提取 sysupgrade 固件
         cp -f openwrt/bin/targets/mediatek/filogic/*sysupgrade.bin bin/firmware/
-        # 物理提取 Makefile 中物理备份的救砖零件
+        # 提取我们在 ATF Makefile 中物理生成的救砖零件
         cp -rf openwrt/bin/targets/mediatek/filogic/sl3000-recovery bin/ 2>/dev/null || true
 
     - name: Upload Artifact
