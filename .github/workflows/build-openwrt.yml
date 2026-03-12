@@ -6,7 +6,6 @@ on:
 env:
   REPO_URL: https://github.com/ykm888/66
   REPO_BRANCH: sl3000-immortalwrt-bootstrap
-  # 物理对齐：路径修改为 888
   CONFIG_FILE: 888/sl3000.config
   DIY_P1_SH: diy-part1.sh
   DIY_P2_SH: diy-part2.sh
@@ -17,10 +16,17 @@ jobs:
     runs-on: ubuntu-22.04
 
     steps:
-    - name: 1. Checkout Main Repository
+    - name: 1. Checkout Build Branch
       uses: actions/checkout@v4
       with:
         ref: ${{ env.REPO_BRANCH }}
+
+    - name: 1.5. Physics Bridge: Fetch Parts from Main
+      run: |
+        # 从 main 分支物理提取 888 文件夹、package 文件夹和脚本
+        git fetch origin main
+        git checkout origin/main -- 888/ package/ "$DIY_P1_SH" "$DIY_P2_SH" 2>/dev/null || true
+        ls -d 888/ package/ 2>/dev/null || echo "Warning: Physical parts not found in main"
 
     - name: 2. Initialization Environment
       run: |
@@ -47,9 +53,9 @@ jobs:
         rm -rf openwrt/package/feeds/mediatek/uboot-mediatek
         mkdir -p openwrt/package/boot/arm-trusted-firmware-mediatek
         mkdir -p openwrt/package/boot/uboot-mediatek
+        # 执行跨分支搬运后的物理覆盖
         cp -f package/boot/arm-trusted-firmware-mediatek/Makefile openwrt/package/boot/arm-trusted-firmware-mediatek/Makefile
         cp -f package/boot/uboot-mediatek/Makefile openwrt/package/boot/uboot-mediatek/Makefile
-        # 物理对齐：路径修改为 888
         find openwrt/target/linux/mediatek/ -type d -name "dts" -exec cp -f 888/mt7981-sl-3000-emmc.dts {} \;
         [ -f 888/filogic.mk ] && cp -f 888/filogic.mk openwrt/target/linux/mediatek/image/
         rm -rf openwrt/tmp
