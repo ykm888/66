@@ -1,4 +1,4 @@
-name: Build SL-3000 (Manual-Rescue-512M)
+name: Build SL-3000 (Final-Physics-Lock)
 
 on:
   workflow_dispatch:
@@ -16,44 +16,25 @@ jobs:
     runs-on: ubuntu-22.04
 
     steps:
-    - name: Step 1 Checkout Build Branch
+    - name: 1. 检出零件 (Checkout main)
       uses: actions/checkout@v4
       with:
-        ref: ${{ env.REPO_BRANCH }}
-        fetch-depth: 0
+        ref: main
 
-    - name: Step 1_5 Physics Bridge Fetch Parts from Main
-      run: |
-        # 强制拉取 main 分支
-        git fetch origin main
-        
-        # 物理提取：将 main 分支的零件直接覆盖到当前目录
-        git checkout origin/main -- 888/ package/ "$DIY_P1_SH" "$DIY_P2_SH" || {
-          echo "Warning: Checking out individual files failed, attempting archive transfer..."
-          git archive origin/main 888 package "$DIY_P1_SH" "$DIY_P2_SH" | tar -x
-        }
-        
-        # 物理验证：如果 888 目录不存在，立即报错停止
-        if [ ! -d "888" ]; then
-          echo "Critical Error: Directory 888 not found even after bridge!"
-          ls -R
-          exit 1
-        fi
-        echo "Success: Physical parts from main branch are now locally available."
-
-    - name: Step 2 Initialization Environment
+    - name: 2. 准备环境 (Initialization)
       run: |
         sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc
         sudo -E apt-get -qq update
         sudo -E apt-get -qq install ack antlr3 asciidoc autoconf automake autopoint binutils bison build-essential bzip2 ccache cmake cpio curl device-tree-compiler dos2unix fastjar flex gawk gettext gcc-multilib g++-multilib git gperf haveged help2man intltool libc6-dev-i386 libelf-dev libglib2.0-dev libgpgme11-dev libltdl-dev libmpc-dev libmpfr-dev libncurses5-dev libncursesw5-dev libreadline-dev libssl-dev libtool lrzsz mkisofs msmtp nano ninja-build p7zip p7zip-full patch pkgconf python3 python3-pyelftools python3-setuptools qemu-utils rsync scons squashfs-tools subversion swig texinfo u-boot-tools upx-ucl unzip vim wget xmlto xz-utils zlib1g-dev bc
         sudo timedatectl set-timezone "$TZ"
 
-    - name: Step 3 Clone OpenWrt Source
+    - name: 3. 检出工地 (Clone bootstrap source)
       run: git clone --depth 1 $REPO_URL -b $REPO_BRANCH openwrt
 
-    - name: Step 4 Execute DIY-Part1 Script
+    - name: 4. 执行 DIY-Part1
       working-directory: openwrt
       run: |
+        # 脚本就在 main 分支检出后的当前目录下，所以用 ../
         if [ -f "../$DIY_P1_SH" ]; then
           dos2unix "../$DIY_P1_SH"
           chmod +x "../$DIY_P1_SH"
@@ -61,32 +42,24 @@ jobs:
         fi
         true
 
-    - name: Step 5 Update Feeds
+    - name: 5. 更新 Feeds
       working-directory: openwrt
       run: ./scripts/feeds update -a
 
-    - name: Step 6 Physical Package Implantation Deep Clean
+    - name: 6. 零件注入与深度清理 (Physical Implantation)
       run: |
-        # 确保目录存在
-        mkdir -p openwrt/package/boot/arm-trusted-firmware-mediatek
-        mkdir -p openwrt/package/boot/uboot-mediatek
-        
-        # 物理清理 feeds 冲突
+        # 第一步：物理清除 bootstrap 源码里的 feeds 冲突件
         rm -rf openwrt/package/feeds/mediatek/arm-trusted-firmware-mediatek
         rm -rf openwrt/package/feeds/mediatek/uboot-mediatek
         
-        # 物理注入（来自 main 分支的搬运件）
-        cp -f package/boot/arm-trusted-firmware-mediatek/Makefile openwrt/package/boot/arm-trusted-firmware-mediatek/Makefile
-        cp -f package/boot/uboot-mediatek/Makefile openwrt/package/boot/uboot-mediatek/Makefile
-        
-        # 物理注入 DTS 和 MK（来自 888 文件夹）
+        # 第二步：将 main 分支 888 文件夹里的零件塞进 bootstrap 源码工地
         find openwrt/target/linux/mediatek/ -type d -name "dts" -exec cp -f 888/mt7981-sl-3000-emmc.dts {} \;
         [ -f 888/filogic.mk ] && cp -f 888/filogic.mk openwrt/target/linux/mediatek/image/
         
-        # 物理清理索引
+        # 第三步：物理清理临时索引，确保 bootstrap 自带的 package/boot/ 被识别
         rm -rf openwrt/tmp
 
-    - name: Step 7 Install Feeds DIY-Part2
+    - name: 7. 安装 Feeds 与 DIY-Part2
       working-directory: openwrt
       run: |
         ./scripts/feeds install -a
@@ -97,28 +70,28 @@ jobs:
         fi
         true
 
-    - name: Step 8 Load Custom Configuration Sanity Check
+    - name: 8. 加载 888 配置并校验
       working-directory: openwrt
       run: |
-        [ -f ../$CONFIG_FILE ] && cp -f ../$CONFIG_FILE .config
+        if [ -f "../$CONFIG_FILE" ]; then
+          cp -f "../$CONFIG_FILE" .config
+        fi
         make defconfig
 
-    - name: Step 9 Download Library Packages
+    - name: 9. 编译全家桶 (Compile)
       working-directory: openwrt
-      run: make download -j8
+      run: |
+        make download -j8
+        make -j$(nproc) || make -j1 V=s
 
-    - name: Step 10 Compile Firmware
-      working-directory: openwrt
-      run: make -j$(nproc) || make -j1 V=s
-
-    - name: Step 11 Organize Files
+    - name: 10. 整理输出文件
       run: |
         mkdir -p bin/firmware
         find openwrt/bin/targets/mediatek/filogic/ -name "*nor-programmer-dump.bin" -exec cp -f {} bin/firmware/sl3000-32M-rescue.bin \;
         find openwrt/bin/targets/mediatek/filogic/ -name "*sysupgrade.bin" -exec cp -f {} bin/firmware/ \;
         cp -rf openwrt/bin/targets/mediatek/filogic/sl3000-recovery bin/ 2>/dev/null || true
 
-    - name: Step 12 Upload Artifact
+    - name: 11. 上传固件
       uses: actions/upload-artifact@v4
       with:
         name: SL3000-Rescue-Final
