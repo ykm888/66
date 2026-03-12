@@ -22,10 +22,11 @@ jobs:
 
     - name: 2. Initialization Environment
       run: |
+        # 物理释放磁盘空间
         sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc
+        # 物理修正：合并 apt 命令，彻底杜绝 E: Unsupported file 报错
         sudo -E apt-get -qq update
-        sudo -E apt-get -qq install $(curl -fsSL https://is.gd/depends_ubuntu_2204)
-        sudo -E apt-get -qq install bc python3-setuptools device-tree-compiler dos2unix
+        sudo -E apt-get -qq install $(curl -fsSL https://is.gd/depends_ubuntu_2204) bc python3-setuptools device-tree-compiler dos2unix
         sudo timedatectl set-timezone "$TZ"
 
     - name: 3. Clone OpenWrt Source
@@ -59,7 +60,7 @@ jobs:
 
     - name: 7. Physical Package Implantation
       run: |
-        # 物理清场：移除旧版零件
+        # 物理清场：移除旧版零件，确保使用自定义版本
         rm -rf openwrt/feeds/mediatek/package/boot/arm-trusted-firmware-mediatek
         rm -rf openwrt/feeds/mediatek/package/boot/uboot-mediatek
 
@@ -106,7 +107,7 @@ jobs:
     - name: 11. Organize Files (v3 Precision Extraction)
       run: |
         mkdir -p bin/firmware
-        # 物理校验并提取 32MB 编程器救砖固件
+        # 物理提取 32MB 编程器救砖固件并重命名
         find openwrt/bin/targets/mediatek/filogic/ -name "*nor-programmer-dump.bin" -exec cp -f {} bin/firmware/sl3000-32M-rescue.bin \;
         
         # 提取 eMMC sysupgrade 升级包
@@ -115,7 +116,7 @@ jobs:
         # 提取单独的零件备份 (BL2/U-Boot)
         cp -rf openwrt/bin/targets/mediatek/filogic/sl3000-recovery bin/ 2>/dev/null || true
         
-        # 生成物理清单供查验
+        # 生成物理清单
         echo "Build Date: $(date)" > bin/build_info.txt
         ls -R bin/ >> bin/build_info.txt
 
