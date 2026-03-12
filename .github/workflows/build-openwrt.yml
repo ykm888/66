@@ -1,6 +1,7 @@
-name: Build SL-3000 (Rescue-Mode-512MB)
+name: Build SL-3000 (Manual-Rescue-512M)
 
 on:
+  # 物理锁定：仅允许手动触发，禁止自动运行
   workflow_dispatch:
 
 env:
@@ -46,11 +47,11 @@ jobs:
 
     - name: 6. Physical Package Implantation
       run: |
-        # 物理清场：防止 feeds 覆盖定制零件
+        # 物理清场：防止原有目录干扰
         rm -rf openwrt/feeds/mediatek/package/boot/arm-trusted-firmware-mediatek
         rm -rf openwrt/feeds/mediatek/package/boot/uboot-mediatek
 
-        # 物理注入：将仓库中定制的 512MB 兼容零件 Makefile 强制覆盖
+        # 物理注入：强制覆盖定制的 ATF 与 U-Boot Makefile
         mkdir -p openwrt/package/boot/arm-trusted-firmware-mediatek
         mkdir -p openwrt/package/boot/uboot-mediatek
         
@@ -60,19 +61,19 @@ jobs:
         [ -f package/boot/uboot-mediatek/Makefile ] && \
             cp -f package/boot/uboot-mediatek/Makefile openwrt/package/boot/uboot-mediatek/Makefile
 
-        # 物理注入：DTS 与 32MB 救砖合成脚本
+        # 物理注入：DTS 与镜像合成脚本
         [ -f custom-config/mt7981-sl-3000-emmc.dts ] && \
             cp -f custom-config/mt7981-sl-3000-emmc.dts openwrt/target/linux/mediatek/dts/
         [ -f custom-config/filogic.mk ] && \
             cp -f custom-config/filogic.mk openwrt/target/linux/mediatek/image/
 
-        echo "All physical components implanted successfully."
+        echo "All physical components implanted."
 
     - name: 7. Load Custom Configuration
       working-directory: openwrt
       run: |
         [ -f ../$CONFIG_FILE ] && cp -f ../$CONFIG_FILE .config
-        # 物理救砖锁定：确保不混入 1024M 寻址参数
+        # 再次确认物理屏蔽 1024M 补丁
         sed -i '/CONFIG_ARM64_VA_BITS_39/d' .config
         make defconfig
 
@@ -80,27 +81,20 @@ jobs:
       working-directory: openwrt
       run: |
         make download -j8
-        find dl -size -1024c -exec ls -l {} \;
         find dl -size -1024c -exec rm -f {} \;
 
     - name: 9. Compile Firmware
       working-directory: openwrt
       run: |
-        # 物理并行编译
+        # 物理并行编译，记录核心日志
         make -j$(nproc) || make -j1 V=s
 
     - name: 10. Organize Files
       run: |
         mkdir -p bin/firmware
-        # 物理抓取：Sysupgrade 固件
         cp -f openwrt/bin/targets/mediatek/filogic/*sysupgrade.bin bin/firmware/ 2>/dev/null || true
-        # 物理抓取：32MB 救砖固件 (来自 filogic.mk 的合成产物)
         cp -f openwrt/bin/targets/mediatek/filogic/*nor-programmer-dump.bin bin/firmware/ 2>/dev/null || true
-        # 物理抓取：U-Boot 零件备份
         cp -rf openwrt/bin/targets/mediatek/filogic/sl3000-recovery bin/ 2>/dev/null || true
-        
-        echo "Check Organization Output:"
-        ls -R bin/
 
     - name: 11. Upload Artifact
       uses: actions/upload-artifact@v4
