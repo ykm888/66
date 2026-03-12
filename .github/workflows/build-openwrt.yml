@@ -24,8 +24,22 @@ jobs:
 
     - name: Step 1_5 Physics Bridge Fetch Parts from Main
       run: |
+        # 强制拉取 main 分支
         git fetch origin main
-        git checkout origin/main -- 888/ package/ "$DIY_P1_SH" "$DIY_P2_SH" 2>/dev/null || true
+        
+        # 物理提取：将 main 分支的零件直接覆盖到当前目录
+        git checkout origin/main -- 888/ package/ "$DIY_P1_SH" "$DIY_P2_SH" || {
+          echo "Warning: Checking out individual files failed, attempting archive transfer..."
+          git archive origin/main 888 package "$DIY_P1_SH" "$DIY_P2_SH" | tar -x
+        }
+        
+        # 物理验证：如果 888 目录不存在，立即报错停止
+        if [ ! -d "888" ]; then
+          echo "Critical Error: Directory 888 not found even after bridge!"
+          ls -R
+          exit 1
+        fi
+        echo "Success: Physical parts from main branch are now locally available."
 
     - name: Step 2 Initialization Environment
       run: |
@@ -53,14 +67,23 @@ jobs:
 
     - name: Step 6 Physical Package Implantation Deep Clean
       run: |
-        rm -rf openwrt/package/feeds/mediatek/arm-trusted-firmware-mediatek
-        rm -rf openwrt/package/feeds/mediatek/uboot-mediatek
+        # 确保目录存在
         mkdir -p openwrt/package/boot/arm-trusted-firmware-mediatek
         mkdir -p openwrt/package/boot/uboot-mediatek
+        
+        # 物理清理 feeds 冲突
+        rm -rf openwrt/package/feeds/mediatek/arm-trusted-firmware-mediatek
+        rm -rf openwrt/package/feeds/mediatek/uboot-mediatek
+        
+        # 物理注入（来自 main 分支的搬运件）
         cp -f package/boot/arm-trusted-firmware-mediatek/Makefile openwrt/package/boot/arm-trusted-firmware-mediatek/Makefile
         cp -f package/boot/uboot-mediatek/Makefile openwrt/package/boot/uboot-mediatek/Makefile
+        
+        # 物理注入 DTS 和 MK（来自 888 文件夹）
         find openwrt/target/linux/mediatek/ -type d -name "dts" -exec cp -f 888/mt7981-sl-3000-emmc.dts {} \;
         [ -f 888/filogic.mk ] && cp -f 888/filogic.mk openwrt/target/linux/mediatek/image/
+        
+        # 物理清理索引
         rm -rf openwrt/tmp
 
     - name: Step 7 Install Feeds DIY-Part2
