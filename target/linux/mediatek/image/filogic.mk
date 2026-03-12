@@ -1,6 +1,6 @@
 #
 # Copyright (C) 2024-2026 ykm888
-# 物理修复：对齐零件产出与 32MB NOR + GPT eMMC 混合打包逻辑
+# 物理修复 3 版：智能路径搜寻，物理合成 32MB NOR + GPT eMMC 固件
 #
 
 # --- 1. 定义 GPT eMMC 分区布局 (物理对齐 128M 起始 RootFS) ---
@@ -12,27 +12,35 @@ define Build/mt798x-gpt-emmc-production
 		-t 0x83 -N production -p $(CONFIG_TARGET_ROOTFS_PARTSIZE)M@128M
 endef
 
-# --- 2. 定义 32MB NOR 救砖合成逻辑 (物理锁死 32768KB) ---
+# --- 2. 定义 32MB NOR 救砖合成逻辑 (3版：物理容错搜寻) ---
 define Build/sl3000-nor-bundle
 	rm -f $@.nor
 	touch $@.nor
 	# 物理锁定 32MB 空间
 	truncate -s 32M $@.nor
 	
-	# [物理零件 A]: 抓取 ATF 产出的 bl2.img (写入 0 偏移)
-	@test -f $(STAGING_DIR_IMAGE)/bl2.img || { \
-		echo "!!! ERROR: bl2.img 未找到，请检查 ATF 编译状态 !!!"; \
-		exit 1; \
-	}
-	dd if=$(STAGING_DIR_IMAGE)/bl2.img of=$@.nor bs=1k conv=notrunc
+	# [物理零件 A]: 智能搜寻 ATF 零件 (bl2.img)
+	# 检查优先级：1. Makefile 强行拷贝的 bl2.img  2. 带变体名前缀的零件
+	BL2_FILE=""; \
+	[ -f "$(STAGING_DIR_IMAGE)/bl2.img" ] && BL2_FILE="$(STAGING_DIR_IMAGE)/bl2.img"; \
+	[ -z "$$BL2_FILE" -a -f "$(STAGING_DIR_IMAGE)/$(TFA_PART)-bl2.bin" ] && BL2_FILE="$(STAGING_DIR_IMAGE)/$(TFA_PART)-bl2.bin"; \
+	if [ -n "$$BL2_FILE" ]; then \
+		echo "Physical Found BL2: $$BL2_FILE"; \
+		dd if=$$BL2_FILE of=$@.nor bs=1k conv=notrunc; \
+	else \
+		echo "!!! ERROR: bl2.img 未找到，物理零件缺失 !!!"; exit 1; \
+	fi; \
 	
-	# [物理零件 B]: 抓取 U-Boot 产出的 fip (写入 1024KB 偏移)
-	# 注意：我们使用 $(TFA_PART)-u-boot.bin 来物理匹配 Makefile 中的定义
-	@test -f $(STAGING_DIR_IMAGE)/$(TFA_PART)-u-boot.bin || { \
-		echo "!!! ERROR: $(TFA_PART)-u-boot.bin 未找到，请检查 U-Boot Makefile !!!"; \
-		exit 1; \
-	}
-	dd if=$(STAGING_DIR_IMAGE)/$(TFA_PART)-u-boot.bin of=$@.nor bs=1k seek=1024 conv=notrunc
+	# [物理零件 B]: 智能搜寻 U-Boot 零件 (u-boot.bin)
+	UBOOT_FILE=""; \
+	[ -f "$(STAGING_DIR_IMAGE)/$(TFA_PART)-u-boot.bin" ] && UBOOT_FILE="$(STAGING_DIR_IMAGE)/$(TFA_PART)-u-boot.bin"; \
+	[ -z "$$UBOOT_FILE" -a -f "$(STAGING_DIR_IMAGE)/u-boot.bin" ] && UBOOT_FILE="$(STAGING_DIR_IMAGE)/u-boot.bin"; \
+	if [ -n "$$UBOOT_FILE" ]; then \
+		echo "Physical Found U-Boot: $$UBOOT_FILE"; \
+		dd if=$$UBOOT_FILE of=$@.nor bs=1k seek=1024 conv=notrunc; \
+	else \
+		echo "!!! ERROR: u-boot.bin 未找到，物理链路断裂 !!!"; exit 1; \
+	fi; \
 	
 	cp $@.nor $@
 	rm -f $@.nor
@@ -43,12 +51,12 @@ define Device/sl_3000-nor-emmc
   DEVICE_VENDOR := ykm888
   DEVICE_MODEL := SL-3000
   DEVICE_VARIANT := 512M/1024M-Auto-Adaptive
-  # 物理路径：必须与 target/linux/mediatek/dts/ 下的脚本一致
+  # 物理路径：必须与 target/linux/mediatek/dts/ 下的文件名对齐
   DEVICE_DTS := mt7981-sl-3000-emmc
   DEVICE_DTS_DIR := $(DTS_DIR)/mediatek
   SUPPORTED_DEVICES := ykm888,sl-3000
   
-  # 物理零件索引：必须与 U-Boot/ATF Makefile 里的 VARIANT 严格一致
+  # 物理零件索引：必须与 U-Boot/ATF Makefile 里的 VARIANT (mt7981-nor-ddr4) 严格物理对应
   TFA_PART := mt7981-nor-ddr4
   
   DEVICE_PACKAGES := kmod-mmc-mtk kmod-mtk-sd kmod-mt7531 f2fs-tools kmod-fs-f2fs \
