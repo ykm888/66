@@ -4,18 +4,20 @@
 #include <dt-bindings/input/input.h>
 
 / {
-	model = "SL-3000 NOR-Boot 1024M Final";
+	model = "SL-3000 NOR-Boot Safe-Recovery";
 	compatible = "sl,3000-emmc", "mediatek,mt7981";
 
 	chosen {
-		/* 物理对齐：PARTLABEL 必须匹配 mk 文件中的 -N production */
-		bootargs = "console=ttyS0,115200n1 loglevel=8 earlycon=uart8250,mmio32,0x11002000 root=PARTLABEL=production rootwait rootfstype=f2fs,squashfs";
+		/* 物理对齐：PARTLABEL 必须匹配 filogic.mk 中的 -N production */
+		/* 增加 rw 参数确保根文件系统可写，物理锁定 console 输出 */
+		bootargs = "console=ttyS0,115200n1 loglevel=8 earlycon=uart8250,mmio32,0x11002000 root=PARTLABEL=production rootwait rw rootfstype=f2fs,squashfs";
 	};
 
-	/* 物理锁定：强制定义 1024M (1GB) 运行内存 */
+	/* 物理锁定：救砖模式强制定义 512MB 运行内存 */
+	/* 待救砖成功后，将 0x20000000 改为 0x40000000 即可解锁 1024M */
 	memory@40000000 {
 		device_type = "memory";
-		reg = <0 0x40000000 0 0x40000000>;
+		reg = <0 0x40000000 0 0x20000000>;
 	};
 
 	leds {
@@ -27,10 +29,16 @@
 
 	gpio-keys {
 		compatible = "gpio-keys";
-		reset { label = "reset"; linux,code = <KEY_RESTART>; gpios = <&pio 1 GPIO_ACTIVE_LOW>; };
+		reset { 
+			label = "reset"; 
+			linux,code = <KEY_RESTART>; 
+			gpios = <&pio 1 GPIO_ACTIVE_LOW>; 
+			debounce-interval = <60>;
+		};
 	};
 };
 
+/* 网络物理对齐：2.5G 网口与 MT7531 交换机 */
 &eth {
 	status = "okay";
 	gmac0: mac@0 {
@@ -67,6 +75,7 @@
 	};
 };
 
+/* eMMC 物理对齐：8位总线模式 */
 &mmc0 {
 	bus-width = <8>;
 	cap-mmc-highspeed;
