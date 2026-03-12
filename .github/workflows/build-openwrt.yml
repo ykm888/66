@@ -1,13 +1,14 @@
 name: Build SL-3000 (Manual-Rescue-512M)
 
 on:
-  # 物理锁定：仅允许手动触发，禁止自动运行
+  # 物理锁定：仅允许手动触发，禁止保存自动运行
   workflow_dispatch:
 
 env:
   REPO_URL: https://github.com/ykm888/66
   REPO_BRANCH: sl3000-immortalwrt-bootstrap
   CONFIG_FILE: custom-config/sl3000.config
+  DIY_P1_SH: diy-part1.sh
   DIY_P2_SH: diy-part2.sh
   TZ: Asia/Shanghai
 
@@ -30,28 +31,39 @@ jobs:
     - name: 3. Clone OpenWrt Source
       run: git clone --depth 1 $REPO_URL -b $REPO_BRANCH openwrt
 
-    - name: 4. Update & Install Feeds
+    - name: 4. Execute DIY-Part1 Script
+      working-directory: openwrt
+      run: |
+        # 物理注入：添加第三方插件源 (SSR-plus等)
+        if [ -f "../$DIY_P1_SH" ]; then
+            dos2unix "../$DIY_P1_SH"
+            chmod +x "../$DIY_P1_SH"
+            ../$DIY_P1_SH
+        fi
+
+    - name: 5. Update & Install Feeds
       working-directory: openwrt
       run: |
         ./scripts/feeds update -a
         ./scripts/feeds install -a
 
-    - name: 5. Execute DIY-Part2 Script
+    - name: 6. Execute DIY-Part2 Script
       working-directory: openwrt
       run: |
+        # 物理注入：内核参数调整与 IP 修改
         if [ -f "../$DIY_P2_SH" ]; then
             dos2unix "../$DIY_P2_SH"
             chmod +x "../$DIY_P2_SH"
             ../$DIY_P2_SH
         fi
 
-    - name: 6. Physical Package Implantation
+    - name: 7. Physical Package Implantation
       run: |
-        # 物理清场：防止原有目录干扰
+        # 物理清场：移除 feeds 中重复或旧版的零件，确保使用自定义版本
         rm -rf openwrt/feeds/mediatek/package/boot/arm-trusted-firmware-mediatek
         rm -rf openwrt/feeds/mediatek/package/boot/uboot-mediatek
 
-        # 物理注入：强制覆盖定制的 ATF 与 U-Boot Makefile
+        # 物理注入：覆盖定制的 ATF 与 U-Boot Makefile
         mkdir -p openwrt/package/boot/arm-trusted-firmware-mediatek
         mkdir -p openwrt/package/boot/uboot-mediatek
         
@@ -61,46 +73,51 @@ jobs:
         [ -f package/boot/uboot-mediatek/Makefile ] && \
             cp -f package/boot/uboot-mediatek/Makefile openwrt/package/boot/uboot-mediatek/Makefile
 
-        # 物理注入：DTS 与镜像合成脚本
+        # 物理注入：DTS 与镜像合成脚本 (filogic.mk)
         [ -f custom-config/mt7981-sl-3000-emmc.dts ] && \
             cp -f custom-config/mt7981-sl-3000-emmc.dts openwrt/target/linux/mediatek/dts/
         [ -f custom-config/filogic.mk ] && \
             cp -f custom-config/filogic.mk openwrt/target/linux/mediatek/image/
 
-        echo "All physical components implanted."
+        echo "Physical component synchronization completed."
 
-    - name: 7. Load Custom Configuration
+    - name: 8. Load Custom Configuration
       working-directory: openwrt
       run: |
         [ -f ../$CONFIG_FILE ] && cp -f ../$CONFIG_FILE .config
-        # 再次确认物理屏蔽 1024M 补丁
+        # 物理救砖终极锁定：移除所有大内存寻址参数
         sed -i '/CONFIG_ARM64_VA_BITS_39/d' .config
+        sed -i '/CONFIG_ARM64_PA_BITS_40/d' .config
+        sed -i '/CONFIG_PGTABLE_LEVELS/d' .config
         make defconfig
 
-    - name: 8. Download Library Packages
+    - name: 9. Download Library Packages
       working-directory: openwrt
       run: |
         make download -j8
         find dl -size -1024c -exec rm -f {} \;
 
-    - name: 9. Compile Firmware
+    - name: 10. Compile Firmware
       working-directory: openwrt
       run: |
-        # 物理并行编译，记录核心日志
+        # 开启并行编译，失败则回退单核输出详细错误
         make -j$(nproc) || make -j1 V=s
 
-    - name: 10. Organize Files
+    - name: 11. Organize Files
       run: |
         mkdir -p bin/firmware
+        # 提取 eMMC 升级包
         cp -f openwrt/bin/targets/mediatek/filogic/*sysupgrade.bin bin/firmware/ 2>/dev/null || true
+        # 提取 32MB 编程器救砖包
         cp -f openwrt/bin/targets/mediatek/filogic/*nor-programmer-dump.bin bin/firmware/ 2>/dev/null || true
+        # 提取 bootloader 零件备份
         cp -rf openwrt/bin/targets/mediatek/filogic/sl3000-recovery bin/ 2>/dev/null || true
 
-    - name: 11. Upload Artifact
+    - name: 12. Upload Artifact
       uses: actions/upload-artifact@v4
       with:
-        name: SL3000-Rescue-Firmware
+        name: SL3000-Rescue-512M-Firmware
         path: bin/
 
-    - name: 12. Cleanup Workspace
+    - name: 13. Cleanup Workspace
       run: rm -rf openwrt
