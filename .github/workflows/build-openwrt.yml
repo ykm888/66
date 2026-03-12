@@ -1,14 +1,12 @@
-name: Build SL-3000 1024M (Native Fix)
+name: Build SL-3000 (Locked Structure)
 
 on:
-  repository_dispatch:
   workflow_dispatch:
 
 env:
   REPO_URL: https://github.com/ykm888/66
   REPO_BRANCH: sl3000-immortalwrt-bootstrap
   CONFIG_FILE: custom-config/sl3000.config
-  # 物理修正：脚本就在根目录，直接写文件名
   DIY_P2_SH: diy-part2.sh
   TZ: Asia/Shanghai
 
@@ -17,80 +15,73 @@ jobs:
     runs-on: ubuntu-22.04
 
     steps:
-    - name: Checkout
+    - name: 1. Checkout Main Repository
       uses: actions/checkout@v4
 
-    - name: Initialization Environment
+    - name: 2. Initialization Environment
       run: |
-        # 物理空间清理：腾出空间给 MT7981 编译链
-        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/share/powershell /usr/share/swift /usr/local/.ghcup
-        
+        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc
         sudo -E apt-get -qq update
-        # 物理补全：bc, dtc, dos2unix 是 1024M 固件编译的关键零件
         sudo -E apt-get -qq install $(curl -fsSL https://is.gd/depends_ubuntu_2204)
         sudo -E apt-get -qq install bc python3-setuptools device-tree-compiler dos2unix
-        
-        sudo -E apt-get -qq autoremove --purge
-        sudo -E apt-get -qq clean
         sudo timedatectl set-timezone "$TZ"
 
-    - name: Clone Source Code
-      run: |
-        git clone --depth 1 $REPO_URL -b $REPO_BRANCH openwrt
+    - name: 3. Clone OpenWrt Source
+      run: git clone --depth 1 $REPO_URL -b $REPO_BRANCH openwrt
 
-    - name: Update & Install Feeds
+    - name: 4. Update & Install Feeds
       working-directory: openwrt
       run: |
         ./scripts/feeds update -a
         ./scripts/feeds install -a
 
-    - name: Execute DIY-Part2 Script
+    - name: 5. Execute DIY-Part2 Script
       working-directory: openwrt
       run: |
-        # 物理诊断与调用：寻址根目录下的脚本
         if [ -f "../$DIY_P2_SH" ]; then
-            echo "✅ 物理定位成功：处理根目录下的 $DIY_P2_SH"
             dos2unix "../$DIY_P2_SH"
             chmod +x "../$DIY_P2_SH"
             ../$DIY_P2_SH
-        else
-            echo "❌ 物理定位失败：根目录下未发现 $DIY_P2_SH"
-            echo "当前根目录文件清单如下："
-            ls -F ..
-            exit 1
         fi
 
-    - name: Load Custom Configuration
+    - name: 6. Physical Package Implantation
+      run: |
+        # 最小物理修补：在编译前将仓库中的锁定配置文件植入源码深度路径
+        [ -f custom-config/mt7981-sl-3000-emmc.dts ] && cp -f custom-config/mt7981-sl-3000-emmc.dts openwrt/target/linux/mediatek/dts/
+        [ -f custom-config/filogic.mk ] && cp -f custom-config/filogic.mk openwrt/target/linux/mediatek/image/
+
+    - name: 7. Load Custom Configuration
       working-directory: openwrt
       run: |
-        # 物理同步 1024M 配置文件
-        [ -f ../$CONFIG_FILE ] && cp ../$CONFIG_FILE .config
-        # 此时执行 defconfig，会合并 diy-part2.sh 注入的 1024M 参数
+        cp -f ../$CONFIG_FILE .config
+        # 延续 1024M 锁定：强制注入页表深度参数
+        echo "CONFIG_PGTABLE_LEVELS=3" >> .config
         make defconfig
 
-    - name: Download Library Packages
+    - name: 8. Download Library Packages
       working-directory: openwrt
       run: |
         make download -j8
         find dl -size -1024c -exec ls -l {} \;
         find dl -size -1024c -exec rm -f {} \;
 
-    - name: Compile Firmware
+    - name: 9. Compile Firmware
       working-directory: openwrt
       run: |
-        # 核心编译步骤
+        # 物理执行：由于是 MT7981 1024M 复杂编译，首选多核，失败则单核输出日志
         make -j$(nproc) || make -j1 V=s
 
-    - name: Organize Files
+    - name: 10. Organize Files
       run: |
         mkdir -p bin/firmware
-        # 提取 sysupgrade 固件
         cp -f openwrt/bin/targets/mediatek/filogic/*sysupgrade.bin bin/firmware/
-        # 提取我们在 ATF Makefile 中物理生成的救砖零件
         cp -rf openwrt/bin/targets/mediatek/filogic/sl3000-recovery bin/ 2>/dev/null || true
 
-    - name: Upload Artifact
+    - name: 11. Upload Artifact
       uses: actions/upload-artifact@v4
       with:
         name: SL3000-1024M-Firmware
         path: bin/
+
+    - name: 12. Cleanup Workspace
+      run: rm -rf openwrt
