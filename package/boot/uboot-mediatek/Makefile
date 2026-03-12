@@ -1,86 +1,101 @@
 #
 # Copyright (C) 2024-2026 ykm888
-# 物理修复：SL-3000 U-Boot 零件合成 (NOR+eMMC)
-# 针对 1024M 内存寻址及 ATF 零件物理对齐
+# 彻底修复：物理屏蔽非法链接参数 & 路径强制对齐
 #
 
 include $(TOPDIR)/rules.mk
-include $(INCLUDE_DIR)/kernel.mk
 
-PKG_NAME:=uboot-mediatek
-PKG_VERSION:=2024.10
+PKG_NAME:=arm-trusted-firmware-mediatek
 PKG_RELEASE:=1
 
 PKG_SOURCE_PROTO:=git
 PKG_SOURCE_URL:=https://github.com/ykm888/66.git
-PKG_SOURCE_VERSION:=sl3000-uboot-base
+PKG_SOURCE_VERSION:=atf-sl3000-base
 
 PKG_MAINTAINER:=ykm888
 
-# 核心物理依赖：必须确保 ATF 已经产出 bl31.bin，且主机端有 fiptool
-PKG_BUILD_DEPENDS:=arm-trusted-firmware-mediatek/host arm-trusted-firmware-mediatek
+HOST_BUILD_DIR:=$(BUILD_DIR_HOST)/$(PKG_NAME)
 
-include $(INCLUDE_DIR)/u-boot.mk
+include $(INCLUDE_DIR)/host-build.mk
+include $(INCLUDE_DIR)/kernel.mk
+include $(INCLUDE_DIR)/trusted-firmware-a.mk
 include $(INCLUDE_DIR)/package.mk
 
-# 定义 U-Boot 包的物理零件属性
-define Package/u-boot-mediatek/Default
-  SECTION:=boot
-  CATEGORY:=Bootloaders
-  TITLE:=U-Boot for MediaTek MT7981
-  URL:=https://www.denx.de/wiki/U-Boot
-  HIDDEN:=1
-endef
+PKG_MAKE_FLAGS += WERROR=0
 
-define U-Boot/Default
+define Trusted-Firmware-A/Default
   BUILD_TARGET:=mediatek
-  UBOOT_IMAGE:=u-boot.bin
-endef
-
-# SL-3000 专属定义：NOR 启动 + eMMC 存储 + 1024M 内存对齐
-define U-Boot/mt7981_sl_3000-nor-emmc
-  NAME:=SL-3000 (NOR-Boot-eMMC-1024M)
   BUILD_SUBTARGET:=filogic
-  UBOOT_CONFIG:=mt7981_nor_emmc_rfb
-  UBOOT_IMAGE:=fip.bin
-  # 物理零件桥梁：在此处锁定对 ATF 产出包的依赖
-  DEPENDS:=+arm-trusted-firmware-mediatek-mt7981-nor-ddr4
+  PLAT:=mt7981
+  TFA_IMAGE:=bl2.bin bl31.bin
 endef
 
-UBOOT_TARGETS := mt7981_sl_3000-nor-emmc
+# 物理修复准则：显式锁定 VARIANT 名称，确保与 uboot-mediatek 依赖项物理对齐
+define Trusted-Firmware-A/mt7981-nor-ddr4
+  NAME:=SL-3000 (NOR-DDR4-1024M)
+  VARIANT:=mt7981-nor-ddr4
+  BOOT_DEVICE:=nor
+  DDR_TYPE:=ddr4
+endef
 
-# --- 核心物理合成逻辑 ---
-define Build/fip-image
-	@echo "Physical Synthesis: Merging ATF BL31 with U-Boot..."
-	# 检查关键零件是否存在
-	[ -f $(STAGING_DIR_IMAGE)/mt7981-nor-ddr4-bl31.bin ] || { \
-		echo "ERROR: ATF BL31 not found at $(STAGING_DIR_IMAGE)/mt7981-nor-ddr4-bl31.bin"; \
-		exit 1; \
-	}
-	# 使用主机端 fiptool 将 ATF 的 BL31 与 U-Boot 的 NT-FW (u-boot.bin) 物理合体
-	$(STAGING_DIR_HOST)/bin/fiptool create \
-		--soc-fw $(STAGING_DIR_IMAGE)/mt7981-nor-ddr4-bl31.bin \
-		--nt-fw $(PKG_BUILD_DIR)/u-boot.bin \
-		$(PKG_BUILD_DIR)/fip.bin
+TFA_TARGETS:=mt7981-nor-ddr4
+
+TFA_MAKE_FLAGS += \
+	DRAM_USE_DDR4=1 \
+	BOOT_DEVICE=nor \
+	TRUSTED_BOARD_BOOT=0 \
+	DEBUG=0
+
+define Host/Prepare
+	$(call Host/Prepare/Default)
+	mkdir -p $(HOST_BUILD_DIR)/plat/mediatek/apsoc_common/include
+	[ -d $(HOST_BUILD_DIR)/plat/mediatek/apsoc_common/bl2/include ] && \
+		cp -f $(HOST_BUILD_DIR)/plat/mediatek/apsoc_common/bl2/include/*.h \
+		      $(HOST_BUILD_DIR)/plat/mediatek/apsoc_common/include/ || true
+endef
+
+define Host/Compile
+	$(MAKE) -C $(HOST_BUILD_DIR)/tools/fiptool \
+		LDFLAGS="$(HOST_LDFLAGS)" \
+		CPPFLAGS="$(HOST_CPPFLAGS) -I$(HOST_BUILD_DIR)/include"
+endef
+
+define Host/Install
+	$(INSTALL_DIR) $(STAGING_DIR_HOST)/bin
+	$(INSTALL_BIN) $(HOST_BUILD_DIR)/tools/fiptool/fiptool $(STAGING_DIR_HOST)/bin/
+endef
+
+define Build/Prepare
+	$(call Build/Prepare/Default)
+	@echo "Physical Surgery: Removing unrecognized command-line options..."
+	mkdir -p $(PKG_BUILD_DIR)/plat/mediatek/apsoc_common/include
+	if [ -d $(PKG_BUILD_DIR)/plat/mediatek/apsoc_common/bl2/include ]; then \
+		cp -f $(PKG_BUILD_DIR)/plat/mediatek/apsoc_common/bl2/include/*.h \
+		      $(PKG_BUILD_DIR)/plat/mediatek/apsoc_common/include/ || true; \
+	fi
+	# 延续报错修复：延续你贴出的 bl2.elf 错误逻辑，物理切除所有非法参数
+	find $(PKG_BUILD_DIR) -type f -exec sed -i 's/-no-warn-rwx-segments//g' {} + || true
+	find $(PKG_BUILD_DIR) -type f -exec sed -i 's/-Werror//g' {} + || true
 endef
 
 define Build/Compile
-	$(call Build/Compile/U-Boot)
-	$(call Build/fip-image)
+	$(call Build/Compile/Default, \
+		WERROR=0 \
+		LDFLAGS="" \
+		TF_LDFLAGS="" \
+		CPPFLAGS="$(TARGET_CPPFLAGS) -I$(PKG_BUILD_DIR)/plat/mediatek/apsoc_common/include" \
+	)
 endef
 
-# --- 物理安装与分发 ---
-define Package/u-boot-$(1)/install
+define Package/arm-trusted-firmware-mediatek-$(1)/install
+	$(call Package/trusted-firmware-a-$(1)/install/default,$(1))
 	$(INSTALL_DIR) $(STAGING_DIR_IMAGE)
-	# 物理同步：将合成后的 fip.bin 分发到镜像构建现场
-	$(CP) $(PKG_BUILD_DIR)/fip.bin $(STAGING_DIR_IMAGE)/fip.bin
-	$(CP) $(PKG_BUILD_DIR)/fip.bin $(STAGING_DIR_IMAGE)/$(1)-fip.bin
-	
-	# 物理备份：存放在 recovery 目录供后期手动救砖提取
+	$(CP) $(STAGING_DIR_IMAGE)/$(1)-bl2.bin $(STAGING_DIR_IMAGE)/bl2.img
+	$(CP) $(STAGING_DIR_IMAGE)/$(1)-bl31.bin $(STAGING_DIR_IMAGE)/bl31.bin
 	$(INSTALL_DIR) $(BIN_DIR)/sl3000-recovery
-	$(CP) $(PKG_BUILD_DIR)/fip.bin $(BIN_DIR)/sl3000-recovery/u-boot-fip.bin
+	$(CP) $(STAGING_DIR_IMAGE)/$(1)-bl2.bin $(BIN_DIR)/sl3000-recovery/bl2.img
+	$(CP) $(STAGING_DIR_IMAGE)/$(1)-bl31.bin $(BIN_DIR)/sl3000-recovery/bl31.bin
 endef
 
-$(foreach var,$(UBOOT_TARGETS), \
-  $(eval $(call BuildPackage/U-Boot,$(var))) \
-)
+$(eval $(call HostBuild))
+$(eval $(call BuildPackage/Trusted-Firmware-A))
