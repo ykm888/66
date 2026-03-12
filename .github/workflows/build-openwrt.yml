@@ -1,13 +1,11 @@
-name: 司洛SL-3000 EMMC 终极版
+name: 司洛SL-3000 终极锁死版
 
 on:
   workflow_dispatch:
 
 env:
-  # 源码工地：克隆你的官方源码分支
   REPO_URL: https://github.com/ykm888/66
   REPO_BRANCH: sl3000-immortalwrt-bootstrap
-  # 零件路径：都在 main 分支的 888 目录下
   CONFIG_FILE: 888/sl3000.config
   DIY_P1_SH: diy-part1.sh
   DIY_P2_SH: diy-part2.sh
@@ -18,87 +16,64 @@ jobs:
     runs-on: ubuntu-22.04
 
     steps:
-    - name: 1. 检出零件 (Checkout main branch)
+    - name: 1. 物理锁死：检出零件 (Main)
       uses: actions/checkout@v4
       with:
-        ref: main # 确保先拿到 main 分支的 888 文件夹和脚本
+        ref: main
 
-    - name: 2. 初始化编译环境 (Initialization)
-      env:
-        DEBIAN_FRONTEND: noninteractive
+    - name: 2. 物理锁死：检出工地 (Bootstrap Source)
       run: |
-        sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc
-        sudo -E apt-get -qq update
-        sudo -E apt-get -qq install ack antlr3 asciidoc autoconf automake autopoint binutils bison build-essential bzip2 ccache cmake cpio curl device-tree-compiler fastjar flex gawk gettext gcc-multilib g++-multilib git gperf haveged help2man intltool libc6-dev-i386 libelf-dev libfuse-dev libglib2.0-dev libgmp3-dev libltdl-dev libmpc-dev libmpfr-dev libncurses5-dev libncursesw5-dev libpython3-dev libreadline-dev libssl-dev libtool lrzsz mkisofs msmtp ninja-build p7zip p7zip-full patch pkgconf python2.7 python3 python3-pyelftools python3-setuptools qemu-utils rsync scons squashfs-tools subversion swig texinfo uglifyjs upx-ucl unzip vim wget xmlto xxd zlib1g-dev
-        sudo timedatectl set-timezone "$TZ"
         sudo mkdir -p /workdir
         sudo chown $USER:$GROUPS /workdir
-
-    - name: 3. 克隆源码工地 (Clone bootstrap source)
-      working-directory: /workdir
-      run: |
-        # 克隆 bootstrap 分支作为工地
-        git clone --depth 1 $REPO_URL -b $REPO_BRANCH openwrt
+        git clone --depth 1 $REPO_URL -b $REPO_BRANCH /workdir/openwrt
         ln -sf /workdir/openwrt $GITHUB_WORKSPACE/openwrt
 
-    - name: 4. 物理对齐：注入补丁与脚本 (Part 1)
+    - name: 3. 初始化环境
       run: |
-        # 此时零件就在 $GITHUB_WORKSPACE (由 Step 1 检出)
-        # 物理注入 DTS 和 MK (从 888 文件夹)
-        find openwrt/target/linux/mediatek/ -type d -name "dts" -exec cp -f 888/mt7981-sl-3000-emmc.dts {} \;
-        [ -f 888/filogic.mk ] && cp -f 888/filogic.mk openwrt/target/linux/mediatek/image/
-        
-        # 执行脚本 1
+        sudo -E apt-get -qq update
+        sudo -E apt-get -qq install build-essential clang flex bison g++ gawk gcc-multilib g++-multilib gettext git libncurses5-dev libssl-dev python3-distutils rsync unzip zlib1g-dev swig libpython3-dev command-not-found help2man qemu-utils device-tree-compiler
+        sudo timedatectl set-timezone "$TZ"
+
+    - name: 4. 执行 DIY-Part1 & Feeds 更新
+      run: |
         chmod +x $DIY_P1_SH
         ./$DIY_P1_SH
-        
-    - name: 5. 更新与安装 Feeds
-      run: |
         cd openwrt
         ./scripts/feeds update -a
         ./scripts/feeds install -a
-        # 物理清理索引，确保识别源码自带的 uboot/atf
-        rm -rf tmp
 
-    - name: 6. 物理对齐：加载配置与脚本 (Part 2)
+    - name: 5. 【核心手术】物理切断 Feeds 干扰
       run: |
-        # 强制移动 888 里的配置文件到工地
-        [ -e $CONFIG_FILE ] && cp -f $CONFIG_FILE openwrt/.config
-        
-        # 执行脚本 2
+        cd openwrt
+        # 物理删除所有可能干扰 package/boot 的 Feeds 软链接
+        rm -rf package/feeds/mediatek/arm-trusted-firmware-mediatek
+        rm -rf package/feeds/mediatek/uboot-mediatek
+        # 物理核对：如果我生成的 Makefile 不在，直接熔断
+        if [ ! -f "package/boot/arm-trusted-firmware-mediatek/Makefile" ]; then
+          echo "FATAL: Makefile not found in package/boot/"
+          exit 1
+        fi
+        # 物理重置索引缓存
+        rm -rf tmp
+        echo "Index reset complete. System forced to use local package/boot."
+
+    - name: 6. 加载配置 & 执行 DIY-Part2
+      run: |
+        # 将 main 的 888 配置物理覆盖到工地
+        cp -f $CONFIG_FILE openwrt/.config
         chmod +x $DIY_P2_SH
         ./$DIY_P2_SH
+        # 强制执行 defconfig 刷新依赖
+        cd openwrt && make defconfig
 
-    - name: 7. 预下载依赖包 (Download)
-      id: package
+    - name: 7. 下载依赖 & 编译 (熔断保护)
       run: |
         cd openwrt
-        make defconfig
         make download -j8
-        find dl -size -1024c -exec ls -l {} \;
-        find dl -size -1024c -exec rm -f {} \;
+        # 物理锁定：如果编译失败，打印最后 100 行错误并停止
+        make -j$(nproc) || make -j1 V=s
 
-    - name: 8. 正式编译 (Compile)
-      id: compile
+    - name: 8. 成果输出
       run: |
-        cd openwrt
-        echo -e "$(nproc) thread compile"
-        # 针对 Mediatek 建议优先全量编译，报错则单线程 V=s
-        make -j$(nproc) || make -j1 || make -j1 V=s
-        echo "status=success" >> $GITHUB_OUTPUT
-
-    - name: 9. 整理输出文件 (Organize)
-      id: organize
-      if: steps.compile.outputs.status == 'success'
-      run: |
-        cd openwrt/bin/targets/*/*
-        # 专门针对 SL3000 的 32M/512M 提取逻辑可以写在这里
-        echo "FIRMWARE=$PWD" >> $GITHUB_ENV
-        echo "status=success" >> $GITHUB_OUTPUT
-
-    - name: 10. 上传固件 (Artifact)
-      uses: actions/upload-artifact@v4
-      if: steps.organize.outputs.status == 'success'
-      with:
-        name: SL3000_ImmortalWrt_Firmware
-        path: ${{ env.FIRMWARE }}/*.bin
+        mkdir -p bin/firmware
+        find openwrt/bin/targets/ -name "*.bin" -exec cp -f {} bin/firmware/ \;
