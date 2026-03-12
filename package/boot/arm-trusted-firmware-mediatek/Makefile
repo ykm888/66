@@ -1,6 +1,6 @@
 #
 # Copyright (C) 2024-2026 ykm888
-# 物理修复：解决 uboot-mediatek 依赖路径不匹配问题
+# 彻底修复：物理补齐 U-Boot 依赖路径 & 屏蔽非法链接参数
 #
 
 include $(TOPDIR)/rules.mk
@@ -30,10 +30,10 @@ define Trusted-Firmware-A/Default
   TFA_IMAGE:=bl2.bin bl31.bin
 endef
 
-# 物理修复准则：显式定义变体，确保 uboot 依赖项物理匹配
+# 物理修复准则：显式锁定 VARIANT 名称，确保与 uboot-mediatek 依赖项物理对齐
 define Trusted-Firmware-A/mt7981-nor-ddr4
   NAME:=SL-3000 (NOR-DDR4-1024M)
-  BUILD_VARIANT:=mt7981-nor-ddr4
+  VARIANT:=mt7981-nor-ddr4
   BOOT_DEVICE:=nor
   DDR_TYPE:=ddr4
 endef
@@ -73,13 +73,16 @@ define Build/Prepare
 		cp -f $(PKG_BUILD_DIR)/plat/mediatek/apsoc_common/bl2/include/*.h \
 		      $(PKG_BUILD_DIR)/plat/mediatek/apsoc_common/include/ || true; \
 	fi
-	find $(PKG_BUILD_DIR) -name "*.mk" -o -name "Makefile" | xargs sed -i 's/-no-warn-rwx-segments//g' || true
-	find $(PKG_BUILD_DIR) -name "*.mk" -o -name "Makefile" | xargs sed -i 's/-Werror//g' || true
+	# 彻底修复逻辑：物理切除所有 Makefile 和脚本中的非法参数
+	find $(PKG_BUILD_DIR) -type f -exec sed -i 's/-no-warn-rwx-segments//g' {} + || true
+	find $(PKG_BUILD_DIR) -type f -exec sed -i 's/-Werror//g' {} + || true
 endef
 
 define Build/Compile
 	$(call Build/Compile/Default, \
 		WERROR=0 \
+		LDFLAGS="" \
+		TF_LDFLAGS="" \
 		CPPFLAGS="$(TARGET_CPPFLAGS) -I$(PKG_BUILD_DIR)/plat/mediatek/apsoc_common/include" \
 	)
 endef
