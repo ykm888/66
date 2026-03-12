@@ -1,11 +1,13 @@
-name: Build SL-3000 (Final-Physics-Lock)
+name: 司洛SL-3000 EMMC 终极版
 
 on:
   workflow_dispatch:
 
 env:
+  # 源码工地：克隆你的官方源码分支
   REPO_URL: https://github.com/ykm888/66
   REPO_BRANCH: sl3000-immortalwrt-bootstrap
+  # 零件路径：都在 main 分支的 888 目录下
   CONFIG_FILE: 888/sl3000.config
   DIY_P1_SH: diy-part1.sh
   DIY_P2_SH: diy-part2.sh
@@ -16,83 +18,87 @@ jobs:
     runs-on: ubuntu-22.04
 
     steps:
-    - name: 1. 检出零件 (Checkout main)
+    - name: 1. 检出零件 (Checkout main branch)
       uses: actions/checkout@v4
       with:
-        ref: main
+        ref: main # 确保先拿到 main 分支的 888 文件夹和脚本
 
-    - name: 2. 准备环境 (Initialization)
+    - name: 2. 初始化编译环境 (Initialization)
+      env:
+        DEBIAN_FRONTEND: noninteractive
       run: |
-        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc
+        sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc
         sudo -E apt-get -qq update
-        sudo -E apt-get -qq install ack antlr3 asciidoc autoconf automake autopoint binutils bison build-essential bzip2 ccache cmake cpio curl device-tree-compiler dos2unix fastjar flex gawk gettext gcc-multilib g++-multilib git gperf haveged help2man intltool libc6-dev-i386 libelf-dev libglib2.0-dev libgpgme11-dev libltdl-dev libmpc-dev libmpfr-dev libncurses5-dev libncursesw5-dev libreadline-dev libssl-dev libtool lrzsz mkisofs msmtp nano ninja-build p7zip p7zip-full patch pkgconf python3 python3-pyelftools python3-setuptools qemu-utils rsync scons squashfs-tools subversion swig texinfo u-boot-tools upx-ucl unzip vim wget xmlto xz-utils zlib1g-dev bc
+        sudo -E apt-get -qq install ack antlr3 asciidoc autoconf automake autopoint binutils bison build-essential bzip2 ccache cmake cpio curl device-tree-compiler fastjar flex gawk gettext gcc-multilib g++-multilib git gperf haveged help2man intltool libc6-dev-i386 libelf-dev libfuse-dev libglib2.0-dev libgmp3-dev libltdl-dev libmpc-dev libmpfr-dev libncurses5-dev libncursesw5-dev libpython3-dev libreadline-dev libssl-dev libtool lrzsz mkisofs msmtp ninja-build p7zip p7zip-full patch pkgconf python2.7 python3 python3-pyelftools python3-setuptools qemu-utils rsync scons squashfs-tools subversion swig texinfo uglifyjs upx-ucl unzip vim wget xmlto xxd zlib1g-dev
         sudo timedatectl set-timezone "$TZ"
+        sudo mkdir -p /workdir
+        sudo chown $USER:$GROUPS /workdir
 
-    - name: 3. 检出工地 (Clone bootstrap source)
-      run: git clone --depth 1 $REPO_URL -b $REPO_BRANCH openwrt
-
-    - name: 4. 执行 DIY-Part1
-      working-directory: openwrt
+    - name: 3. 克隆源码工地 (Clone bootstrap source)
+      working-directory: /workdir
       run: |
-        # 脚本就在 main 分支检出后的当前目录下，所以用 ../
-        if [ -f "../$DIY_P1_SH" ]; then
-          dos2unix "../$DIY_P1_SH"
-          chmod +x "../$DIY_P1_SH"
-          ../$DIY_P1_SH
-        fi
-        true
+        # 克隆 bootstrap 分支作为工地
+        git clone --depth 1 $REPO_URL -b $REPO_BRANCH openwrt
+        ln -sf /workdir/openwrt $GITHUB_WORKSPACE/openwrt
 
-    - name: 5. 更新 Feeds
-      working-directory: openwrt
-      run: ./scripts/feeds update -a
-
-    - name: 6. 零件注入与深度清理 (Physical Implantation)
+    - name: 4. 物理对齐：注入补丁与脚本 (Part 1)
       run: |
-        # 第一步：物理清除 bootstrap 源码里的 feeds 冲突件
-        rm -rf openwrt/package/feeds/mediatek/arm-trusted-firmware-mediatek
-        rm -rf openwrt/package/feeds/mediatek/uboot-mediatek
-        
-        # 第二步：将 main 分支 888 文件夹里的零件塞进 bootstrap 源码工地
+        # 此时零件就在 $GITHUB_WORKSPACE (由 Step 1 检出)
+        # 物理注入 DTS 和 MK (从 888 文件夹)
         find openwrt/target/linux/mediatek/ -type d -name "dts" -exec cp -f 888/mt7981-sl-3000-emmc.dts {} \;
         [ -f 888/filogic.mk ] && cp -f 888/filogic.mk openwrt/target/linux/mediatek/image/
         
-        # 第三步：物理清理临时索引，确保 bootstrap 自带的 package/boot/ 被识别
-        rm -rf openwrt/tmp
-
-    - name: 7. 安装 Feeds 与 DIY-Part2
-      working-directory: openwrt
+        # 执行脚本 1
+        chmod +x $DIY_P1_SH
+        ./$DIY_P1_SH
+        
+    - name: 5. 更新与安装 Feeds
       run: |
+        cd openwrt
+        ./scripts/feeds update -a
         ./scripts/feeds install -a
-        if [ -f "../$DIY_P2_SH" ]; then
-          dos2unix "../$DIY_P2_SH"
-          chmod +x "../$DIY_P2_SH"
-          ../$DIY_P2_SH
-        fi
-        true
+        # 物理清理索引，确保识别源码自带的 uboot/atf
+        rm -rf tmp
 
-    - name: 8. 加载 888 配置并校验
-      working-directory: openwrt
+    - name: 6. 物理对齐：加载配置与脚本 (Part 2)
       run: |
-        if [ -f "../$CONFIG_FILE" ]; then
-          cp -f "../$CONFIG_FILE" .config
-        fi
+        # 强制移动 888 里的配置文件到工地
+        [ -e $CONFIG_FILE ] && cp -f $CONFIG_FILE openwrt/.config
+        
+        # 执行脚本 2
+        chmod +x $DIY_P2_SH
+        ./$DIY_P2_SH
+
+    - name: 7. 预下载依赖包 (Download)
+      id: package
+      run: |
+        cd openwrt
         make defconfig
-
-    - name: 9. 编译全家桶 (Compile)
-      working-directory: openwrt
-      run: |
         make download -j8
-        make -j$(nproc) || make -j1 V=s
+        find dl -size -1024c -exec ls -l {} \;
+        find dl -size -1024c -exec rm -f {} \;
 
-    - name: 10. 整理输出文件
+    - name: 8. 正式编译 (Compile)
+      id: compile
       run: |
-        mkdir -p bin/firmware
-        find openwrt/bin/targets/mediatek/filogic/ -name "*nor-programmer-dump.bin" -exec cp -f {} bin/firmware/sl3000-32M-rescue.bin \;
-        find openwrt/bin/targets/mediatek/filogic/ -name "*sysupgrade.bin" -exec cp -f {} bin/firmware/ \;
-        cp -rf openwrt/bin/targets/mediatek/filogic/sl3000-recovery bin/ 2>/dev/null || true
+        cd openwrt
+        echo -e "$(nproc) thread compile"
+        # 针对 Mediatek 建议优先全量编译，报错则单线程 V=s
+        make -j$(nproc) || make -j1 || make -j1 V=s
+        echo "status=success" >> $GITHUB_OUTPUT
 
-    - name: 11. 上传固件
+    - name: 9. 整理输出文件 (Organize)
+      id: organize
+      if: steps.compile.outputs.status == 'success'
+      run: |
+        cd openwrt/bin/targets/*/*
+        # 专门针对 SL3000 的 32M/512M 提取逻辑可以写在这里
+        echo "FIRMWARE=$PWD" >> $GITHUB_ENV
+        echo "status=success" >> $GITHUB_OUTPUT
+
+    - name: 10. 上传固件 (Artifact)
       uses: actions/upload-artifact@v4
+      if: steps.organize.outputs.status == 'success'
       with:
-        name: SL3000-Rescue-Final
-        path: bin/
+        name: SL3000_ImmortalWrt_Firmware
+        path: ${{ env.FIRMWARE }}/*.bin
