@@ -1,6 +1,6 @@
 #
 # Copyright (C) 2024-2026 ykm888
-# 物理修复：切换 hanwckf 稳定源并锁定 1024M DDR4 逻辑
+# 物理锁定：使用 atf-20220606 稳定零件，物理对齐 SL-3000 1024M
 #
 
 include $(TOPDIR)/rules.mk
@@ -8,12 +8,16 @@ include $(TOPDIR)/rules.mk
 PKG_NAME:=arm-trusted-firmware-mediatek
 PKG_RELEASE:=1
 
-# 物理锁定：使用 hanwckf 稳定单分支源
+# 物理锁定：你的 hanwckf-stable-source 分支
 PKG_SOURCE_PROTO:=git
-PKG_SOURCE_URL:=https://github.com/hanwckf/bl-mt798x.git
-PKG_SOURCE_VERSION:=master
+PKG_SOURCE_URL:=https://github.com/ykm888/66.git
+PKG_SOURCE_VERSION:=hanwckf-stable-source
 
 PKG_MAINTAINER:=ykm888
+
+# 物理坐标定位：精准锁定仓库内的 ATF 子目录
+ATF_SRC_DIR:=atf-20220606-637ba581b
+PKG_BUILD_DIR:=$(BUILD_DIR)/$(PKG_NAME)-$(BUILD_VARIANT)/$(PKG_NAME)-$(PKG_SOURCE_VERSION)
 
 include $(INCLUDE_DIR)/kernel.mk
 include $(INCLUDE_DIR)/trusted-firmware-a.mk
@@ -26,7 +30,7 @@ define Trusted-Firmware-A/Default
   TFA_IMAGE:=bl2.bin bl31.bin
 endef
 
-# 物理修复准则：对齐 uboot-mediatek 的依赖声明
+# 物理修复准则：定义 SL-3000 专用的 1024M 变体
 define Trusted-Firmware-A/mt7981-nor-ddr4
   NAME:=SL-3000 (NOR-DDR4-1024M)
   VARIANT:=mt7981-nor-ddr4
@@ -46,8 +50,14 @@ TFA_MAKE_FLAGS += \
 
 define Build/Prepare
 	$(call Build/Prepare/Default)
-	# 物理清道夫：确保无任何硬编码 Werror 残留
+	@echo "Physical Surgery: Extracting ATF 20220606 source..."
+	# 物理手术：将子目录内的 ATF 源码物理移动到编译根目录
+	if [ -d "$(PKG_BUILD_DIR)/$(ATF_SRC_DIR)" ]; then \
+		cp -rf $(PKG_BUILD_DIR)/$(ATF_SRC_DIR)/* $(PKG_BUILD_DIR)/; \
+	fi
+	# 物理清道夫：针对新版 GCC 的兼容性处理
 	find $(PKG_BUILD_DIR) -type f -exec sed -i 's/-Werror//g' {} + || true
+	find $(PKG_BUILD_DIR) -type f -exec sed -i 's/-no-warn-rwx-segments//g' {} + || true
 endef
 
 define Package/arm-trusted-firmware-mediatek-$(1)/install
@@ -56,7 +66,7 @@ define Package/arm-trusted-firmware-mediatek-$(1)/install
 	# 产出物理对齐
 	$(CP) $(STAGING_DIR_IMAGE)/$(1)-bl2.bin $(STAGING_DIR_IMAGE)/bl2.img
 	$(CP) $(STAGING_DIR_IMAGE)/$(1)-bl31.bin $(STAGING_DIR_IMAGE)/bl31.bin
-	# 物理备份至 recovery
+	# 物理备份至 recovery 目录
 	$(INSTALL_DIR) $(BIN_DIR)/sl3000-recovery
 	$(CP) $(STAGING_DIR_IMAGE)/$(1)-bl2.bin $(BIN_DIR)/sl3000-recovery/bl2.img
 	$(CP) $(STAGING_DIR_IMAGE)/$(1)-bl31.bin $(BIN_DIR)/sl3000-recovery/bl31.bin
