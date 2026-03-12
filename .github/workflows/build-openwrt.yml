@@ -6,7 +6,8 @@ on:
 env:
   REPO_URL: https://github.com/ykm888/66
   REPO_BRANCH: sl3000-immortalwrt-bootstrap
-  CONFIG_FILE: custom-config/sl3000.config
+  # 物理对齐：路径修改为 888
+  CONFIG_FILE: 888/sl3000.config
   DIY_P1_SH: diy-part1.sh
   DIY_P2_SH: diy-part2.sh
   TZ: Asia/Shanghai
@@ -48,8 +49,9 @@ jobs:
         mkdir -p openwrt/package/boot/uboot-mediatek
         cp -f package/boot/arm-trusted-firmware-mediatek/Makefile openwrt/package/boot/arm-trusted-firmware-mediatek/Makefile
         cp -f package/boot/uboot-mediatek/Makefile openwrt/package/boot/uboot-mediatek/Makefile
-        find openwrt/target/linux/mediatek/ -type d -name "dts" -exec cp -f custom-config/mt7981-sl-3000-emmc.dts {} \;
-        [ -f custom-config/filogic.mk ] && cp -f custom-config/filogic.mk openwrt/target/linux/mediatek/image/
+        # 物理对齐：路径修改为 888
+        find openwrt/target/linux/mediatek/ -type d -name "dts" -exec cp -f 888/mt7981-sl-3000-emmc.dts {} \;
+        [ -f 888/filogic.mk ] && cp -f 888/filogic.mk openwrt/target/linux/mediatek/image/
         rm -rf openwrt/tmp
 
     - name: 7. Install Feeds & DIY-Part2
