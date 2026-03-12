@@ -20,13 +20,12 @@ jobs:
       uses: actions/checkout@v4
       with:
         ref: ${{ env.REPO_BRANCH }}
+        fetch-depth: 0
 
     - name: 1.5. Physics Bridge: Fetch Parts from Main
       run: |
-        # 从 main 分支物理提取 888 文件夹、package 文件夹和脚本
         git fetch origin main
         git checkout origin/main -- 888/ package/ "$DIY_P1_SH" "$DIY_P2_SH" 2>/dev/null || true
-        ls -d 888/ package/ 2>/dev/null || echo "Warning: Physical parts not found in main"
 
     - name: 2. Initialization Environment
       run: |
@@ -41,7 +40,12 @@ jobs:
     - name: 4. Execute DIY-Part1 Script
       working-directory: openwrt
       run: |
-        [ -f "../$DIY_P1_SH" ] && dos2unix "../$DIY_P1_SH" && chmod +x "../$DIY_P1_SH" && ../$DIY_P1_SH ; true
+        if [ -f "../$DIY_P1_SH" ]; then
+          dos2unix "../$DIY_P1_SH"
+          chmod +x "../$DIY_P1_SH"
+          ../$DIY_P1_SH
+        fi
+        true
 
     - name: 5. Update Feeds
       working-directory: openwrt
@@ -53,7 +57,6 @@ jobs:
         rm -rf openwrt/package/feeds/mediatek/uboot-mediatek
         mkdir -p openwrt/package/boot/arm-trusted-firmware-mediatek
         mkdir -p openwrt/package/boot/uboot-mediatek
-        # 执行跨分支搬运后的物理覆盖
         cp -f package/boot/arm-trusted-firmware-mediatek/Makefile openwrt/package/boot/arm-trusted-firmware-mediatek/Makefile
         cp -f package/boot/uboot-mediatek/Makefile openwrt/package/boot/uboot-mediatek/Makefile
         find openwrt/target/linux/mediatek/ -type d -name "dts" -exec cp -f 888/mt7981-sl-3000-emmc.dts {} \;
@@ -64,7 +67,12 @@ jobs:
       working-directory: openwrt
       run: |
         ./scripts/feeds install -a
-        [ -f "../$DIY_P2_SH" ] && dos2unix "../$DIY_P2_SH" && chmod +x "../$DIY_P2_SH" && ../$DIY_P2_SH ; true
+        if [ -f "../$DIY_P2_SH" ]; then
+          dos2unix "../$DIY_P2_SH"
+          chmod +x "../$DIY_P2_SH"
+          ../$DIY_P2_SH
+        fi
+        true
 
     - name: 8. Load Custom Configuration & Sanity Check
       working-directory: openwrt
