@@ -1,4 +1,4 @@
-name: Build SL-3000 (Locked Structure)
+name: Build SL-3000 (1024M Physical Fix)
 
 on:
   workflow_dispatch:
@@ -46,15 +46,29 @@ jobs:
 
     - name: 6. Physical Package Implantation
       run: |
-        # 最小物理修补：在编译前将仓库中的锁定配置文件植入源码深度路径
-        [ -f custom-config/mt7981-sl-3000-emmc.dts ] && cp -f custom-config/mt7981-sl-3000-emmc.dts openwrt/target/linux/mediatek/dts/
-        [ -f custom-config/filogic.mk ] && cp -f custom-config/filogic.mk openwrt/target/linux/mediatek/image/
+        # 物理注入：将仓库中定制的 1024M 零件 Makefile 强制覆盖到编译位
+        mkdir -p openwrt/package/boot/arm-trusted-firmware-mediatek
+        mkdir -p openwrt/package/boot/uboot-mediatek
+        
+        [ -f package/boot/arm-trusted-firmware-mediatek/Makefile ] && \
+            cp -f package/boot/arm-trusted-firmware-mediatek/Makefile openwrt/package/boot/arm-trusted-firmware-mediatek/Makefile
+            
+        [ -f package/boot/uboot-mediatek/Makefile ] && \
+            cp -f package/boot/uboot-mediatek/Makefile openwrt/package/boot/uboot-mediatek/Makefile
+
+        # 物理注入：DTS 与 镜像合成脚本
+        [ -f custom-config/mt7981-sl-3000-emmc.dts ] && \
+            cp -f custom-config/mt7981-sl-3000-emmc.dts openwrt/target/linux/mediatek/dts/
+        [ -f custom-config/filogic.mk ] && \
+            cp -f custom-config/filogic.mk openwrt/target/linux/mediatek/image/
+
+        echo "All physical components implanted successfully."
 
     - name: 7. Load Custom Configuration
       working-directory: openwrt
       run: |
         cp -f ../$CONFIG_FILE .config
-        # 延续 1024M 锁定：强制注入页表深度参数
+        # 物理二次锁定：确保 PGTABLE 参数在 defconfig 后不丢失
         echo "CONFIG_PGTABLE_LEVELS=3" >> .config
         make defconfig
 
@@ -68,7 +82,7 @@ jobs:
     - name: 9. Compile Firmware
       working-directory: openwrt
       run: |
-        # 物理执行：由于是 MT7981 1024M 复杂编译，首选多核，失败则单核输出日志
+        # 物理并行编译：失败则回退至单核 V=s 输出
         make -j$(nproc) || make -j1 V=s
 
     - name: 10. Organize Files
