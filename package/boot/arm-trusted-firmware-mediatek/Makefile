@@ -1,6 +1,6 @@
 #
 # Copyright (C) 2024-2026 ykm888
-# 物理修复：SL-3000 (MT7981) 路径终极对齐 & 链接参数兼容性修补
+# 物理修复：解决 uboot-mediatek 依赖路径不匹配问题
 #
 
 include $(TOPDIR)/rules.mk
@@ -30,8 +30,10 @@ define Trusted-Firmware-A/Default
   TFA_IMAGE:=bl2.bin bl31.bin
 endef
 
+# 物理修复准则：显式定义变体，确保 uboot 依赖项物理匹配
 define Trusted-Firmware-A/mt7981-nor-ddr4
   NAME:=SL-3000 (NOR-DDR4-1024M)
+  BUILD_VARIANT:=mt7981-nor-ddr4
   BOOT_DEVICE:=nor
   DDR_TYPE:=ddr4
 endef
@@ -71,7 +73,6 @@ define Build/Prepare
 		cp -f $(PKG_BUILD_DIR)/plat/mediatek/apsoc_common/bl2/include/*.h \
 		      $(PKG_BUILD_DIR)/plat/mediatek/apsoc_common/include/ || true; \
 	fi
-	# 物理修复准则：切除旧版 GCC 不支持的链接参数，防止报错 exit code 2
 	find $(PKG_BUILD_DIR) -name "*.mk" -o -name "Makefile" | xargs sed -i 's/-no-warn-rwx-segments//g' || true
 	find $(PKG_BUILD_DIR) -name "*.mk" -o -name "Makefile" | xargs sed -i 's/-Werror//g' || true
 endef
