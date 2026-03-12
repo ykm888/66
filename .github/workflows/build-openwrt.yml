@@ -34,7 +34,6 @@ jobs:
     - name: 4. Execute DIY-Part1 Script
       working-directory: openwrt
       run: |
-        # 物理修正：原文照抄，仅将 && 修改为分号 ; 以防止文件检测失败返回 exit 1
         [ -f "../$DIY_P1_SH" ] && dos2unix "../$DIY_P1_SH" && chmod +x "../$DIY_P1_SH" && ../$DIY_P1_SH ; true
 
     - name: 5. Update Feeds
@@ -57,7 +56,6 @@ jobs:
       working-directory: openwrt
       run: |
         ./scripts/feeds install -a
-        # 物理修正：原文照抄，仅将 && 修改为分号 ; 以防止文件检测失败返回 exit 1
         [ -f "../$DIY_P2_SH" ] && dos2unix "../$DIY_P2_SH" && chmod +x "../$DIY_P2_SH" && ../$DIY_P2_SH ; true
 
     - name: 8. Load Custom Configuration & Sanity Check
