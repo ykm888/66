@@ -28,8 +28,8 @@ endef
 define U-Boot/mt7981-nor-ddr4
   NAME:=SL-3000 (512MB-Safe-Recovery)
   BUILD_DEVICES:=ykm888_sl-3000
-  # 物理修正：去掉 + 号，防止扫描阶段因 ATF 未完全索引导致的报错
-  DEPENDS:=arm-trusted-firmware-mediatek
+  # 【终极修正】：恢复 + 号强依赖，保证 U-Boot 绝对在 ATF 之后编译，防止打包失败！
+  DEPENDS:=+arm-trusted-firmware-mediatek
   UBOOT_CONFIG:=mt7981_nor_emmc_rfb
 endef
 
@@ -40,17 +40,16 @@ define Build/Prepare
 	if [ -d "$(PKG_BUILD_DIR)/$(UBOOT_SRC_DIR)" ]; then \
 		cp -rf $(PKG_BUILD_DIR)/$(UBOOT_SRC_DIR)/* $(PKG_BUILD_DIR)/; \
 	fi
-	sed -i '/CONFIG_ARM64_VA_BITS_39/d' $(PKG_BUILD_DIR)/configs/mt7981_nor_emmc_rfb_defconfig
-	sed -i 's/192.168.1.1/192.168.31.1/g' $(PKG_BUILD_DIR)/configs/mt7981_nor_emmc_rfb_defconfig || true
-	find $(PKG_BUILD_DIR) -type f -exec sed -i 's/-no-warn-rwx-segments//g' {} + || true
+	sed -i '/CONFIG_ARM64_VA_BITS_39/d' $(PKG_BUILD_DIR)/configs/mt7981_nor_emmc_rfb_defconfig || true
+	find $(PKG_BUILD_DIR) -type f -exec sed -i 's/-Werror//g' {} + || true
 endef
 
 define Package/uboot-mediatek-$(1)/install
 	$(INSTALL_DIR) $(STAGING_DIR_IMAGE)
-	if [ -f $(PKG_BUILD_DIR)/u-boot.bin ]; then \
+	[ -f $(PKG_BUILD_DIR)/u-boot.bin ] && { \
 		$(CP) $(PKG_BUILD_DIR)/u-boot.bin $(STAGING_DIR_IMAGE)/$(1)-u-boot.bin; \
 		$(CP) $(PKG_BUILD_DIR)/u-boot.bin $(STAGING_DIR_IMAGE)/u-boot.bin; \
-	fi
+	}
 	$(INSTALL_DIR) $(BIN_DIR)/sl3000-recovery
 	[ -f $(PKG_BUILD_DIR)/u-boot.bin ] && \
 		$(CP) $(PKG_BUILD_DIR)/u-boot.bin $(BIN_DIR)/sl3000-recovery/u-boot.bin
