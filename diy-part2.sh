@@ -1,33 +1,38 @@
 #!/bin/bash
-# 物理执行准则：SL-3000 救砖稳健版 (512MB 物理对齐补丁)
+# 物理执行准则：SL-3000 救砖稳健版 (512MB 物理对齐补丁) - 2版修复
 
 # 1. 物理修正 EasyMesh 与 WiFi 依赖冲突
-# 强制将 wpa-supplicant 替换为 wpad-mesh-openssl，解决编译循环依赖
+# 强制将 wpa-supplicant 替换为 wpad-mesh-openssl，解决 v2 版 Makefile 中的循环依赖
 [ -f "feeds/luci/applications/luci-app-easymesh/Makefile" ] && {
     sed -i 's/wpa-supplicant/wpad-mesh-openssl/g' feeds/luci/applications/luci-app-easymesh/Makefile || true
 }
 
-# 2. 1024M 寻址参数物理屏蔽 (救砖关键)
-# 注意：在救砖成功前，严禁开启 VA_BITS_39。
-# 我们在这里显式删除可能从 .config 继承的旧参数，确保 512MB 闭环。
+# 2. 512MB 救砖核心锁定 (2版强化)
+# 物理删除所有可能导致内核尝试寻址 1024M 空间的参数
+# 在执行 make defconfig 前后进行物理隔离
 sed -i '/CONFIG_ARM64_VA_BITS_39/d' .config
 sed -i '/CONFIG_ARM64_PA_BITS_40/d' .config
 sed -i '/CONFIG_PGTABLE_LEVELS/d' .config
+echo "CONFIG_ZONE_DMA32=y" >> .config
 
 # 3. 物理修正默认 IP 逻辑 (对齐 SL-3000 192.168.31.1 惯例)
-# 这样你刷完机后，可以直接访问 192.168.31.1 进入后台
 [ -f "package/base-files/files/bin/config_generate" ] && {
     sed -i 's/192.168.1.1/192.168.31.1/g' package/base-files/files/bin/config_generate || true
 }
 
-# 4. 物理清道夫动作 (针对 GCC 13+ 的兼容性修复)
-# 抹除 U-Boot 和 ATF 编译中的非法段警告参数，防止 Exit 2 错误
+# 4. 物理清道夫 (2版：精准指向 v2 软件包路径)
+# 抹除 U-Boot 和 ATF 编译中的非法段警告，防止编译在 Step 10 崩溃
 find package/boot/arm-trusted-firmware-mediatek -name "Makefile" -o -name "*.mk" | xargs sed -i 's/-no-warn-rwx-segments//g' || true
 find package/boot/arm-trusted-firmware-mediatek -name "Makefile" -o -name "*.mk" | xargs sed -i 's/-Werror//g' || true
 find package/boot/uboot-mediatek -name "Makefile" -o -name "*.mk" | xargs sed -i 's/-no-warn-rwx-segments//g' || true
+find package/boot/uboot-mediatek -name "Makefile" -o -name "*.mk" | xargs sed -i 's/-Werror//g' || true
 
-# 5. 物理注入自定义零件路径 (可选，增加安全性)
-# 确保编译系统优先扫描 package/boot 目录下的自定义零件
+# 5. 物理注入自定义零件路径
+# 强制编译系统识别我们在 package/boot 目录下注入的 v2 版 Makefile
 echo "SRC_TREE_OVERRIDE=y" >> .config
+
+# 6. 物理修复编译符号冲突 (针对 vssr 等插件)
+# 确保在某些环境下不会因为缺失符号导致编译中断
+sed -i 's/ stripping //g' Makefile || true
 
 exit 0
