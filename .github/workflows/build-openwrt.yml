@@ -1,7 +1,10 @@
 name: Build SL-3000 (Manual-Rescue-512M)
 
+# ----------------------------------------------------------------
+# 物理锁定：手动触发配置
+# ----------------------------------------------------------------
 on:
-  workflow_dispatch:
+  workflow_dispatch: # 移除 push/pull_request，彻底切断自动触发逻辑
 
 env:
   REPO_URL: https://github.com/ykm888/66
@@ -19,10 +22,11 @@ jobs:
     - name: 1. Checkout Main Repository
       uses: actions/checkout@v4
 
-    - name: 2. Initialization Environment
+    - name: 2. Initialization Environment (One-Line Fix)
       run: |
         sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc
         sudo -E apt-get -qq update
+        # 物理修正：单行安装，防止 YAML 解析报错及自动构建干扰
         sudo -E apt-get -qq install ack antlr3 asciidoc autoconf automake autopoint binutils bison build-essential bzip2 ccache cmake cpio curl device-tree-compiler dos2unix fastjar flex gawk gettext gcc-multilib g++-multilib git gperf haveged help2man intltool libc6-dev-i386 libelf-dev libglib2.0-dev libgpgme11-dev libltdl-dev libmpc-dev libmpfr-dev libncurses5-dev libncursesw5-dev libreadline-dev libssl-dev libtool lrzsz mkisofs msmtp nano ninja-build p7zip p7zip-full patch pkgconf python3 python3-pyelftools python3-setuptools qemu-utils rsync scons squashfs-tools subversion swig texinfo u-boot-tools upx-ucl unzip vim wget xmlto xz-utils zlib1g-dev bc
         sudo timedatectl set-timezone "$TZ"
 
@@ -38,18 +42,23 @@ jobs:
       working-directory: openwrt
       run: ./scripts/feeds update -a
 
-    - name: 6. Physical Source Injection (注入提前)
+    - name: 6. Physical Package Implantation (源头注入修正)
       run: |
-        # 物理清场
-        rm -rf openwrt/package/feeds/mediatek/arm-trusted-firmware-mediatek
-        rm -rf openwrt/package/feeds/mediatek/uboot-mediatek
-        # 物理注入：从主仓库同步自定义零件
+        # 1. 物理清场
+        rm -rf openwrt/feeds/mediatek/package/boot/arm-trusted-firmware-mediatek
+        rm -rf openwrt/feeds/mediatek/package/boot/uboot-mediatek
+        
+        # 2. 创建物理目录
         mkdir -p openwrt/package/boot/arm-trusted-firmware-mediatek
         mkdir -p openwrt/package/boot/uboot-mediatek
-        [ -f "package/boot/arm-trusted-firmware-mediatek/Makefile" ] && cp -f package/boot/arm-trusted-firmware-mediatek/Makefile openwrt/package/boot/arm-trusted-firmware-mediatek/Makefile
-        [ -f "package/boot/uboot-mediatek/Makefile" ] && cp -f package/boot/uboot-mediatek/Makefile openwrt/package/boot/uboot-mediatek/Makefile
-        [ -f "custom-config/mt7981-sl-3000-emmc.dts" ] && cp -f custom-config/mt7981-sl-3000-emmc.dts openwrt/target/linux/mediatek/dts/
-        [ -f "custom-config/filogic.mk" ] && cp -f custom-config/filogic.mk openwrt/target/linux/mediatek/image/
+        
+        # 3. 物理同步自定义零件 (确保 feeds install 能识别)
+        [ -f package/boot/arm-trusted-firmware-mediatek/Makefile ] && cp -f package/boot/arm-trusted-firmware-mediatek/Makefile openwrt/package/boot/arm-trusted-firmware-mediatek/Makefile
+        [ -f package/boot/uboot-mediatek/Makefile ] && cp -f package/boot/uboot-mediatek/Makefile openwrt/package/boot/uboot-mediatek/Makefile
+        
+        # 4. 注入 DTS 与镜像生成脚本
+        [ -f custom-config/mt7981-sl-3000-emmc.dts ] && cp -f custom-config/mt7981-sl-3000-emmc.dts openwrt/target/linux/mediatek/dts/
+        [ -f custom-config/filogic.mk ] && cp -f custom-config/filogic.mk openwrt/target/linux/mediatek/image/
 
     - name: 7. Install Feeds & DIY-Part2
       working-directory: openwrt
@@ -61,6 +70,7 @@ jobs:
       working-directory: openwrt
       run: |
         [ -f ../$CONFIG_FILE ] && cp -f ../$CONFIG_FILE .config
+        # 512MB 物理锁定参数
         sed -i '/CONFIG_ARM64_VA_BITS_39/d' .config
         sed -i '/CONFIG_ARM64_PA_BITS_40/d' .config
         sed -i '/CONFIG_PGTABLE_LEVELS/d' .config
@@ -68,13 +78,16 @@ jobs:
 
     - name: 9. Download Library Packages
       working-directory: openwrt
-      run: make download -j8
+      run: |
+        make download -j8
+        find dl -size -1024c -exec rm -f {} \;
 
     - name: 10. Compile Firmware
       working-directory: openwrt
-      run: make -j$(nproc) || make -j1 V=s
+      run: |
+        make -j$(nproc) || make -j1 V=s
 
-    - name: 11. Organize Files
+    - name: 11. Organize Files (32MB 救砖固件精确提取)
       run: |
         mkdir -p bin/firmware
         find openwrt/bin/targets/mediatek/filogic/ -name "*nor-programmer-dump.bin" -exec cp -f {} bin/firmware/sl3000-32M-rescue.bin \;
@@ -84,5 +97,8 @@ jobs:
     - name: 12. Upload Artifact
       uses: actions/upload-artifact@v4
       with:
-        name: SL3000-Rescue-v3-Fixed
+        name: SL3000-Rescue-v3-Final
         path: bin/
+
+    - name: 13. Cleanup Workspace
+      run: rm -rf openwrt
