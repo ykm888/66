@@ -1,0 +1,41 @@
+#
+# Copyright (C) 2017 Hauke Mehrtens
+# Copyright (C) 2021-2026 ykm888
+#
+
+include $(TOPDIR)/rules.mk
+
+PKG_NAME:=arm-trusted-firmware-mediatek
+PKG_RELEASE:=1
+
+# --- 物理执行准则：切换至你的专属全量源码库 ---
+PKG_SOURCE_PROTO:=git
+PKG_SOURCE_URL:=https://github.com/ykm888/66.git
+PKG_SOURCE_VERSION:=sl3000-clean-source
+PKG_MIRROR_HASH:=skip
+
+include $(INCLUDE_DIR)/kernel.mk
+include $(INCLUDE_DIR)/trusted-firmware-a.mk
+include $(INCLUDE_DIR)/package.mk
+
+define Trusted-Firmware-A/Default
+  BUILD_TARGET:=mediatek
+  TFA_IMAGE:=bl2.img bl31.bin
+  HIDDEN:=y
+  # 救砖物理对齐
+  FIP_OFFSET:=0x100000
+  FIP_SIZE:=0x200000
+endef
+
+# --- 物理精简：仅保留 MT7981 ---
+define Trusted-Firmware-A/mt7981-nor-ddr4
+  NAME:=MediaTek MT7981 (SPI-NOR, DDR4)
+  BOOT_DEVICE:=nor
+  BUILD_SUBTARGET:=filogic
+  PLAT:=mt7981
+  DDR_TYPE:=ddr4
+endef
+
+TFA_TARGETS:= mt7981-nor-ddr4
+
+$(eval $(call BuildPackage,Trusted-Firmware-A))
