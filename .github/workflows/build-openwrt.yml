@@ -1,4 +1,4 @@
-name: 司洛SL-3000 物理硬化全家桶构建
+name: SL-3000 Ultimate Hardened Build
 
 on:
   workflow_dispatch:
@@ -7,7 +7,6 @@ env:
   REPO_URL: https://github.com/ykm888/66
   REPO_BRANCH: sl3000-immortalwrt-bootstrap
   CONFIG_FILE: 888/sl3000.config
-  DIY_P1_SH: diy-part1.sh
   DIY_P2_SH: diy-part2.sh
   TZ: Asia/Shanghai
 
@@ -16,67 +15,53 @@ jobs:
     runs-on: ubuntu-22.04
 
     steps:
-    - name: 1. 物理环境初始化
+    - name: 1. 环境初始化
       uses: actions/checkout@v4
 
     - name: 2. 安装物理依赖
       run: |
-        sudo rm -rf /etc/apt/sources.list.d/*
         sudo -E apt-get -qq update
-        sudo -E apt-get -qq install ack antlr3 asciidoc autoconf automake autopoint binutils bison build-essential bzip2 ccache cmake cpio curl device-tree-compiler fastjar flex gawk gettext gcc-multilib g++-multilib git gperf haveged help2man intltool libc6-dev-i386 libelf-dev libfuse-dev libglib2.0-dev libgmp3-dev libltdl-dev libmpc-dev libmpfr-dev libncurses5-dev libncursesw5-dev libpython3-dev libreadline-dev libssl-dev libtool lrzsz mkisofs msmtp ninja-build p7zip p7zip-full patch pkgconf python2.7 python3 python3-pyelftools python3-setuptools qemu-utils rsync scons squashfs-tools subversion swig texinfo uglifyjs upx-ucl unzip xxd zlib1g-dev
+        sudo -E apt-get -qq install build-essential device-tree-compiler qemu-utils rsync swig xxd python3-pyelftools
         sudo timedatectl set-timezone "$TZ"
 
-    - name: 3. 源码物理拉取
+    - name: 3. 源码与 Feeds 同步
       run: |
         git clone $REPO_URL -b $REPO_BRANCH openwrt
-        ln -sf /workdir/openwrt $GITHUB_WORKSPACE/openwrt
-
-    - name: 4. Feeds 更新与脚本注入
-      run: |
         cd openwrt
         ./scripts/feeds update -a
         ./scripts/feeds install -a
+
+    - name: 4. 零件注入与影子抹除
+      run: |
+        cd openwrt
         chmod +x ../$DIY_P2_SH
         ../$DIY_P2_SH
 
-    - name: 5. 锁定物理配置
-      run: |
-        [ -f $CONFIG_FILE ] && cp -f $CONFIG_FILE openwrt/.config
-        cd openwrt && make defconfig
-
-    - name: 6. 预编译零件下载
+    - name: 5. 加载配置与工具链预热 (解决 Error 2)
       run: |
         cd openwrt
-        make download -j8
-        find dl -size -1024c -exec rm -f {} \;
+        [ -f ../$CONFIG_FILE ] && cp -f ../$CONFIG_FILE .config
+        make defconfig
+        echo "Starting Toolchain Install... This may take 20 mins."
+        make toolchain/install -j$(nproc) || make toolchain/install V=s
 
-    - name: 7. 顺序物理编译 (核心修复)
+    - name: 6. 顺序物理编译 (心脏 -> 大脑 -> 合体)
       run: |
         cd openwrt
-        # 第一阶段：先编译工具链基础 (解决 ld-musl.so 找不到的问题)
-        make package/libs/toolchain/compile V=s -j$(nproc) || make package/libs/toolchain/compile V=s -j1
+        # A. 编译基础库 (防止 ld-musl 拷贝报错)
+        make package/libs/toolchain/compile V=s -j1 || true
         
-        # 第二阶段：物理产出心脏 ATF (1MB 偏移对齐)
+        # B. 编译硬化 ATF (1MB 偏移对齐)
         make package/boot/arm-trusted-firmware-mediatek/compile V=s -j1
         
-        # 第三阶段：物理产出大脑 U-Boot (SL-3000 定义对齐)
+        # C. 编译硬化 U-Boot (SL-3000 DTS)
         make package/boot/uboot-mediatek/compile V=s -j1
         
-        # 第四阶段：全线合体编译 (生成 32MB 救砖包)
+        # D. 全量合成镜像
         make -j$(nproc) || make -j1 V=s
 
-    - name: 8. 物理搜集救砖产物
-      run: |
-        cd openwrt/bin/targets/mediatek/filogic/
-        mkdir -p RECOVERY_PACK
-        cp *nor-programmer-dump.bin RECOVERY_PACK/ 2>/dev/null || true
-        cp *emmc-sysupgrade.bin RECOVERY_PACK/ 2>/dev/null || true
-        cp *bl2.img RECOVERY_PACK/ 2>/dev/null || true
-        cp *fip.bin RECOVERY_PACK/ 2>/dev/null || true
-        echo "FIRMWARE_PATH=$PWD/RECOVERY_PACK" >> $GITHUB_ENV
-
-    - name: 9. 上传物理产物
+    - name: 7. 上传救砖全家桶
       uses: actions/upload-artifact@v4
       with:
-        name: SL3000_Full_Pack
-        path: ${{ env.FIRMWARE_PATH }}
+        name: SL3000_Gold_Firmware
+        path: openwrt/bin/targets/mediatek/filogic/*
