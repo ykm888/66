@@ -31,43 +31,44 @@ jobs:
         ./scripts/feeds update -a
         ./scripts/feeds install -a
 
-    - name: 4. 执行物理手术与索引重构 (解决 Warning)
+    - name: 4. 执行物理手术与路径自检
       run: |
         cd openwrt
         chmod +x ../$DIY_P2_SH
         ../$DIY_P2_SH
-        # 强制重置索引，确保系统识别到我们手动注入的本地零件
+        
+        echo "================ 物理路径调试自检 ================"
+        ls -R package/boot/
+        echo "================================================"
+        
+        # 强制重置索引，确保系统识别到手动注入的本地零件
         rm -rf tmp
         ./scripts/feeds update -i
         ./scripts/feeds install -a
 
-    - name: 5. 锁定配置与工具链物理预热 (解决 Error 2)
+    - name: 5. 工具链物理预热
       run: |
         cd openwrt
         [ -f ../$CONFIG_FILE ] && cp -f ../$CONFIG_FILE .config
         make defconfig
-        echo "Physical Preheating: Building Toolchain..."
         make toolchain/install -j$(nproc) || make toolchain/install V=s
 
-    - name: 6. 顺序物理编译 (1MB 偏移硬化)
+    - name: 6. 顺序物理编译 (1MB 偏移对齐)
       run: |
         cd openwrt
-        # A. 编译基础库
+        # 按序编译，确保依赖链完整
         make package/libs/toolchain/compile V=s -j1 || true
-        # B. 编译硬化 ATF (心脏)
         make package/boot/arm-trusted-firmware-mediatek/compile V=s -j1
-        # C. 编译硬化 U-Boot (大脑)
         make package/boot/uboot-mediatek/compile V=s -j1
-        # D. 全量合成 32MB 救砖包
         make -j$(nproc) || make -j1 V=s
 
     - name: 7. 产物物理搜集
       run: |
         cd openwrt/bin/targets/mediatek/filogic/
         mkdir -p RECOVERY_PACK
-        cp *nor-programmer-dump.bin RECOVERY_PACK/ 2>/dev/null || true
         cp *fip.bin RECOVERY_PACK/ 2>/dev/null || true
         cp *bl2.img RECOVERY_PACK/ 2>/dev/null || true
+        cp *nor-programmer-dump.bin RECOVERY_PACK/ 2>/dev/null || true
 
     - name: 8. 上传全家桶
       uses: actions/upload-artifact@v4
