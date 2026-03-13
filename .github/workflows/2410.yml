@@ -1,0 +1,35 @@
+name: Physical Sync to 2410 Branch
+
+on:
+  workflow_dispatch:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout Target (Your Repo)
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Physical Core Sync
+      run: |
+        # 1. 物理对齐：设置 Git 身份
+        git config --global user.email "action@github.com"
+        git config --global user.name "GitHub Action"
+
+        # 2. 物理溯源：拉取远程源仓库 24.10 分支
+        git remote add upstream https://github.com/OpenWrt01/immortalwrt-mt798x-24.10.git || true
+        git fetch upstream openwrt-24.10 || { echo "!!! Remote Source Unreachable !!!"; exit 1; }
+
+        # 3. 物理切除与创建：强制创建本地 2410 分支并覆盖内容
+        git checkout -B 2410 upstream/openwrt-24.10 || { echo "!!! Branch Creation Failed !!!"; exit 1; }
+
+        # 4. 物理对齐校验：确保 24.10 的核心 Makefile 存在
+        [ -f "Makefile" ] || { echo "!!! Sync Integrity Check Failed !!!"; exit 1; }
+
+        # 5. 物理推送：强制同步到你的 2410 远程分支
+        git push -f origin 2410
+
+    - name: Physical Status Report
+      run: echo "Sync Complete: Branch '2410' has been physically mirrored."
