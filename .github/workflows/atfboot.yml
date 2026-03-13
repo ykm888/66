@@ -1,55 +1,58 @@
-name: Auto Setup SL-3000 Branch
+name: Fix Submodule Arrows
 
 on:
-  workflow_dispatch: # 手动点击运行
+  workflow_dispatch:
 
 jobs:
-  build:
+  fix-and-sync:
     runs-on: ubuntu-latest
-    # 这一行确保脚本拥有 GITHUB_TOKEN 的写入能力
     permissions:
       contents: write
 
     steps:
-      - name: Checkout Main
+      - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Configure Git Global
+      - name: Configure Git
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
 
-      - name: Fetch and Create Branch
+      - name: Prepare Clean Branch
         run: |
-          # 强制创建一个名为 sl3000-official-source 的干净分支
+          # 建立一个孤立分支，清除所有历史索引
           git checkout --orphan sl3000-official-source
-          git rm -rf . # 清空新分支内容，准备接收源码
+          git rm -rf .
           mkdir -p u-boot ATF
 
-      - name: Pull MTK U-Boot Source
+      - name: Clone and REMOVE .GIT (Crucial)
         run: |
+          # 克隆 U-Boot 并立即删除它的 .git 目录
           git clone --depth 1 https://github.com/mtk-openwrt/u-boot.git temp_u
+          rm -rf temp_u/.git
           cp -r temp_u/. u-boot/
-          rm -rf temp_u
-
-      - name: Pull MTK ATF Source
-        run: |
+          
+          # 克隆 ATF 并立即删除它的 .git 目录
           git clone --depth 1 https://github.com/mtk-openwrt/arm-trusted-firmware.git temp_a
+          rm -rf temp_a/.git
           cp -r temp_a/. ATF/
-          rm -rf temp_a
+          
+          rm -rf temp_u temp_a
 
       - name: Apply SL-3000 Fixes
         run: |
-          # 修复 ATF 寻址偏移 (1MB)
+          # 物理修复：ATF 偏移 (1MB)
           sed -i '/#define BL33_BASE/a \\n#define MTK_FIP_BASE (0x100000)\n#define MTK_FIP_MAX_SIZE (0x200000)' ATF/plat/mediatek/mt7981/include/platform_def.h
-          # 修复 U-Boot 内存定义 (512MB)
+          # 物理修复：内存定义 (512MB)
           if [ -f "u-boot/include/configs/mt7981.h" ]; then
             sed -i 's/0x10000000/0x20000000/g' u-boot/include/configs/mt7981.h
           fi
 
-      - name: Force Push to Branch
+      - name: Force Push Real Files
         run: |
+          # 强制清除 Git 缓存中关于 ATF/u-boot 的子模块记录
+          git rm -r --cached u-boot ATF || echo "Already clean"
           git add .
-          git commit -m "Initial SL-3000 official source with auto-fixes"
-          # 关键：强制推送到远程分支
+          git commit -m "Fix: Replace submodules with real source files"
+          # 推送到远程，彻底覆盖旧的“箭头”记录
           git push origin sl3000-official-source --force
