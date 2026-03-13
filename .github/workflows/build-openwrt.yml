@@ -1,4 +1,4 @@
-Name: Build SL-3000 Firmware (23.05 Physical Sync)
+name: Build SL-3000 Firmware (23.05 Physical Sync)
 
 on:
   repository_dispatch:
