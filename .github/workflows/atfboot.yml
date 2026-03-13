@@ -1,7 +1,7 @@
-name: SL-3000 Source Verify & Sync
+name: SL-3000 Final Verify & Sync (Lowercase)
 
 on:
-  workflow_dispatch: # 手动触发运行
+  workflow_dispatch: # 手动触发
 
 jobs:
   verify-and-sync:
@@ -18,44 +18,46 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y gcc-aarch64-linux-gnu build-essential bison flex libssl-dev device-tree-compiler
 
-      - name: 📦 源码拉取与物理硬化 (彻底解决 Symlink)
+      - name: 📦 源码拉取与物理硬化 (斩断小箭头)
         run: |
           # 创建独立的孤儿分支
           git checkout --orphan sl3000-clean-source
           git rm -rf .
-          mkdir -p u-boot ATF
           
-          # 克隆官方源码并物理化文件
+          # 创建小写物理目录，确保编译器路径匹配
+          mkdir -p u-boot atf
+          
+          # 克隆官方源码并物理化文件内容 (不带 .git 目录)
           git clone --depth 1 https://github.com/mtk-openwrt/u-boot.git temp_u && cp -r temp_u/. u-boot/
-          git clone --depth 1 https://github.com/mtk-openwrt/arm-trusted-firmware.git temp_a && cp -r temp_a/. ATF/
+          git clone --depth 1 https://github.com/mtk-openwrt/arm-trusted-firmware.git temp_a && cp -r temp_a/. atf/
           rm -rf temp_u temp_a
 
-          # 【核心修复：物理还原头文件路径】
-          # 删除原本失效的软链接，创建物理目录并拷贝真实内容
+          # 【关键修复：解决设备树头文件软链接循环】
           rm -rf u-boot/arch/arm/dts/include/dt-bindings
           mkdir -p u-boot/arch/arm/dts/include/dt-bindings
+          # -L 参数确保拷贝的是真实文件而非链接本身
           cp -rL u-boot/include/dt-bindings/* u-boot/arch/arm/dts/include/dt-bindings/
-          echo "✅ 软链接已转为物理文件，消灭路径死循环。"
+          echo "✅ 软链接已物理化，atf/u-boot 目录已准备就绪。"
 
       - name: 🏗️ 注入适配补丁 (ATF & U-Boot)
         run: |
-          # --- ATF 修复 (强制 1MB FIP 偏移) ---
-          ATF_DEF="ATF/plat/mediatek/mt7981/include/platform_def.h"
+          # --- ATF (atf) 修复：锁定 1MB 偏移 ---
+          ATF_DEF="atf/plat/mediatek/mt7981/include/platform_def.h"
           sed -i '/MTK_FIP_BASE/d' $ATF_DEF
           sed -i '/MTK_FIP_MAX_SIZE/d' $ATF_DEF
           sed -i '/#define BL33_BASE/i #define MTK_FIP_BASE (0x100000)\n#define MTK_FIP_MAX_SIZE (0x200000)' $ATF_DEF
-          sed -i 's/FIP_BASE.*=.*/FIP_BASE = 0x100000/g' ATF/plat/mediatek/mt7981/platform.mk
+          # 强制同步 Makefile 中的 FIP 地址
+          sed -i 's/FIP_BASE.*=.*/FIP_BASE = 0x100000/g' atf/plat/mediatek/mt7981/platform.mk
 
-          # --- U-Boot 修复 (512MB RAM & 专属 DTS) ---
+          # --- U-Boot 修复：512MB RAM & 专属 DTS ---
           DTS="u-boot/arch/arm/dts/mt7981-sl3000.dts"
           printf "/dts-v1/;\n#include \"mt7981.dtsi\"\n/ {\n  model = \"SL-3000 (512MB RAM)\";\n  memory@40000000 {\n    device_type = \"memory\";\n    reg = <0x40000000 0x20000000>;\n  };\n  chosen { stdout-path = &uart0; };\n};\n&uart0 { status = \"okay\"; };\n&mmc0 { bus-width = <8>; cap-mmc-highspeed; non-removable; status = \"okay\"; };\n" > $DTS
           
-          # 核心内存配置锁定
+          # 锁定内存宏定义
           U_H="u-boot/include/configs/mt7981.h"
           sed -i '/#ifndef __MT7981_H/a #define CFG_SYS_SDRAM_SIZE 0x20000000' $U_H
           
-          # 【Makefile 修复：精准追加而非重写】
-          # 在官方编译列表后插入我们的目标，确保不丢失基础编译规则
+          # 精准追加设备树编译目标
           sed -i '/dtb-$(CONFIG_TARGET_MT7981) +=/ s/$/ mt7981-sl3000.dtb/' u-boot/arch/arm/dts/Makefile
           
           # 修改默认配置映射
@@ -63,25 +65,21 @@ jobs:
           sed -i 's/mt7981-nor-emmc-rfb/mt7981-sl3000/g' $DEF
           sed -i 's/MT7981> /SL3000> /g' $DEF
 
-      - name: 🔍 100% 适配性验证 (无构建模式)
+      - name: 🔍 100% 适配性验证
         run: |
           cd u-boot
-          # 1. 验证配置文件正确性
           make mt7981_nor_emmc_rfb_defconfig
-          # 2. 核心验证：通过设备树编译器（DTC）检查语法和物理路径
-          # 如果这里报错，说明头文件路径或 Makefile 注入有问题
           CROSS_COMPILE=aarch64-linux-gnu- make dtbs -j$(nproc)
-          echo "✅ U-Boot 设备树物理路径验证成功！"
+          echo "✅ U-Boot 设备树编译验证成功！"
           
-          cd ../ATF
-          # 3. 验证地址注入逻辑
+          cd ../atf
           grep -q "MTK_FIP_BASE (0x100000)" plat/mediatek/mt7981/include/platform_def.h || exit 1
           echo "✅ ATF 1MB 偏移地址锁定验证成功！"
 
-      - name: 🚀 验证通过后同步至仓库
+      - name: 🚀 推送物理硬化后的源码
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git add .
-          git commit -m "SL-3000: Verified Clean Source (Physical DTB Path + 1MB Offset)"
+          git commit -m "SL-3000: Verified Source (Lowercase atf/u-boot, Hardened Paths)"
           git push origin sl3000-clean-source --force
