@@ -1,4 +1,8 @@
 #!/bin/bash
+#
+# Copyright (C) 2024-2026 ykm888
+# 物理修复 7 版：定义水源，确保依赖修正逻辑延迟触发
+#
 
 # --- 1. 物理环境强力清场 ---
 # 移除 bootstrap 分支中过时或冲突的引导包路径，确保物理路径唯一性
@@ -14,7 +18,7 @@ mkdir -p package/boot/arm-trusted-firmware-mediatek
 mkdir -p package/boot/uboot-mediatek
 
 cp -fR /tmp/source_repo/atf/* package/boot/arm-trusted-firmware-mediatek/
-cp -fR /tmp/source_repo/uboot/* package/boot/uboot-mediatek/
+cp -fR /tmp/source_repo/u-boot/* package/boot/uboot-mediatek/
 
 # --- 3. 物理心脏移植 (从 main/888 注入硬化驱动) ---
 # 强制覆盖军火库的基础源码，确保 1MB (0x100000) 偏移逻辑生效
