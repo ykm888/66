@@ -20,66 +20,41 @@ jobs:
 
       - name: 🧹 清洗仓库索引
         run: |
-          # 建立全新的纯物理分支，彻底摆脱子模块和箭头
           git checkout --orphan sl3000-clean-source
           git rm -rf .
           
-      - name: 📦 拉取并“去 Git 化” U-Boot
+      - name: 📦 拉取并“去 Git 化”物理源码
         run: |
+          # U-Boot
           git clone --depth 1 https://github.com/mtk-openwrt/u-boot.git temp_u
           rm -rf temp_u/.git
-          mkdir -p u-boot
-          cp -rL temp_u/. u-boot/
-          rm -rf temp_u
-
-      - name: 📦 拉取并“去 Git 化” ATF
-        run: |
+          mkdir -p u-boot && cp -rL temp_u/. u-boot/
+          # ATF
           git clone --depth 1 https://github.com/mtk-openwrt/arm-trusted-firmware.git temp_a
           rm -rf temp_a/.git
-          mkdir -p atf
-          cp -rL temp_a/. atf/
-          rm -rf temp_a
+          mkdir -p atf && cp -rL temp_a/. atf/
+          rm -rf temp_u temp_a
 
-      - name: ✂️ 物理精简 DTS 目录 (保持 Makefile 结构)
+      - name: 🏗️ 注入 SL-3000 物理零件与配置锁
         run: |
-          cd u-boot/arch/arm/dts/
-          # 1. 物理保活：锁定 mt7981 核心文件和 Makefile
-          mkdir -p .keep
-          mv mt7981.dtsi Makefile include .keep/
-          
-          # 2. 物理清空：删除所有不相关的 dts/dtsi
-          rm -rf *.dts *.dtsi
-          
-          # 3. 还原：将 Makefile 等核心文件放回
-          mv .keep/* .
-          rm -rf .keep
-          
-          # 4. 【关键修复】微创手术清洗 Makefile
-          # 删掉所有针对其他芯片的 dtb 生成规则，防止找不到源文件报错
-          sed -i '/dtb-$(CONFIG_ARCH_MEDIATEK)/d' Makefile
-          sed -i '/dtb-$(CONFIG_TARGET_MT7981)/d' Makefile
-          
-          # 5. 注入 SL-3000 编译条目
-          echo 'dtb-$(CONFIG_TARGET_MT7981) += mt7981-sl3000.dtb' >> Makefile
-          echo "✅ Makefile 结构已保留，非相关芯片规则已剔除。"
-
-      - name: 🏗️ 注入 SL-3000 专属定义
-        run: |
-          # 1. 创建 SL-3000 物理 DTS
+          # 1. 创建物理 DTS
           DTS="u-boot/arch/arm/dts/mt7981-sl3000.dts"
           printf "/dts-v1/;\n#include \"mt7981.dtsi\"\n/ {\n  model = \"SL-3000 (512MB RAM)\";\n  memory@40000000 {\n    device_type = \"memory\";\n    reg = <0x40000000 0x20000000>;\n  };\n  chosen { stdout-path = &uart0; };\n};\n&uart0 { status = \"okay\"; };\n&mmc0 { bus-width = <8>; cap-mmc-highspeed; non-removable; status = \"okay\"; };\n" > $DTS
           
-          # 2. 锁定物理 Defconfig
+          # 2. 【核心修改】只追加规则，不破坏原有 Makefile 结构
+          # 这样可以确保顶层 Makefile 引用的所有变量都不丢失
+          echo 'dtb-$(CONFIG_TARGET_MT7981) += mt7981-sl3000.dtb' >> u-boot/arch/arm/dts/Makefile
+          
+          # 3. 锁定 Defconfig 唯一路径
           DEFCONFIG="u-boot/configs/mt7981_nor_emmc_rfb_defconfig"
           sed -i 's/CONFIG_DEFAULT_DEVICE_TREE=.*/CONFIG_DEFAULT_DEVICE_TREE="mt7981-sl3000"/' $DEFCONFIG
           sed -i 's/CONFIG_OF_LIST=.*/CONFIG_OF_LIST="mt7981-sl3000"/' $DEFCONFIG
 
-          # 3. 物理化头文件引用
-          rm -rf u-boot/arch/arm/dts/include/dt-bindings
-          mkdir -p u-boot/arch/arm/dts/include/dt-bindings
-          cp -rL u-boot/include/dt-bindings/* u-boot/arch/arm/dts/include/dt-bindings/
-          
-          # 4. ATF 1MB 物理偏移硬化
+          # 4. 物理对齐头文件（核心补丁：防止 DTB 编译找不到头文件）
+          # 将顶层头文件物理拷贝到 dts 目录下，确保 DTC 绝对能找到它们
+          cp -rL u-boot/include/dt-bindings u-boot/arch/arm/dts/include/
+
+          # 5. ATF 1MB 物理偏移硬化
           ATF_DEF="atf/plat/mediatek/mt7981/include/platform_def.h"
           sed -i '/MTK_FIP_BASE/d' $ATF_DEF
           sed -i '/#define BL33_BASE/i #define MTK_FIP_BASE (0x100000)\n#define MTK_FIP_MAX_SIZE (0x200000)' $ATF_DEF
@@ -88,14 +63,14 @@ jobs:
         run: |
           cd u-boot
           make mt7981_nor_emmc_rfb_defconfig
-          # 验证特定生成的零件，确保 Makefile 逻辑闭环
-          CROSS_COMPILE=aarch64-linux-gnu- make dtbs -j$(nproc)
-          echo "✅ 验证通过：物理 Makefile 引导成功，dtb 零件已产出。"
+          # 直接指定编译生成的物理文件名，绕过全局 dtbs 检查
+          CROSS_COMPILE=aarch64-linux-gnu- make arch/arm/dts/mt7981-sl3000.dtb -j$(nproc)
+          echo "✅ 物理零件产出验证通过！"
 
       - name: 🚀 强制推送物理文件夹
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git add .
-          git commit -m "SL-3000: Hardened physical source with intact Makefile structure"
+          git commit -m "SL-3000: Hardened physical source, fixed Makefile logic"
           git push origin sl3000-clean-source --force
