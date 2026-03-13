@@ -55,30 +55,34 @@ jobs:
     - name: 5. Update feeds
       run: cd openwrt && ./scripts/feeds update -a
 
-    - name: 6. Install feeds
+    - name: 6. Install feeds (物理锁死第一阶段)
       run: |
         cd openwrt
         ./scripts/feeds install -a
-        # 物理修正：清理 feeds 影子冲突并重置索引缓存
+        # 物理修正：清理 feeds 影子冲突。这是防止 Error 1 (bl2.img 未找到) 的核心
         rm -rf package/feeds/mediatek/arm-trusted-firmware-mediatek
         rm -rf package/feeds/mediatek/uboot-mediatek
+        # 物理重置索引缓存，确保系统重新扫描 package/boot 中的零件模具
         rm -rf tmp
 
-    - name: 7. Load custom configuration
+    - name: 7. Load custom configuration (物理锁死第二阶段)
       run: |
-        # 物理注入 888 零件到对应工地
+        # 1. 物理注入 888 零件到对应工地
         [ -d 888 ] && find openwrt/target/linux/mediatek/ -type d -name "dts" -exec cp -f 888/mt7981-sl-3000-emmc.dts {} \;
         [ -f 888/filogic.mk ] && cp -f 888/filogic.mk openwrt/target/linux/mediatek/image/
         [ -e files ] && mv files openwrt/files
         [ -e $CONFIG_FILE ] && cp -f $CONFIG_FILE openwrt/.config
         
-        # 物理对齐路径执行修改
+        # 2. 物理对齐路径执行修改
         cd openwrt
+        # 再次确认 IP 和主机名
         sed -i 's/192.168.1.1/192.168.10.1/g' package/base-files/files/bin/config_generate
         sed -i 's/ImmortalWrt/SL-3000/g' package/base-files/files/bin/config_generate
+        
+        # 确保注入的 mk 文件拥有物理执行权限
         chmod +x target/linux/mediatek/image/*.mk
         
-        # 延续上一版 P2 执行逻辑
+        # 3. 执行清道夫脚本
         chmod +x $GITHUB_WORKSPACE/$DIY_P2_SH
         $GITHUB_WORKSPACE/$DIY_P2_SH
 
@@ -96,7 +100,8 @@ jobs:
       run: |
         cd openwrt
         echo -e "$(nproc) thread compile"
-        make -j$(nproc) || make -j1 || make -j1 V=s
+        # 物理兜底：优先多线程，失败则转单线程 V=s 暴露错误
+        make -j$(nproc) || make -j1 V=s
         echo "status=success" >> $GITHUB_OUTPUT
         grep '^CONFIG_TARGET.*DEVICE.*=y' .config | sed -r 's/.*DEVICE_(.*)=y/\1/' > DEVICE_NAME
         [ -s DEVICE_NAME ] && echo "DEVICE_NAME=_$(cat DEVICE_NAME)" >> $GITHUB_ENV
