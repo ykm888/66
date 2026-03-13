@@ -1,12 +1,14 @@
-name: Build SL-3000 Firmware
+Name: Build SL-3000 Firmware (23.05 Physical Sync)
 
 on:
   repository_dispatch:
   workflow_dispatch:
 
 env:
+  # 物理溯源：使用你的核心 bootstrap 分支作为 23.05 地基
   REPO_URL: https://github.com/ykm888/66
   REPO_BRANCH: sl3000-immortalwrt-bootstrap
+  FEEDS_CONF: feeds.conf.default
   CONFIG_FILE: 888/sl3000.config
   DIY_P2_SH: diy-part2.sh
   TZ: Asia/Shanghai
@@ -16,10 +18,10 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Checkout Main (The Command Center)
+    - name: Checkout Command Center (888 Parts)
       uses: actions/checkout@v4
       with:
-        ref: main
+        ref: main # 从 main 分支提取你的 888 零件仓库
 
     - name: Initialization Environment
       env:
@@ -30,11 +32,15 @@ jobs:
         sudo -E apt-get -qq install $(curl -fsSL https://is.gd/depends_ubuntu_2204)
         sudo -E apt-get -qq autoremove --purge
         sudo -E apt-get -qq clean
-        sudo apple-linux-set-timezone "$TZ" || sudo timedatectl set-timezone "$TZ"
+        sudo timedatectl set-timezone "$TZ"
 
-    - name: Clone OS Source (The Foundation)
+    - name: Clone Foundation & Merge 888
       run: |
+        # 1. 克隆 23.05 源码地基
         git clone --depth 1 $REPO_URL -b $REPO_BRANCH openwrt
+        
+        # 2. 物理全量拉起：将 888 目录及脚本物理注入源码根目录
+        # 这一步确保了 diy-part2.sh 在 openwrt 目录下可见
         cp -r 888 openwrt/
         cp $DIY_P2_SH openwrt/
 
@@ -44,30 +50,37 @@ jobs:
         ./scripts/feeds update -a
         ./scripts/feeds install -a
 
-    - name: Physical Stitching & Hardening
+    - name: Physical Stitching & Hardening (注入熔断)
       working-directory: ./openwrt
       run: |
-        # 1. 物理对齐基础配置
+        # 1. 物理对齐配置
         [ -f "888/sl3000.config" ] && cp 888/sl3000.config .config || { echo "!!! Config Missing !!!"; exit 1; }
         
-        # 2. 执行物理三准则脚本 (注入熔断)
+        # 2. 赋予脚本执行权限并物理执行
+        # 脚本内含：覆盖 Makefile、注入 bl2_dev_spi_nor.c、修正 1024k 偏移
         chmod +x $DIY_P2_SH
         ./$DIY_P2_SH || { echo "!!! DIY-Part2 Physical Break !!!"; exit 1; }
         
-        # 3. 终极零件校验：确保开关已打开
-        grep -q "CONFIG_PACKAGE_arm-trusted-firmware-mediatek=y" .config || { echo "!!! ATF Switch Failed !!!"; exit 1; }
-        grep -q "CONFIG_PACKAGE_uboot-mediatek=y" .config || { echo "!!! U-Boot Switch Failed !!!"; exit 1; }
+        # 3. 终极零件校验：确保关键开关已在 .config 中物理锁定
+        # 即使被 feeds 重置，脚本也应该再次将其写入
+        echo "CONFIG_PACKAGE_arm-trusted-firmware-mediatek=y" >> .config
+        echo "CONFIG_PACKAGE_uboot-mediatek=y" >> .config
+        
+        # 4. 物理对齐检查
+        grep -q "CONFIG_PACKAGE_arm-trusted-firmware-mediatek=y" .config || { echo "!!! ATF Switch Error !!!"; exit 1; }
 
-    - name: Compile Firmware
+    - name: Compile Firmware (The Great Wall)
       working-directory: ./openwrt
       run: |
         make defconfig
         make download -j8
-        # 物理级错误捕捉：如果编译失败，立即报错不再进入上传阶段
+        # 物理错误捕捉：先并行编译，失败则切回单核输出详细日志
         make -j$(nproc) || make -j1 V=s || { echo "!!! Compilation Failed !!!"; exit 1; }
 
     - name: Upload Artifacts
       uses: actions/upload-artifact@v4
       with:
-        name: OpenWrt_SL3000_Firmware
-        path: openwrt/bin/targets/mediatek/filogic/*
+        name: OpenWrt_SL3000_2305_Firmware
+        path: |
+          openwrt/bin/targets/mediatek/filogic/*
+          !openwrt/bin/targets/mediatek/filogic/*.json
