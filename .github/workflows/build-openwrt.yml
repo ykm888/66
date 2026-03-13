@@ -1,4 +1,4 @@
-name: SL-3000 Ultimate Hardened Build
+name: SL-3000 Final Hardened Build
 
 on:
   workflow_dispatch:
@@ -24,44 +24,45 @@ jobs:
         sudo -E apt-get -qq install build-essential device-tree-compiler qemu-utils rsync swig xxd python3-pyelftools
         sudo timedatectl set-timezone "$TZ"
 
-    - name: 3. 源码与 Feeds 同步
+    - name: 3. 源码与 Feeds 初步同步
       run: |
         git clone $REPO_URL -b $REPO_BRANCH openwrt
         cd openwrt
         ./scripts/feeds update -a
         ./scripts/feeds install -a
 
-    - name: 4. 零件注入与影子抹除
+    - name: 4. 执行物理手术 (注入硬化零件)
       run: |
         cd openwrt
         chmod +x ../$DIY_P2_SH
         ../$DIY_P2_SH
+        # 强制重置索引，确保系统识别到我们注入的本地零件
+        rm -rf tmp
+        ./scripts/feeds update -i
+        ./scripts/feeds install -a
 
-    - name: 5. 加载配置与工具链预热 (解决 Error 2)
+    - name: 5. 工具链预热 (解决 ld-musl Error)
       run: |
         cd openwrt
         [ -f ../$CONFIG_FILE ] && cp -f ../$CONFIG_FILE .config
         make defconfig
-        echo "Starting Toolchain Install... This may take 20 mins."
+        # 物理预热：先产出工具链，否则后续 cp 指令必崩
         make toolchain/install -j$(nproc) || make toolchain/install V=s
 
-    - name: 6. 顺序物理编译 (心脏 -> 大脑 -> 合体)
+    - name: 6. 顺序物理编译
       run: |
         cd openwrt
-        # A. 编译基础库 (防止 ld-musl 拷贝报错)
+        # A. 确保基础库就位
         make package/libs/toolchain/compile V=s -j1 || true
-        
-        # B. 编译硬化 ATF (1MB 偏移对齐)
+        # B. 产出硬化 ATF (心脏)
         make package/boot/arm-trusted-firmware-mediatek/compile V=s -j1
-        
-        # C. 编译硬化 U-Boot (SL-3000 DTS)
+        # C. 产出硬化 U-Boot (大脑)
         make package/boot/uboot-mediatek/compile V=s -j1
-        
-        # D. 全量合成镜像
+        # D. 全量合成 (32MB 救砖包)
         make -j$(nproc) || make -j1 V=s
 
-    - name: 7. 上传救砖全家桶
+    - name: 7. 上传产物
       uses: actions/upload-artifact@v4
       with:
-        name: SL3000_Gold_Firmware
-        path: openwrt/bin/targets/mediatek/filogic/*
+        name: SL3000_Gold_Build
+        path: openwrt/bin/targets/mediatek/filogic/
