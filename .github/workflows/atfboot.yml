@@ -1,0 +1,46 @@
+name: Sync MTK Sources
+
+on:
+  workflow_dispatch: # 手动触发执行
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Your Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Configure Git
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Create New Branch and Directories
+        run: |
+          # 创建并切换到新分支（例如 sl3000-source）
+          git checkout -b sl3000-source
+          mkdir -p u-boot
+          mkdir -p ATF
+
+      - name: Clone MTK U-Boot
+        run: |
+          git clone --depth 1 https://github.com/mtk-openwrt/u-boot.git temp-uboot
+          # 移动内容到 u-boot 目录（排除 .git 以免冲突）
+          cp -r temp-uboot/. u-boot/
+          rm -rf temp-uboot
+
+      - name: Clone MTK ATF
+        run: |
+          git clone --depth 1 https://github.com/mtk-openwrt/arm-trusted-firmware.git temp-atf
+          # 移动内容到 ATF 目录
+          cp -r temp-atf/. ATF/
+          rm -rf temp-atf
+
+      - name: Commit and Push
+        run: |
+          git add u-boot/ ATF/
+          git commit -m "Sync: MTK official U-Boot and ATF sources for SL-3000"
+          # 强制推送新分支到你的远程仓库
+          git push origin sl3000-source --force
