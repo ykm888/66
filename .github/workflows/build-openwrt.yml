@@ -15,7 +15,7 @@ jobs:
     runs-on: ubuntu-22.04
 
     steps:
-    - name: 1. 环境初始化
+    - name: 1. 物理环境初始化
       uses: actions/checkout@v4
 
     - name: 2. 安装物理依赖
@@ -36,33 +36,48 @@ jobs:
         cd openwrt
         chmod +x ../$DIY_P2_SH
         ../$DIY_P2_SH
-        # 强制重置索引，确保系统识别到我们注入的本地零件
+        # 核心物理动作：重置索引，确保系统识别到手动注入的本地零件
         rm -rf tmp
         ./scripts/feeds update -i
         ./scripts/feeds install -a
 
-    - name: 5. 工具链预热 (解决 ld-musl Error)
+    - name: 5. 锁定配置与工具链预热 (关键修复)
       run: |
         cd openwrt
         [ -f ../$CONFIG_FILE ] && cp -f ../$CONFIG_FILE .config
         make defconfig
-        # 物理预热：先产出工具链，否则后续 cp 指令必崩
+        # 物理预热：先产出工具链，彻底解决 ld-musl 找不到的 Error 2
+        echo "Starting Toolchain Install... Expect 15-20 mins."
         make toolchain/install -j$(nproc) || make toolchain/install V=s
 
-    - name: 6. 顺序物理编译
+    - name: 6. 顺序物理编译 (分步硬化)
       run: |
         cd openwrt
-        # A. 确保基础库就位
+        # A. 确保基础库拷贝不再报错
         make package/libs/toolchain/compile V=s -j1 || true
-        # B. 产出硬化 ATF (心脏)
+        
+        # B. 产出硬化 ATF (心脏 - 1MB 偏移)
         make package/boot/arm-trusted-firmware-mediatek/compile V=s -j1
-        # C. 产出硬化 U-Boot (大脑)
+        
+        # C. 产出硬化 U-Boot (大脑 - SL3000 DTS)
         make package/boot/uboot-mediatek/compile V=s -j1
+        
         # D. 全量合成 (32MB 救砖包)
         make -j$(nproc) || make -j1 V=s
 
-    - name: 7. 上传产物
+    - name: 7. 物理自检与产物搜集
+      run: |
+        cd openwrt/bin/targets/mediatek/filogic/
+        # 检查 FIP 大小，确保 1MB 偏移逻辑生效
+        FIP_SIZE=$(stat -c%s *fip.bin)
+        echo "FIP Physical Size: $FIP_SIZE bytes"
+        mkdir -p RECOVERY_PACK
+        cp *nor-programmer-dump.bin RECOVERY_PACK/ 2>/dev/null || true
+        cp *fip.bin RECOVERY_PACK/ 2>/dev/null || true
+        cp *bl2.img RECOVERY_PACK/ 2>/dev/null || true
+
+    - name: 8. 上传全家桶
       uses: actions/upload-artifact@v4
       with:
-        name: SL3000_Gold_Build
-        path: openwrt/bin/targets/mediatek/filogic/
+        name: SL3000_Recovery_Pack
+        path: openwrt/bin/targets/mediatek/filogic/RECOVERY_PACK/
