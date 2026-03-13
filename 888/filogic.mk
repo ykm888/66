@@ -1,6 +1,6 @@
 #
 # Copyright (C) 2024-2026 ykm888
-# 物理修复 3 版：智能路径搜寻，物理合成 32MB NOR + GPT eMMC 固件
+# 物理修复 4 版：增强型物理路径搜寻，解决 bl2.img 缺失导致的 Error 1
 #
 
 # --- 1. 定义 GPT eMMC 分区布局 (物理对齐 128M 起始 RootFS) ---
@@ -12,7 +12,7 @@ define Build/mt798x-gpt-emmc-production
 		-t 0x83 -N production -p $(CONFIG_TARGET_ROOTFS_PARTSIZE)M@128M
 endef
 
-# --- 2. 定义 32MB NOR 救砖合成逻辑 (3版：物理容错搜寻) ---
+# --- 2. 定义 32MB NOR 救砖合成逻辑 (4版：物理增强搜寻) ---
 define Build/sl3000-nor-bundle
 	rm -f $@.nor
 	touch $@.nor
@@ -20,20 +20,25 @@ define Build/sl3000-nor-bundle
 	truncate -s 32M $@.nor
 	
 	# [物理零件 A]: 智能搜寻 ATF 零件 (bl2.img)
-	# 检查优先级：1. Makefile 强行拷贝的 bl2.img  2. 带变体名前缀的零件
+	# 物理优先级：1. Staging Image 2. KDIR (工地直取) 3. TFA_PART 变体名
 	BL2_FILE=""; \
 	[ -f "$(STAGING_DIR_IMAGE)/bl2.img" ] && BL2_FILE="$(STAGING_DIR_IMAGE)/bl2.img"; \
+	[ -z "$$BL2_FILE" -a -f "$(KDIR)/bl2.img" ] && BL2_FILE="$(KDIR)/bl2.img"; \
 	[ -z "$$BL2_FILE" -a -f "$(STAGING_DIR_IMAGE)/$(TFA_PART)-bl2.bin" ] && BL2_FILE="$(STAGING_DIR_IMAGE)/$(TFA_PART)-bl2.bin"; \
+	[ -z "$$BL2_FILE" -a -f "$(KDIR)/$(TFA_PART)-bl2.bin" ] && BL2_FILE="$(KDIR)/$(TFA_PART)-bl2.bin"; \
 	if [ -n "$$BL2_FILE" ]; then \
 		echo "Physical Found BL2: $$BL2_FILE"; \
 		dd if=$$BL2_FILE of=$@.nor bs=1k conv=notrunc; \
 	else \
-		echo "!!! ERROR: bl2.img 未找到，物理零件缺失 !!!"; exit 1; \
+		echo "!!! ERROR: bl2.img 未找到，物理零件缺失 !!!"; \
+		echo "Searching in KDIR: $(KDIR)"; ls -l $(KDIR)/*.bin || true; \
+		exit 1; \
 	fi; \
 	
 	# [物理零件 B]: 智能搜寻 U-Boot 零件 (u-boot.bin)
 	UBOOT_FILE=""; \
 	[ -f "$(STAGING_DIR_IMAGE)/$(TFA_PART)-u-boot.bin" ] && UBOOT_FILE="$(STAGING_DIR_IMAGE)/$(TFA_PART)-u-boot.bin"; \
+	[ -z "$$UBOOT_FILE" -a -f "$(KDIR)/$(TFA_PART)-u-boot.bin" ] && UBOOT_FILE="$(KDIR)/$(TFA_PART)-u-boot.bin"; \
 	[ -z "$$UBOOT_FILE" -a -f "$(STAGING_DIR_IMAGE)/u-boot.bin" ] && UBOOT_FILE="$(STAGING_DIR_IMAGE)/u-boot.bin"; \
 	if [ -n "$$UBOOT_FILE" ]; then \
 		echo "Physical Found U-Boot: $$UBOOT_FILE"; \
