@@ -1,77 +1,79 @@
-name: SL-3000 Final Hardened Build
+name: Build SL-3000 Firmware
 
 on:
+  repository_dispatch:
   workflow_dispatch:
 
 env:
   REPO_URL: https://github.com/ykm888/66
   REPO_BRANCH: sl3000-immortalwrt-bootstrap
   CONFIG_FILE: 888/sl3000.config
+  DIY_P1_SH: diy-part1.sh
   DIY_P2_SH: diy-part2.sh
   TZ: Asia/Shanghai
 
 jobs:
   build:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
 
     steps:
-    - name: 1. 物理环境初始化
+    - name: Checkout Main (The Command Center)
       uses: actions/checkout@v4
+      with:
+        ref: main # 首先获取指挥部的文件（888目录和脚本）
 
-    - name: 2. 安装系统依赖
+    - name: Initialization Environment
+      env:
+        DEBIAN_FRONTEND: noninteractive
       run: |
+        sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc
         sudo -E apt-get -qq update
-        sudo -E apt-get -qq install build-essential device-tree-compiler qemu-utils rsync swig xxd python3-pyelftools
+        sudo -E apt-get -qq install $(curl -fsSL https://is.gd/depends_ubuntu_2204)
+        sudo -E apt-get -qq autoremove --purge
+        sudo -E apt-get -qq clean
         sudo timedatectl set-timezone "$TZ"
 
-    - name: 3. 源码与 Feeds 初步同步
+    - name: Clone OS Source (The Foundation)
       run: |
-        git clone $REPO_URL -b $REPO_BRANCH openwrt
-        cd openwrt
+        git clone --depth 1 $REPO_URL -b $REPO_BRANCH openwrt
+        # 将 main 分支的 888 目录和脚本移动到工作目录
+        cp -r 888 openwrt/
+        cp $DIY_P1_SH openwrt/
+        cp $DIY_P2_SH openwrt/
+
+    - name: Load Custom Feeds & Scripts
+      working-directory: ./openwrt
+      run: |
+        chmod +x $DIY_P1_SH
+        ./$DIY_P1_SH
         ./scripts/feeds update -a
         ./scripts/feeds install -a
 
-    - name: 4. 执行物理手术与路径自检
+    - name: Load Configuration & Physical Stitching
+      working-directory: ./openwrt
       run: |
-        cd openwrt
-        chmod +x ../$DIY_P2_SH
-        ../$DIY_P2_SH
-        
-        echo "================ 物理路径调试自检 ================"
-        ls -R package/boot/
-        echo "================================================"
-        
-        # 强制重置索引，确保系统识别到手动注入的本地零件
-        rm -rf tmp
-        ./scripts/feeds update -i
-        ./scripts/feeds install -a
+        # 注入 .config
+        cp 888/sl3000.config .config
+        # 执行物理缝合脚本 (解决 Error 2 的关键)
+        chmod +x $DIY_P2_SH
+        ./$DIY_P2_SH
 
-    - name: 5. 工具链物理预热
+    - name: Download Packages
+      working-directory: ./openwrt
       run: |
-        cd openwrt
-        [ -f ../$CONFIG_FILE ] && cp -f ../$CONFIG_FILE .config
         make defconfig
-        make toolchain/install -j$(nproc) || make toolchain/install V=s
+        make download -j8
+        find dl -size -1024c -exec ls -l {} \;
+        find dl -size -1024c -exec rm -f {} \;
 
-    - name: 6. 顺序物理编译 (1MB 偏移对齐)
+    - name: Compile Firmware
+      working-directory: ./openwrt
       run: |
-        cd openwrt
-        # 按序编译，确保依赖链完整
-        make package/libs/toolchain/compile V=s -j1 || true
-        make package/boot/arm-trusted-firmware-mediatek/compile V=s -j1
-        make package/boot/uboot-mediatek/compile V=s -j1
-        make -j$(nproc) || make -j1 V=s
+        echo -e "$(nproc) thread compile"
+        make -j$(nproc) || make -j1 || make -j1 V=s
 
-    - name: 7. 产物物理搜集
-      run: |
-        cd openwrt/bin/targets/mediatek/filogic/
-        mkdir -p RECOVERY_PACK
-        cp *fip.bin RECOVERY_PACK/ 2>/dev/null || true
-        cp *bl2.img RECOVERY_PACK/ 2>/dev/null || true
-        cp *nor-programmer-dump.bin RECOVERY_PACK/ 2>/dev/null || true
-
-    - name: 8. 上传全家桶
+    - name: Upload Artifacts
       uses: actions/upload-artifact@v4
       with:
-        name: SL3000_Recovery_Pack
-        path: openwrt/bin/targets/mediatek/filogic/RECOVERY_PACK/
+        name: OpenWrt_SL3000_Firmware
+        path: openwrt/bin/targets/mediatek/filogic/*
