@@ -1,17 +1,19 @@
-name: Fix Submodule Arrows
+name: Auto-Adapt and Sync SL-3000 Source
 
 on:
   workflow_dispatch:
 
 jobs:
-  fix-and-sync:
+  adapt-and-push:
     runs-on: ubuntu-latest
     permissions:
       contents: write
 
     steps:
-      - name: Checkout Repository
+      - name: Checkout Your Repo
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Configure Git
         run: |
@@ -20,39 +22,46 @@ jobs:
 
       - name: Prepare Clean Branch
         run: |
-          # 建立一个孤立分支，清除所有历史索引
           git checkout --orphan sl3000-official-source
           git rm -rf .
           mkdir -p u-boot ATF
 
-      - name: Clone and REMOVE .GIT (Crucial)
+      - name: Clone Official Sources (Strip .git)
         run: |
-          # 克隆 U-Boot 并立即删除它的 .git 目录
+          # 克隆并剥离 Git 属性，确保上传的是真实文件
           git clone --depth 1 https://github.com/mtk-openwrt/u-boot.git temp_u
-          rm -rf temp_u/.git
-          cp -r temp_u/. u-boot/
+          rm -rf temp_u/.git && cp -r temp_u/. u-boot/
           
-          # 克隆 ATF 并立即删除它的 .git 目录
           git clone --depth 1 https://github.com/mtk-openwrt/arm-trusted-firmware.git temp_a
-          rm -rf temp_a/.git
-          cp -r temp_a/. ATF/
+          rm -rf temp_a/.git && cp -r temp_a/. ATF/
           
           rm -rf temp_u temp_a
 
-      - name: Apply SL-3000 Fixes
+      - name: 🛠️ Auto-Fix ATF (Physical Alignment)
         run: |
-          # 物理修复：ATF 偏移 (1MB)
-          sed -i '/#define BL33_BASE/a \\n#define MTK_FIP_BASE (0x100000)\n#define MTK_FIP_MAX_SIZE (0x200000)' ATF/plat/mediatek/mt7981/include/platform_def.h
-          # 物理修复：内存定义 (512MB)
-          if [ -f "u-boot/include/configs/mt7981.h" ]; then
-            sed -i 's/0x10000000/0x20000000/g' u-boot/include/configs/mt7981.h
+          # 1. 自动注入 1MB FIP 偏移地址
+          # 在 platform_def.h 中 BL33_BASE 之后插入 SL-3000 专属偏移
+          ATF_DEF="ATF/plat/mediatek/mt7981/include/platform_def.h"
+          sed -i '/#define BL33_BASE/a \\n/* --- SL-3000 AUTO FIX START --- */\n#define MTK_FIP_BASE (0x100000)\n#define MTK_FIP_MAX_SIZE (0x200000)\n/* --- SL-3000 AUTO FIX END --- */' $ATF_DEF
+
+      - name: 🛠️ Auto-Fix U-Boot (DRAM & Environment)
+        run: |
+          # 2. 自动修改内存定义从 256MB 到 512MB
+          UBOOT_H="u-boot/include/configs/mt7981.h"
+          if [ -f "$UBOOT_H" ]; then
+            sed -i 's/0x10000000/0x20000000/g' $UBOOT_H
+          fi
+          
+          # 3. 自动注入 EMMC 引导指令 (防止开机卡在命令行)
+          # 在 CONFIG_EXTRA_ENV_SETTINGS 前插入
+          if grep -q "CONFIG_BOOTCOMMAND" $UBOOT_H; then
+             sed -i 's/CONFIG_BOOTCOMMAND.*/CONFIG_BOOTCOMMAND "mmc dev 0; gpt read mmc 0 0x46000000 rootfs; bootm 0x46000000"/' $UBOOT_H
           fi
 
-      - name: Force Push Real Files
+      - name: Force Push Adapted Source
         run: |
-          # 强制清除 Git 缓存中关于 ATF/u-boot 的子模块记录
-          git rm -r --cached u-boot ATF || echo "Already clean"
+          # 清除旧的“小箭头”索引缓存
+          git rm -r --cached u-boot ATF || echo "Clean cache"
           git add .
-          git commit -m "Fix: Replace submodules with real source files"
-          # 推送到远程，彻底覆盖旧的“箭头”记录
+          git commit -m "Automated Sync & SL-3000 Physical Adaptation"
           git push origin sl3000-official-source --force
