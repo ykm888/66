@@ -25,55 +25,52 @@ jobs:
           
       - name: 📦 拉取并“去 Git 化”物理源码
         run: |
-          # U-Boot
           git clone --depth 1 https://github.com/mtk-openwrt/u-boot.git temp_u
           rm -rf temp_u/.git
           mkdir -p u-boot && cp -rL temp_u/. u-boot/
-          # ATF
           git clone --depth 1 https://github.com/mtk-openwrt/arm-trusted-firmware.git temp_a
           rm -rf temp_a/.git
           mkdir -p atf && cp -rL temp_a/. atf/
           rm -rf temp_u temp_a
 
-      - name: 🏗️ 注入 SL-3000 物理零件与 Makefile 逻辑硬化
+      - name: 🏗️ 注入 SL-3000 物理零件与 Makefile 强制硬化
         run: |
           # 1. 创建物理 DTS
           DTS="u-boot/arch/arm/dts/mt7981-sl3000.dts"
           printf "/dts-v1/;\n#include \"mt7981.dtsi\"\n/ {\n  model = \"SL-3000 (512MB RAM)\";\n  memory@40000000 {\n    device_type = \"memory\";\n    reg = <0x40000000 0x20000000>;\n  };\n  chosen { stdout-path = &uart0; };\n};\n&uart0 { status = \"okay\"; };\n&mmc0 { bus-width = <8>; cap-mmc-highspeed; non-removable; status = \"okay\"; };\n" > $DTS
           
-          # 2. 【像素级修复】精确锚点插入规则
-          # 找到 mt7981 相关定义的行，并在其后物理插入 SL-3000 目标，确保处于正确的 CONFIG 作用域内
+          # 2. 【物理硬化：暴力注入】
+          # 我们不再寻找锚点，直接在 Makefile 文件的开头第一行强行插入编译规则
+          # 这样无论 config 怎么变，这个 dtb 都会被加入编译列表
           DTS_MAKEFILE="u-boot/arch/arm/dts/Makefile"
-          sed -i '/dtb-$(CONFIG_TARGET_MT7981)/a dtb-$(CONFIG_TARGET_MT7981) += mt7981-sl3000.dtb' $DTS_MAKEFILE
+          sed -i '1i dtb-y += mt7981-sl3000.dtb' $DTS_MAKEFILE
           
-          # 3. 锁定 Defconfig 唯一路径
+          # 3. 锁定 Defconfig 配置
           DEFCONFIG="u-boot/configs/mt7981_nor_emmc_rfb_defconfig"
           sed -i 's/CONFIG_DEFAULT_DEVICE_TREE=.*/CONFIG_DEFAULT_DEVICE_TREE="mt7981-sl3000"/' $DEFCONFIG
           sed -i 's/CONFIG_OF_LIST=.*/CONFIG_OF_LIST="mt7981-sl3000"/' $DEFCONFIG
 
-          # 4. 物理补齐头文件链路 (关键：防止 DTC 找不到 dt-bindings)
-          # 将顶层头文件物理拷贝到 arch/arm/dts/include，建立物理直连
+          # 4. 物理头文件链路补齐
           mkdir -p u-boot/arch/arm/dts/include
           cp -rL u-boot/include/dt-bindings u-boot/arch/arm/dts/include/
 
-          # 5. ATF 1MB 物理偏移硬化 (物理闭环)
+          # 5. ATF 1MB 偏移硬化
           ATF_DEF="atf/plat/mediatek/mt7981/include/platform_def.h"
           sed -i '/MTK_FIP_BASE/d' $ATF_DEF
           sed -i '/#define BL33_BASE/i #define MTK_FIP_BASE (0x100000)\n#define MTK_FIP_MAX_SIZE (0x200000)' $ATF_DEF
 
-      - name: 🔍 最终物理验证 (SL-3000 专项测试)
+      - name: 🔍 最终物理验证
         run: |
           cd u-boot
-          # 物理刷新配置
           make mt7981_nor_emmc_rfb_defconfig
-          # 执行物理编译。V=s 暴露细节，直接指定目标路径确保 Makefile 规则命中
-          CROSS_COMPILE=aarch64-linux-gnu- make arch/arm/dts/mt7981-sl3000.dtb V=s -j$(nproc)
-          echo "✅ 物理零件产出验证通过！"
+          # 直接物理调用构建目标，-j1 方便查错
+          CROSS_COMPILE=aarch64-linux-gnu- make arch/arm/dts/mt7981-sl3000.dtb V=s
+          echo "✅ 验证通过：SL-3000 零件物理产出成功！"
 
       - name: 🚀 强制推送物理文件夹
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git add .
-          git commit -m "SL-3000: Complete Hardening of physical source and Makefile"
+          git commit -m "SL-3000: Ultimate Hardened Physical Source"
           git push origin sl3000-clean-source --force
