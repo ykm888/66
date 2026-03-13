@@ -1,10 +1,10 @@
-name: Ultimate Stable SL-3000 Sync
+name: Auto-Create and Sync SL-3000
 
 on:
   workflow_dispatch:
 
 jobs:
-  adapt-and-sync:
+  build:
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -24,7 +24,7 @@ jobs:
           git rm -rf .
           mkdir -p u-boot ATF
 
-      - name: Clone and Strip Git
+      - name: Clone Official Sources
         run: |
           git clone --depth 1 https://github.com/mtk-openwrt/u-boot.git temp_u
           rm -rf temp_u/.git && cp -r temp_u/. u-boot/
@@ -32,46 +32,52 @@ jobs:
           rm -rf temp_a/.git && cp -r temp_a/. ATF/
           rm -rf temp_u temp_a
 
-      - name: 🛠️ Create DTS (Using printf - No EOF)
+      - name: 🛡️ MT7981 物理保底逻辑
         run: |
-          # 物理创建 mt7981-sl3000.dts，避开 EOF
+          DTS_DIR="u-boot/arch/arm/dts"
+          
+          # 1. 自动筛选并清理：只保留核心头文件，删除其他厂商无关文件
+          mkdir -p ./dts_backup
+          [ -d "$DTS_DIR/include" ] && cp -r $DTS_DIR/include ./dts_backup/
+          [ -d "$DTS_DIR/dt-bindings" ] && cp -r $DTS_DIR/dt-bindings ./dts_backup/
+          cp $DTS_DIR/Makefile ./dts_backup/
+          
+          # 2. 检查 mt7981.dtsi 是否存在，如果不存在则自动创建一个“基础地基”
+          if [ ! -f "$DTS_DIR/mt7981.dtsi" ]; then
+            printf "/* MT7981 Base Hardware Definition Auto-Generated */\n/ {\n  compatible = \"mediatek,mt7981\";\n  #address-cells = <1>;\n  #size-cells = <1>;\n};\n" > ./dts_backup/mt7981.dtsi
+          else
+            cp $DTS_DIR/mt7981.dtsi ./dts_backup/
+          fi
+          
+          # 3. 物理清空并还原精简后的目录
+          rm -rf $DTS_DIR/*
+          cp -r ./dts_backup/* $DTS_DIR/
+          rm -rf ./dts_backup
+
+      - name: 🛠️ 自动创建 SL-3000 专属文件
+        run: |
+          # 1. 创建 SL-3000 设备树 (printf 确保稳定性)
           DTS_FILE="u-boot/arch/arm/dts/mt7981-sl3000.dts"
-          printf "/dts-v1/;\n" > $DTS_FILE
-          printf "/ {\n" >> $DTS_FILE
-          printf "  #address-cells = <1>;\n" >> $DTS_FILE
-          printf "  #size-cells = <1>;\n" >> $DTS_FILE
-          printf "  model = \"SL-3000 (NOR+EMMC)\";\n" >> $DTS_FILE
+          printf "/dts-v1/;\n#include \"mt7981.dtsi\"\n" > $DTS_FILE
+          printf "/ {\n  model = \"SL-3000 (NOR+EMMC)\";\n" >> $DTS_FILE
           printf "  compatible = \"mediatek,mt7981\";\n" >> $DTS_FILE
-          printf "  chosen { stdout-path = &uart0; };\n" >> $DTS_FILE
           printf "  memory@40000000 { device_type = \"memory\"; reg = <0x40000000 0x20000000>; };\n" >> $DTS_FILE
-          printf "  soc {\n" >> $DTS_FILE
-          printf "    compatible = \"simple-bus\";\n" >> $DTS_FILE
-          printf "    #address-cells = <1>;\n" >> $DTS_FILE
-          printf "    #size-cells = <1>;\n" >> $DTS_FILE
-          printf "    ranges;\n" >> $DTS_FILE
-          printf "    uart0: serial@11002000 { compatible = \"mediatek,hsuart\"; reg = <0x11002000 0x400>; reg-shift = <2>; status = \"okay\"; };\n" >> $DTS_FILE
-          printf "    mmc0: mmc@11230000 { compatible = \"mediatek,mt7981-mmc\"; reg = <0x11230000 0x1000\"; bus-width = <8>; cap-mmc-highspeed; status = \"okay\"; };\n" >> $DTS_FILE
-          printf "  };\n" >> $DTS_FILE
           printf "};\n" >> $DTS_FILE
 
-          # 在 Makefile 注册该文件
+          # 2. 强制在 Makefile 中注册编译目标
+          sed -i '/dtb-$(CONFIG_TARGET_MT7981)/d' u-boot/arch/arm/dts/Makefile
           echo "dtb-\$(CONFIG_TARGET_MT7981) += mt7981-sl3000.dtb" >> u-boot/arch/arm/dts/Makefile
 
-      - name: 🛠️ Auto-Fix ATF & U-Boot (Using sed)
+      - name: 🛠️ 自动适配 ATF 和 U-Boot 参数
         run: |
-          # 1. ATF 物理偏移修复 (1MB)
-          ATF_DEF="ATF/plat/mediatek/mt7981/include/platform_def.h"
-          sed -i '/#define BL33_BASE/a #define MTK_FIP_BASE (0x100000)\n#define MTK_FIP_MAX_SIZE (0x200000)' $ATF_DEF
-          
-          # 2. U-Boot 物理内存修复 (512MB)
-          UBOOT_H="u-boot/include/configs/mt7981.h"
-          if [ -f "$UBOOT_H" ]; then
-            sed -i 's/0x10000000/0x20000000/g' $UBOOT_H
-          fi
+          # 修复 ATF 1MB FIP 偏移
+          sed -i '/#define BL33_BASE/a #define MTK_FIP_BASE (0x100000)\n#define MTK_FIP_MAX_SIZE (0x200000)' ATF/plat/mediatek/mt7981/include/platform_def.h
+          # 修复 U-Boot 512MB 内存识别
+          [ -f "u-boot/include/configs/mt7981.h" ] && sed -i 's/0x10000000/0x20000000/g' u-boot/include/configs/mt7981.h
 
-      - name: Force Push Adapted Source
+      - name: Force Push
         run: |
-          git rm -r --cached u-boot ATF || echo "Already Clean"
+          git rm -r --cached u-boot ATF || echo "Clean"
           git add .
-          git commit -m "Auto-Sync & Fixed SL-3000 Source (Standard IO)"
+          git commit -m "Auto-Created and Adapted SL-3000 Environment"
           git push origin sl3000-official-source --force
