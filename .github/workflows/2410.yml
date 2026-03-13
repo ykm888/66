@@ -1,4 +1,4 @@
-name: Physical Sync to 2410 Branch
+name: Custom Source Physical Sync
 
 on:
   workflow_dispatch:
@@ -7,30 +7,40 @@ jobs:
   sync:
     runs-on: ubuntu-latest
     steps:
-    - name: Checkout Target
+    - name: Checkout Your Custom Files
       uses: actions/checkout@v4
       with:
-        fetch-depth: 0
+        ref: main # 从 main 分支提取你的 888 零件
 
-    - name: Physical Core Sync
+    - name: Physical Backup Customization
+      run: |
+        mkdir -p /tmp/custom_parts
+        cp -r 888 /tmp/custom_parts/
+        cp diy-part2.sh /tmp/custom_parts/
+
+    - name: Physical Core Sync (24.10 Foundation)
       run: |
         git config --global user.email "action@github.com"
         git config --global user.name "GitHub Action"
         
-        # 1. 物理溯源：重新对齐远程源
+        # 1. 物理溯源并拉取
         git remote add upstream https://github.com/OpenWrt01/immortalwrt-mt798x-24.10.git || true
+        git fetch upstream 2410
         
-        # 2. 物理探测：列出远程所有分支，防止盲目拉取
-        echo "Scanning remote branches..."
-        git ls-remote --heads upstream
-        
-        # 3. 物理切除并更正：根据溯源结果，使用匹配的物理分支 (mt798x-24.10 或 master)
-        # 尝试拉取该仓库目前实际存在的开发分支
-        git fetch upstream openwrt-24.10 || git fetch upstream master || { echo "!!! Source Branch Not Found !!!"; exit 1; }
-        
-        # 4. 物理分支强制覆盖
+        # 2. 强制切换至 2410 分支地基
         git checkout -B 2410 FETCH_HEAD
+
+    - name: Physical Injection (Customization)
+      run: |
+        # 3. 物理缝合：将零件压入 24.10 源码
+        cp -rf /tmp/custom_parts/888 .
+        cp -f /tmp/custom_parts/diy-part2.sh .
         
-        # 5. 物理对齐校验
-        [ -f "Makefile" ] || { echo "!!! Integrity Check Failed !!!"; exit 1; }
+        # 4. 物理对齐校验
+        [ -d "888" ] && [ -f "diy-part2.sh" ] || { echo "!!! Injection Failed !!!"; exit 1; }
+
+    - name: Push To Your 2410 Branch
+      run: |
+        git add .
+        git commit -m "Build(Custom): Physically integrated 24.10 source with 888-hardened parts"
         git push -f origin 2410
