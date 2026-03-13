@@ -1,0 +1,40 @@
+#
+# Copyright (C) 2021-2026 ykm888
+#
+
+include $(TOPDIR)/rules.mk
+include $(INCLUDE_DIR)/kernel.mk
+
+PKG_NAME:=uboot-mediatek
+PKG_RELEASE:=1
+
+# --- 物理执行准则：切换至你的专属全量源码库 ---
+PKG_SOURCE_PROTO:=git
+PKG_SOURCE_URL:=https://github.com/ykm888/66.git
+PKG_SOURCE_VERSION:=sl3000-clean-source
+PKG_MIRROR_HASH:=skip
+
+include $(INCLUDE_DIR)/u-boot.mk
+include $(INCLUDE_DIR)/package.mk
+include $(INCLUDE_DIR)/host-build.mk
+
+define U-Boot/Default
+  BUILD_TARGET:=mediatek
+  UBOOT_IMAGE:=u-boot.fip
+  HIDDEN:=1
+endef
+
+define U-Boot/mt7981_sl3000_nor
+  NAME:=SL-3000 (SPI-NOR)
+  BUILD_SUBTARGET:=filogic
+  UBOOT_CONFIG:=mt7981_sl3000_nor
+  UBOOT_IMAGE:=u-boot.fip
+  BL2_BOOTDEV:=nor
+  BL2_SOC:=mt7981
+  BL2_DDRTYPE:=ddr4
+  DEPENDS:=+trusted-firmware-a-mt7981-nor-ddr4
+endef
+
+UBOOT_TARGETS:= mt7981_sl3000_nor
+
+$(eval $(call BuildPackage,u-boot))
