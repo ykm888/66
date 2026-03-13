@@ -1,44 +1,29 @@
 #!/bin/bash
-# SL-3000 物理硬化脚本 - 最终校准版
+# SL-3000 物理硬化脚本 - 路径自检版
 
-# 1. 物理环境初始化
+# 1. IP 与 主机名修改
 sed -i 's/192.168.1.1/192.168.10.1/g' package/base-files/files/bin/config_generate
 sed -i 's/ImmortalWrt/SL-3000/g' package/base-files/files/bin/config_generate
 
-# 2. 跨分支搬运硬化源码 (sl3000-clean-source)
-echo "Physical Surgery: Cloning hardening sources..."
-git clone -b sl3000-clean-source --depth 1 https://github.com/ykm888/66.git hardening_src
+# 2. 物理建立包外壳 (彻底解决 Warning 与 Error 2)
+# 我们先卸载，再建立本地物理目录
+./scripts/feeds uninstall arm-trusted-firmware-mediatek uboot-mediatek
+rm -rf package/boot/arm-trusted-firmware-mediatek
+rm -rf package/boot/uboot-mediatek
 
-# 3. 建立包外壳 (预防 Dependency Error)
 mkdir -p package/boot/arm-trusted-firmware-mediatek
 mkdir -p package/boot/uboot-mediatek
 
-# 4. 物理抢救 Makefile 并强制本地化
-# 只有保留 Makefile，系统才会承认这个包存在
-if [ -d feeds/mediatek/arm-trusted-firmware-mediatek ]; then
-    cp -rf feeds/mediatek/arm-trusted-firmware-mediatek/Makefile package/boot/arm-trusted-firmware-mediatek/
-    sed -i 's/PKG_SOURCE_URL:=.*/PKG_SOURCE_URL:=./g' package/boot/arm-trusted-firmware-mediatek/Makefile
-fi
+# 3. 物理注入你修复好的黄金 Makefile
+# 注意：确保你的 888 目录下有这两个文件
+[ -f ../888/atf-makefile ] && cp -f ../888/atf-makefile package/boot/arm-trusted-firmware-mediatek/Makefile
+[ -f ../888/uboot-makefile ] && cp -f ../888/uboot-makefile package/boot/uboot-mediatek/Makefile
 
-if [ -d feeds/mediatek/uboot-mediatek ]; then
-    cp -rf feeds/mediatek/uboot-mediatek/Makefile package/boot/uboot-mediatek/
-    sed -i 's/PKG_SOURCE_URL:=.*/PKG_SOURCE_URL:=./g' package/boot/uboot-mediatek/Makefile
-fi
-
-# 5. 注入硬化源码到物理路径
-cp -rf hardening_src/atf/* package/boot/arm-trusted-firmware-mediatek/
-cp -rf hardening_src/u-boot/* package/boot/uboot-mediatek/
-
-# 6. 物理清场
-echo "Physical Surgery: Purging shadow feeds..."
-./scripts/feeds uninstall arm-trusted-firmware-mediatek uboot-mediatek
-
-# 7. 物理注入 888 核心定义
+# 4. 物理注入核心 DTS 和 MK
 [ -d ../888 ] && find target/linux/mediatek/ -type d -name "dts" -exec cp -f ../888/mt7981-sl-3000-emmc.dts {} \;
 [ -f ../888/filogic.mk ] && cp -f ../888/filogic.mk target/linux/mediatek/image/
 
-# 8. 兼容性补丁
+# 5. 抹除编译警告限制
 find package/ -name "Makefile" -exec sed -i 's/-Werror//g' {} +
 
-rm -rf hardening_src
 echo "Physical Surgery: Surgery completed."
