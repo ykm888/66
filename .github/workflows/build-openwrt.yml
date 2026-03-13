@@ -1,4 +1,4 @@
-Name: Build SL-3000 Firmware
+name: Build SL-3000 Firmware
 
 on:
   repository_dispatch:
