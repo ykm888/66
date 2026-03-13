@@ -16,8 +16,21 @@ jobs:
       run: |
         git config --global user.email "action@github.com"
         git config --global user.name "GitHub Action"
+        
+        # 1. 物理溯源：重新对齐远程源
         git remote add upstream https://github.com/OpenWrt01/immortalwrt-mt798x-24.10.git || true
-        git fetch upstream openwrt-24.10 || { echo "!!! Remote Source Unreachable !!!"; exit 1; }
-        git checkout -B 2410 upstream/openwrt-24.10 || { echo "!!! Branch Creation Failed !!!"; exit 1; }
-        [ -f "Makefile" ] || { echo "!!! Sync Integrity Check Failed !!!"; exit 1; }
+        
+        # 2. 物理探测：列出远程所有分支，防止盲目拉取
+        echo "Scanning remote branches..."
+        git ls-remote --heads upstream
+        
+        # 3. 物理切除并更正：根据溯源结果，使用匹配的物理分支 (mt798x-24.10 或 master)
+        # 尝试拉取该仓库目前实际存在的开发分支
+        git fetch upstream openwrt-24.10 || git fetch upstream master || { echo "!!! Source Branch Not Found !!!"; exit 1; }
+        
+        # 4. 物理分支强制覆盖
+        git checkout -B 2410 FETCH_HEAD
+        
+        # 5. 物理对齐校验
+        [ -f "Makefile" ] || { echo "!!! Integrity Check Failed !!!"; exit 1; }
         git push -f origin 2410
