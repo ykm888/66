@@ -1,46 +1,55 @@
-name: Sync MTK Sources
+name: Auto Setup SL-3000 Branch
 
 on:
-  workflow_dispatch: # 手动触发执行
+  workflow_dispatch: # 手动点击运行
 
 jobs:
-  sync:
+  build:
     runs-on: ubuntu-latest
-    steps:
-      - name: Checkout Your Repository
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
+    # 这一行确保脚本拥有 GITHUB_TOKEN 的写入能力
+    permissions:
+      contents: write
 
-      - name: Configure Git
+    steps:
+      - name: Checkout Main
+        uses: actions/checkout@v4
+
+      - name: Configure Git Global
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
 
-      - name: Create New Branch and Directories
+      - name: Fetch and Create Branch
         run: |
-          # 创建并切换到新分支（例如 sl3000-source）
-          git checkout -b sl3000-source
-          mkdir -p u-boot
-          mkdir -p ATF
+          # 强制创建一个名为 sl3000-official-source 的干净分支
+          git checkout --orphan sl3000-official-source
+          git rm -rf . # 清空新分支内容，准备接收源码
+          mkdir -p u-boot ATF
 
-      - name: Clone MTK U-Boot
+      - name: Pull MTK U-Boot Source
         run: |
-          git clone --depth 1 https://github.com/mtk-openwrt/u-boot.git temp-uboot
-          # 移动内容到 u-boot 目录（排除 .git 以免冲突）
-          cp -r temp-uboot/. u-boot/
-          rm -rf temp-uboot
+          git clone --depth 1 https://github.com/mtk-openwrt/u-boot.git temp_u
+          cp -r temp_u/. u-boot/
+          rm -rf temp_u
 
-      - name: Clone MTK ATF
+      - name: Pull MTK ATF Source
         run: |
-          git clone --depth 1 https://github.com/mtk-openwrt/arm-trusted-firmware.git temp-atf
-          # 移动内容到 ATF 目录
-          cp -r temp-atf/. ATF/
-          rm -rf temp-atf
+          git clone --depth 1 https://github.com/mtk-openwrt/arm-trusted-firmware.git temp_a
+          cp -r temp_a/. ATF/
+          rm -rf temp_a
 
-      - name: Commit and Push
+      - name: Apply SL-3000 Fixes
         run: |
-          git add u-boot/ ATF/
-          git commit -m "Sync: MTK official U-Boot and ATF sources for SL-3000"
-          # 强制推送新分支到你的远程仓库
-          git push origin sl3000-source --force
+          # 修复 ATF 寻址偏移 (1MB)
+          sed -i '/#define BL33_BASE/a \\n#define MTK_FIP_BASE (0x100000)\n#define MTK_FIP_MAX_SIZE (0x200000)' ATF/plat/mediatek/mt7981/include/platform_def.h
+          # 修复 U-Boot 内存定义 (512MB)
+          if [ -f "u-boot/include/configs/mt7981.h" ]; then
+            sed -i 's/0x10000000/0x20000000/g' u-boot/include/configs/mt7981.h
+          fi
+
+      - name: Force Push to Branch
+        run: |
+          git add .
+          git commit -m "Initial SL-3000 official source with auto-fixes"
+          # 关键：强制推送到远程分支
+          git push origin sl3000-official-source --force
