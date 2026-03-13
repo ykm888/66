@@ -4,17 +4,26 @@
 #include <dt-bindings/input/input.h>
 
 / {
-	model = "SL-3000 NOR-Boot Safe-Recovery";
+	model = "SL-3000 (ykm888 Physical Fix)";
 	compatible = "sl,3000-emmc", "mediatek,mt7981";
 
+	aliases {
+		/* 物理别名锁定：确保引导日志输出到正确的 UART */
+		serial0 = &uart0;
+		/* 物理别名锁定：确保 LED 逻辑与系统触发器对齐 */
+		led-boot = &status_green_led;
+		led-failsafe = &status_red_led;
+		led-running = &status_green_led;
+		led-upgrade = &status_blue_led;
+	};
+
 	chosen {
-		/* 物理对齐：PARTLABEL 必须匹配 filogic.mk 中的 -N production */
-		/* 增加 rw 参数确保根文件系统可写，物理锁定 console 输出 */
+		/* 物理对齐：PARTLABEL 必须匹配 filogic.mk 中的 production 分区 */
 		bootargs = "console=ttyS0,115200n1 loglevel=8 earlycon=uart8250,mmio32,0x11002000 root=PARTLABEL=production rootwait rw rootfstype=f2fs,squashfs";
 	};
 
-	/* 物理锁定：救砖模式强制定义 512MB 运行内存 */
-	/* 待救砖成功后，将 0x20000000 改为 0x40000000 即可解锁 1024M */
+	/* 物理锁定：救砖兼容模式定义 512MB (0x20000000) */
+	/* 待系统稳定后，可将长度改为 0x40000000 以解锁 1024MB */
 	memory@40000000 {
 		device_type = "memory";
 		reg = <0 0x40000000 0 0x20000000>;
@@ -22,60 +31,107 @@
 
 	leds {
 		compatible = "gpio-leds";
-		status_red_led: led-0 { label = "red:status"; gpios = <&pio 10 GPIO_ACTIVE_LOW>; };
-		status_green_led: led-1 { label = "green:status"; gpios = <&pio 11 GPIO_ACTIVE_LOW>; };
-		status_blue_led: led-2 { label = "blue:status"; gpios = <&pio 12 GPIO_ACTIVE_LOW>; };
+
+		status_red_led: led-0 {
+			label = "red:status";
+			gpios = <&pio 10 GPIO_ACTIVE_LOW>;
+		};
+
+		status_green_led: led-1 {
+			label = "green:status";
+			gpios = <&pio 11 GPIO_ACTIVE_LOW>;
+			/* 物理反馈：系统启动后绿灯常亮作为运行指示 */
+			linux,default-trigger = "default-on";
+		};
+
+		status_blue_led: led-2 {
+			label = "blue:status";
+			gpios = <&pio 12 GPIO_ACTIVE_LOW>;
+		};
 	};
 
 	gpio-keys {
 		compatible = "gpio-keys";
-		reset { 
-			label = "reset"; 
-			linux,code = <KEY_RESTART>; 
-			gpios = <&pio 1 GPIO_ACTIVE_LOW>; 
+
+		reset {
+			label = "reset";
+			linux,code = <KEY_RESTART>;
+			gpios = <&pio 1 GPIO_ACTIVE_LOW>;
 			debounce-interval = <60>;
 		};
 	};
 };
 
-/* 网络物理对齐：2.5G 网口与 MT7531 交换机 */
+/* 网络物理链路：2.5G 网口与 MT7531 交换机对齐 */
 &eth {
 	status = "okay";
+
 	gmac0: mac@0 {
 		compatible = "mediatek,eth-mac";
 		reg = <0>;
 		phy-mode = "2500base-x";
-		fixed-link { speed = <2500>; full-duplex; pause; };
+		fixed-link {
+			speed = <2500>;
+			full-duplex;
+			pause;
+		};
 	};
 
-	gmac1: mac@1 { status = "disabled"; };
+	gmac1: mac@1 {
+		status = "disabled";
+	};
 
 	mdio: mdio-bus {
 		#address-cells = <1>;
 		#size-cells = <0>;
+
 		switch@0 {
 			compatible = "mediatek,mt7531";
 			reg = <31>;
 			reset-gpios = <&pio 39 GPIO_ACTIVE_LOW>;
 			reset-delay-us = <10000>;
+
 			ports {
 				#address-cells = <1>;
 				#size-cells = <0>;
-				port@0 { reg = <0>; label = "lan1"; };
-				port@1 { reg = <1>; label = "lan2"; };
-				port@2 { reg = <2>; label = "lan3"; };
-				port@3 { reg = <3>; label = "wan"; };
+
+				port@0 {
+					reg = <0>;
+					label = "lan1";
+				};
+
+				port@1 {
+					reg = <1>;
+					label = "lan2";
+				};
+
+				port@2 {
+					reg = <2>;
+					label = "lan3";
+				};
+
+				port@3 {
+					reg = <3>;
+					label = "wan";
+				};
+
 				port@6 {
-					reg = <6>; label = "cpu"; ethernet = <&gmac0>;
+					reg = <6>;
+					label = "cpu";
+					ethernet = <&gmac0>;
 					phy-mode = "2500base-x";
-					fixed-link { speed = <2500>; full-duplex; pause; };
+					fixed-link {
+						speed = <2500>;
+						full-duplex;
+						pause;
+					};
 				};
 			};
 		};
 	};
 };
 
-/* eMMC 物理对齐：8位总线模式 */
+/* eMMC 存储物理锁死：8位并行总线 */
 &mmc0 {
 	bus-width = <8>;
 	cap-mmc-highspeed;
@@ -88,6 +144,23 @@
 };
 
 &pio {
-	mmc0_pins_default: mmc0-pins-default { mux { function = "flash"; groups = "emmc_45"; }; };
-	mmc0_pins_uhs: mmc0-pins-uhs { mux { function = "flash"; groups = "emmc_45"; }; };
+	/* 物理引脚定义：对齐 MT7981 eMMC 第 45 号分组 */
+	mmc0_pins_default: mmc0-pins-default {
+		mux {
+			function = "flash";
+			groups = "emmc_45";
+		};
+	};
+
+	mmc0_pins_uhs: mmc0-pins-uhs {
+		mux {
+			function = "flash";
+			groups = "emmc_45";
+		};
+	};
+};
+
+/* 物理锁定串口，防止 U-Boot 干扰 */
+&uart0 {
+	status = "okay";
 };
