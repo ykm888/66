@@ -1,14 +1,9 @@
-#
-# Copyright (C) 2021-2026 ykm888
-#
-
 include $(TOPDIR)/rules.mk
 include $(INCLUDE_DIR)/kernel.mk
 
 PKG_NAME:=uboot-mediatek
 PKG_RELEASE:=1
 
-# --- 物理执行准则：切换至你的专属全量源码库 ---
 PKG_SOURCE_PROTO:=git
 PKG_SOURCE_URL:=https://github.com/ykm888/66.git
 PKG_SOURCE_VERSION:=sl3000-clean-source
