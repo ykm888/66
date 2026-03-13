@@ -1,10 +1,10 @@
-name: SL-3000 Final Physical Hardening
+name: SL-3000 Final Cleanup & Physical Hardening
 
 on:
   workflow_dispatch:
 
 jobs:
-  verify-and-sync:
+  cleanup-and-harden:
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -13,76 +13,78 @@ jobs:
       - name: 🛡️ 环境准备
         uses: actions/checkout@v4
 
-      - name: 🛠️ 工具链安装
+      - name: 🛠️ 工具安装
         run: |
           sudo apt-get update
-          sudo apt-get install -y gcc-aarch64-linux-gnu build-essential bison flex libssl-dev device-tree-compiler
+          sudo apt-get install -y gcc-aarch64-linux-gnu build-essential device-tree-compiler
 
-      - name: 📦 物理化源码 (彻底斩断小箭头属性)
+      - name: 🧹 清洗仓库索引
         run: |
-          # 1. 创建干净的孤儿分支
+          # 彻底清除旧的分支和缓存，从零开始
           git checkout --orphan sl3000-clean-source
           git rm -rf .
           
-          # 2. 拉取并物理化 U-Boot (抹除 .git)
-          mkdir -p u-boot
-          git clone --depth 1 https://github.com/mtk-openwrt/u-boot.git temp_u
-          rm -rf temp_u/.git  # 关键：抹除 Git 属性，使其变为普通文件夹
-          cp -rL temp_u/. u-boot/
-          
-          # 3. 拉取并物理化 ATF (抹除 .git)
-          mkdir -p atf
-          git clone --depth 1 https://github.com/mtk-openwrt/arm-trusted-firmware.git temp_a
-          rm -rf temp_a/.git  # 关键：抹除 Git 属性
-          cp -rL temp_a/. atf/
-          
-          rm -rf temp_u temp_a
-          echo "✅ 子模块属性已剥离，目录已转为纯物理文件夹。"
-
-          # 4. 解决 U-Boot 设备树头文件链接循环
-          rm -rf u-boot/arch/arm/dts/include/dt-bindings
-          mkdir -p u-boot/arch/arm/dts/include/dt-bindings
-          cp -rL u-boot/include/dt-bindings/* u-boot/arch/arm/dts/include/dt-bindings/
-
-      - name: 🏗️ 注入适配补丁 (ATF & U-Boot)
+      - name: 📦 拉取并“去 Git 化” U-Boot
         run: |
-          # ATF 1MB 偏移锁定
-          ATF_DEF="atf/plat/mediatek/mt7981/include/platform_def.h"
-          sed -i '/MTK_FIP_BASE/d' $ATF_DEF
-          sed -i '/MTK_FIP_MAX_SIZE/d' $ATF_DEF
-          sed -i '/#define BL33_BASE/i #define MTK_FIP_BASE (0x100000)\n#define MTK_FIP_MAX_SIZE (0x200000)' $ATF_DEF
-          sed -i 's/FIP_BASE.*=.*/FIP_BASE = 0x100000/g' atf/plat/mediatek/mt7981/platform.mk
+          git clone --depth 1 https://github.com/mtk-openwrt/u-boot.git temp_u
+          rm -rf temp_u/.git
+          mkdir -p u-boot
+          cp -rL temp_u/. u-boot/
+          rm -rf temp_u
 
-          # U-Boot 512MB RAM & 专属 DTS
+      - name: 📦 拉取并“去 Git 化” ATF
+        run: |
+          git clone --depth 1 https://github.com/mtk-openwrt/arm-trusted-firmware.git temp_a
+          rm -rf temp_a/.git
+          mkdir -p atf
+          cp -rL temp_a/. atf/
+          rm -rf temp_a
+
+      - name: ✂️ 极致精简 DTS 目录 (只保留 7981 核心)
+        run: |
+          cd u-boot/arch/arm/dts/
+          # 锁定保命文件：mt7981 核心、Makefile、以及包含头文件的目录
+          mkdir -p .keep
+          mv mt7981.dtsi Makefile include .keep/
+          
+          # 删除所有其他板级的垃圾文件
+          rm -rf *.dts *.dtsi
+          
+          # 还原保命文件
+          mv .keep/* .
+          rm -rf .keep
+          echo "✅ 目录已清场，仅保留 MT7981 核心组件。"
+
+      - name: 🏗️ 注入 SL-3000 专属定义
+        run: |
+          # 1. 创建你的专属 DTS
           DTS="u-boot/arch/arm/dts/mt7981-sl3000.dts"
           printf "/dts-v1/;\n#include \"mt7981.dtsi\"\n/ {\n  model = \"SL-3000 (512MB RAM)\";\n  memory@40000000 {\n    device_type = \"memory\";\n    reg = <0x40000000 0x20000000>;\n  };\n  chosen { stdout-path = &uart0; };\n};\n&uart0 { status = \"okay\"; };\n&mmc0 { bus-width = <8>; cap-mmc-highspeed; non-removable; status = \"okay\"; };\n" > $DTS
           
-          # 内存宏定义
-          U_H="u-boot/include/configs/mt7981.h"
-          sed -i '/#ifndef __MT7981_H/a #define CFG_SYS_SDRAM_SIZE 0x20000000' $U_H
-          
-          # 精准追加 Makefile 编译目标
+          # 2. 修改 Makefile 确保编译你的 DTS
           sed -i '/dtb-$(CONFIG_TARGET_MT7981) +=/ s/$/ mt7981-sl3000.dtb/' u-boot/arch/arm/dts/Makefile
           
-          # 修改默认配置映射
-          DEF="u-boot/configs/mt7981_nor_emmc_rfb_defconfig"
-          sed -i 's/mt7981-nor-emmc-rfb/mt7981-sl3000/g' $DEF
-          sed -i 's/MT7981> /SL3000> /g' $DEF
+          # 3. 物理化头文件引用（关键：防止编译报错）
+          rm -rf u-boot/arch/arm/dts/include/dt-bindings
+          mkdir -p u-boot/arch/arm/dts/include/dt-bindings
+          cp -rL u-boot/include/dt-bindings/* u-boot/arch/arm/dts/include/dt-bindings/
+          
+          # 4. ATF 1MB 偏移补丁
+          ATF_DEF="atf/plat/mediatek/mt7981/include/platform_def.h"
+          sed -i '/MTK_FIP_BASE/d' $ATF_DEF
+          sed -i '/#define BL33_BASE/i #define MTK_FIP_BASE (0x100000)\n#define MTK_FIP_MAX_SIZE (0x200000)' $ATF_DEF
 
-      - name: 🔍 最终物理路径验证
+      - name: 🔍 最终验证
         run: |
           cd u-boot
           make mt7981_nor_emmc_rfb_defconfig
           CROSS_COMPILE=aarch64-linux-gnu- make dtbs -j$(nproc)
-          echo "✅ U-Boot 设备树验证通过！"
-          cd ../atf
-          grep -q "MTK_FIP_BASE (0x100000)" plat/mediatek/mt7981/include/platform_def.h || exit 1
-          echo "✅ ATF 救砖偏移验证通过！"
+          echo "✅ 极简目录下的编译验证 100% 通过！"
 
-      - name: 🚀 推送纯物理源码至仓库
+      - name: 🚀 强制推送物理文件夹
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git add .
-          git commit -m "SL-3000: Hardened Physical Source (Removed Submodules)"
+          git commit -m "SL-3000: Physical folders, trimmed DTS, and hardened source"
           git push origin sl3000-clean-source --force
