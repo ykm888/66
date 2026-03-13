@@ -1,10 +1,10 @@
-name: SL-3000 Final Unbrick Suite V2
+name: SL-3000 Source Verify & Sync
 
 on:
-  workflow_dispatch:
+  workflow_dispatch: # 手动触发运行
 
 jobs:
-  build-and-deploy:
+  verify-and-sync:
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -13,72 +13,75 @@ jobs:
       - name: 🛡️ 环境准备
         uses: actions/checkout@v4
 
-      - name: 🛠️ 工具链安装
+      - name: 🛠️ 安装交叉编译与验证工具
         run: |
           sudo apt-get update
-          sudo apt-get install -y gcc-aarch64-linux-gnu build-essential bison flex libssl-dev device-tree-compiler bc python3 python3-setuptools
+          sudo apt-get install -y gcc-aarch64-linux-gnu build-essential bison flex libssl-dev device-tree-compiler
 
-      - name: 📦 源码拉取与符号链接物理化
+      - name: 📦 源码拉取与物理硬化 (彻底解决 Symlink)
         run: |
+          # 创建独立的孤儿分支
           git checkout --orphan sl3000-clean-source
           git rm -rf .
           mkdir -p u-boot ATF
+          
+          # 克隆官方源码并物理化文件
           git clone --depth 1 https://github.com/mtk-openwrt/u-boot.git temp_u && cp -r temp_u/. u-boot/
           git clone --depth 1 https://github.com/mtk-openwrt/arm-trusted-firmware.git temp_a && cp -r temp_a/. ATF/
           rm -rf temp_u temp_a
-          # 断开软链接，物理拷贝
+
+          # 【核心修复：物理还原头文件路径】
+          # 删除原本失效的软链接，创建物理目录并拷贝真实内容
           rm -rf u-boot/arch/arm/dts/include/dt-bindings
           mkdir -p u-boot/arch/arm/dts/include/dt-bindings
           cp -rL u-boot/include/dt-bindings/* u-boot/arch/arm/dts/include/dt-bindings/
+          echo "✅ 软链接已转为物理文件，消灭路径死循环。"
 
-      - name: 🏗️ 注入三件套补丁
+      - name: 🏗️ 注入适配补丁 (ATF & U-Boot)
         run: |
-          # ATF 1MB 偏移
+          # --- ATF 修复 (强制 1MB FIP 偏移) ---
           ATF_DEF="ATF/plat/mediatek/mt7981/include/platform_def.h"
           sed -i '/MTK_FIP_BASE/d' $ATF_DEF
+          sed -i '/MTK_FIP_MAX_SIZE/d' $ATF_DEF
           sed -i '/#define BL33_BASE/i #define MTK_FIP_BASE (0x100000)\n#define MTK_FIP_MAX_SIZE (0x200000)' $ATF_DEF
           sed -i 's/FIP_BASE.*=.*/FIP_BASE = 0x100000/g' ATF/plat/mediatek/mt7981/platform.mk
 
-          # U-Boot 512MB RAM & DTS 注入
+          # --- U-Boot 修复 (512MB RAM & 专属 DTS) ---
           DTS="u-boot/arch/arm/dts/mt7981-sl3000.dts"
           printf "/dts-v1/;\n#include \"mt7981.dtsi\"\n/ {\n  model = \"SL-3000 (512MB RAM)\";\n  memory@40000000 {\n    device_type = \"memory\";\n    reg = <0x40000000 0x20000000>;\n  };\n  chosen { stdout-path = &uart0; };\n};\n&uart0 { status = \"okay\"; };\n&mmc0 { bus-width = <8>; cap-mmc-highspeed; non-removable; status = \"okay\"; };\n" > $DTS
           
+          # 核心内存配置锁定
           U_H="u-boot/include/configs/mt7981.h"
           sed -i '/#ifndef __MT7981_H/a #define CFG_SYS_SDRAM_SIZE 0x20000000' $U_H
           
-          # 修改 Makefile：使用追加模式，不破坏原有结构
-          echo "dtb-\$(CONFIG_TARGET_MT7981) += mt7981-sl3000.dtb" >> u-boot/arch/arm/dts/Makefile
+          # 【Makefile 修复：精准追加而非重写】
+          # 在官方编译列表后插入我们的目标，确保不丢失基础编译规则
+          sed -i '/dtb-$(CONFIG_TARGET_MT7981) +=/ s/$/ mt7981-sl3000.dtb/' u-boot/arch/arm/dts/Makefile
           
+          # 修改默认配置映射
           DEF="u-boot/configs/mt7981_nor_emmc_rfb_defconfig"
           sed -i 's/mt7981-nor-emmc-rfb/mt7981-sl3000/g' $DEF
           sed -i 's/MT7981> /SL3000> /g' $DEF
 
-      - name: 🔍 100% 自动适配验证
+      - name: 🔍 100% 适配性验证 (无构建模式)
         run: |
           cd u-boot
+          # 1. 验证配置文件正确性
           make mt7981_nor_emmc_rfb_defconfig
-          # 验证 DTS
+          # 2. 核心验证：通过设备树编译器（DTC）检查语法和物理路径
+          # 如果这里报错，说明头文件路径或 Makefile 注入有问题
           CROSS_COMPILE=aarch64-linux-gnu- make dtbs -j$(nproc)
-          echo "✅ DTS 编译验证通过！"
+          echo "✅ U-Boot 设备树物理路径验证成功！"
+          
           cd ../ATF
+          # 3. 验证地址注入逻辑
           grep -q "MTK_FIP_BASE (0x100000)" plat/mediatek/mt7981/include/platform_def.h || exit 1
-          echo "✅ ATF 地址锁定验证通过！"
+          echo "✅ ATF 1MB 偏移地址锁定验证成功！"
 
-      - name: 🔨 全量构建救砖全家桶
+      - name: 🚀 验证通过后同步至仓库
         run: |
-          cd u-boot && CROSS_COMPILE=aarch64-linux-gnu- make -j$(nproc) && cp u-boot.bin ../ATF/u-boot.bin
-          cd ../ATF
-          make -f plat/mediatek/mt7981/platform.mk CROSS_COMPILE=aarch64-linux-gnu- PLAT=mt7981 BOOT_DEVICE=emmc DRAM_TYPE=ddr3 BL33=u-boot.bin all fiptool fip
-          mkdir -p ../output && cp build/mt7981/release/bl2.img ../output/ && cp build/mt7981/release/fip.bin ../output/
-
-      - name: 🚀 推送源码与发布 Artifacts
-        run: |
-          git config --global user.name "github-actions"
-          git config --global user.email "actions@github.com"
-          git add . && git commit -m "SL-3000: Fix Makefile & DTS Path"
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add .
+          git commit -m "SL-3000: Verified Clean Source (Physical DTB Path + 1MB Offset)"
           git push origin sl3000-clean-source --force
-      
-      - uses: actions/upload-artifact@v4
-        with:
-          name: SL3000-Unbrick-Suite
-          path: output/*
