@@ -1,6 +1,6 @@
 #
 # Copyright (C) 2024-2026 ykm888
-# 物理修复终极版：针对 SL-3000 (MT7981) NOR-DDR4 零件闭环生产
+# 物理修复终极版：针对 SL-3000 (MT7981) 适配黄金救砖分支
 #
 
 include $(TOPDIR)/rules.mk
@@ -8,13 +8,16 @@ include $(TOPDIR)/rules.mk
 PKG_NAME:=arm-trusted-firmware-mediatek
 PKG_RELEASE:=1
 
-# 物理坐标：锁定 hanwckf 稳定分支及子目录路径
+# --- 核心修改：切换至物理硬化后的黄金分支 ---
 PKG_SOURCE_PROTO:=git
 PKG_SOURCE_URL:=https://github.com/ykm888/66.git
-PKG_SOURCE_VERSION:=hanwckf-stable-source
-ATF_SRC_DIR:=atf-20220606-637ba581b
+PKG_SOURCE_VERSION:=sl3000-clean-source
+PKG_MIRROR_HASH:=skip
 
 PKG_MAINTAINER:=ykm888
+
+# 对应你仓库中的物理目录名
+ATF_SRC_SUBDIR:=atf
 
 # 物理工地路径定义
 PKG_BUILD_DIR:=$(BUILD_DIR)/$(PKG_NAME)-$(BUILD_VARIANT)/$(PKG_NAME)-$(PKG_SOURCE_VERSION)
@@ -31,54 +34,54 @@ define Trusted-Firmware-A/Default
   TFA_IMAGE:=bl2.bin bl31.bin
 endef
 
-# --- 2. 物理变体定义：SL-3000 (NOR-DDR4) ---
-define Trusted-Firmware-A/mt7981-nor-ddr4
-  NAME:=SL-3000 (NOR-DDR4-512M)
-  VARIANT:=mt7981-nor-ddr4
-  BOOT_DEVICE:=nor
-  DDR_TYPE:=ddr4
+# --- 2. 物理变体定义：SL-3000 ---
+define Trusted-Firmware-A/mt7981-sl3000
+  NAME:=SL-3000 (NOR-DDR3/4-Recovery)
+  VARIANT:=mt7981-sl3000
+  BOOT_DEVICE:=emmc
+  # 根据你之前的适配，这里建议保持 emmc/nor 兼容配置
 endef
 
-TFA_TARGETS:=mt7981-nor-ddr4
+TFA_TARGETS:=mt7981-sl3000
 
-# --- 3. 物理编译选项：锁死 DDR4 并禁用警告中断 ---
+# --- 3. 物理编译选项：注入救砖所需的关键参数 ---
 TFA_MAKE_FLAGS += \
-	DRAM_USE_DDR4=1 \
-	BOOT_DEVICE=nor \
+	BOOT_DEVICE=emmc \
 	TRUSTED_BOARD_BOOT=0 \
 	WERROR=0 \
 	DEBUG=0
 
-# --- 4. 物理工地准备：平铺目录并清理 Werror ---
+# --- 4. 物理工地准备：平铺目录并移除 Git 索引干扰 ---
 define Build/Prepare
 	$(call Build/Prepare/Default)
-	@echo "Physical Surgery: Flattening source structure..."
-	# 如果存在嵌套的源码文件夹，则物理平铺到根工地
-	if [ -d "$(PKG_BUILD_DIR)/$(ATF_SRC_DIR)" ]; then \
-		cp -rf $(PKG_BUILD_DIR)/$(ATF_SRC_DIR)/* $(PKG_BUILD_DIR)/; \
-		rm -rf $(PKG_BUILD_DIR)/$(ATF_SRC_DIR); \
+	@echo "Physical Surgery: Aligning ATF source from subfolder..."
+	# 将仓库 atf 文件夹内的物理文件平铺到构建根目录
+	if [ -d "$(PKG_BUILD_DIR)/$(ATF_SRC_SUBDIR)" ]; then \
+		cp -rf $(PKG_BUILD_DIR)/$(ATF_SRC_SUBDIR)/* $(PKG_BUILD_DIR)/; \
 	fi
-	# 物理暴力清除：防止 GCC 13 将警告当成错误导致编译中断
+	
+	# 物理暴力清除编译警告中断
 	find $(PKG_BUILD_DIR) -type f -name "Makefile*" -exec sed -i 's/-Werror//g' {} + || true
 	find $(PKG_BUILD_DIR) -type f -name "*.mk" -exec sed -i 's/-Werror//g' {} + || true
 	find $(PKG_BUILD_DIR) -type f -exec sed -i 's/-no-warn-rwx-segments//g' {} + || true
 endef
 
-# --- 5. 零件分发逻辑：满足 filogic.mk 的所有物理搜寻路径 ---
+# --- 5. 零件分发逻辑：产出 bl2.img 供镜像脚本合成 ---
 define Package/trusted-firmware-a-$(1)/install
 	$(INSTALL_DIR) $(STAGING_DIR_IMAGE)
-	# 物理生产 BL2 零件
+	# 寻找编译出的物理零件
 	if [ -f $(PKG_BUILD_DIR)/build/$(PLAT)/release/bl2.bin ]; then \
 		$(CP) $(PKG_BUILD_DIR)/build/$(PLAT)/release/bl2.bin $(STAGING_DIR_IMAGE)/$(1)-bl2.bin; \
 		$(CP) $(PKG_BUILD_DIR)/build/$(PLAT)/release/bl2.bin $(STAGING_DIR_IMAGE)/bl2.img; \
 		$(CP) $(PKG_BUILD_DIR)/build/$(PLAT)/release/bl2.bin $(STAGING_DIR_IMAGE)/bl2.bin; \
 	fi
-	# 物理生产 BL31 零件
+	
 	if [ -f $(PKG_BUILD_DIR)/build/$(PLAT)/release/bl31.bin ]; then \
 		$(CP) $(PKG_BUILD_DIR)/build/$(PLAT)/release/bl31.bin $(STAGING_DIR_IMAGE)/$(1)-bl31.bin; \
 		$(CP) $(PKG_BUILD_DIR)/build/$(PLAT)/release/bl31.bin $(STAGING_DIR_IMAGE)/bl31.bin; \
 	fi
-	# 物理备份：同步到 Bin 目录方便手动救砖使用
+	
+	# 物理备份：同步到 Bin 目录方便下载
 	$(INSTALL_DIR) $(BIN_DIR)/sl3000-recovery
 	[ -f $(STAGING_DIR_IMAGE)/bl2.img ] && \
 		$(CP) $(STAGING_DIR_IMAGE)/bl2.img $(BIN_DIR)/sl3000-recovery/bl2.img; \
