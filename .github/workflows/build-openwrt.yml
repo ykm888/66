@@ -1,19 +1,14 @@
-name: 司洛SL-3000 EMMC
+name: 司洛SL-3000 物理硬化全家桶
 
 on:
-  repository_dispatch:
   workflow_dispatch:
 
 env:
   REPO_URL: https://github.com/ykm888/66
   REPO_BRANCH: sl3000-immortalwrt-bootstrap
-  FEEDS_CONF: feeds.conf.default
   CONFIG_FILE: 888/sl3000.config
   DIY_P1_SH: diy-part1.sh
   DIY_P2_SH: diy-part2.sh
-  UPLOAD_BIN_DIR: false
-  UPLOAD_FIRMWARE: true
-  UPLOAD_RELEASE: true
   TZ: Asia/Shanghai
 
 jobs:
@@ -21,108 +16,82 @@ jobs:
     runs-on: ubuntu-22.04
 
     steps:
-    - name: 1. Checkout
-      uses: actions/checkout@main
+    - name: 1. 物理环境初始化
+      uses: actions/checkout@v4
 
-    - name: 2. Initialization environment
-      env:
-        DEBIAN_FRONTEND: noninteractive
+    - name: 2. 安装物理依赖
       run: |
-        sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
-        sudo docker image prune --all --force
+        sudo rm -rf /etc/apt/sources.list.d/*
         sudo -E apt-get -qq update
-        sudo -E apt-get -qq install ack antlr3 asciidoc autoconf automake autopoint binutils bison build-essential bzip2 ccache cmake cpio curl device-tree-compiler fastjar flex gawk gettext gcc-multilib g++-multilib git gperf haveged help2man intltool libc6-dev-i386 libelf-dev libfuse-dev libglib2.0-dev libgmp3-dev libltdl-dev libmpc-dev libmpfr-dev libncurses5-dev libncursesw5-dev libpython3-dev libreadline-dev libssl-dev libtool lrzsz mkisofs msmtp ninja-build p7zip p7zip-full patch pkgconf python2.7 python3 python3-pyelftools python3-setuptools qemu-utils rsync scons squashfs-tools subversion swig texinfo uglifyjs upx-ucl unzip vim wget xmlto xxd zlib1g-dev
-        sudo -E apt-get -qq autoremove --purge
-        sudo -E apt-get -qq clean
+        sudo -E apt-get -qq install ack antlr3 asciidoc autoconf automake autopoint binutils bison build-essential bzip2 ccache cmake cpio curl device-tree-compiler fastjar flex gawk gettext gcc-multilib g++-multilib git gperf haveged help2man intltool libc6-dev-i386 libelf-dev libfuse-dev libglib2.0-dev libgmp3-dev libltdl-dev libmpc-dev libmpfr-dev libncurses5-dev libncursesw5-dev libpython3-dev libreadline-dev libssl-dev libtool lrzsz mkisofs msmtp ninja-build p7zip p7zip-full patch pkgconf python2.7 python3 python3-pyelftools python3-setuptools qemu-utils rsync scons squashfs-tools subversion swig texinfo uglifyjs upx-ucl unzip xxd zlib1g-dev
         sudo timedatectl set-timezone "$TZ"
-        sudo mkdir -p /workdir
-        sudo chown $USER:$GROUPS /workdir
 
-    - name: 3. Clone source code
-      working-directory: /workdir
+    - name: 3. 源码抓取 (物理分支对齐)
       run: |
-        df -hT $PWD
         git clone $REPO_URL -b $REPO_BRANCH openwrt
-        ln -sf /workdir/openwrt $GITHUB_WORKSPACE/openwrt
+        # 物理准则一：脱离 Git 动态链接，确保本地物理环境完整性
 
-    - name: 4. Load custom feeds
-      run: |
-        [ -e $FEEDS_CONF ] && mv $FEEDS_CONF openwrt/feeds.conf.default
-        chmod +x $DIY_P1_SH
-        cd openwrt
-        $GITHUB_WORKSPACE/$DIY_P1_SH
-
-    - name: 5. Update feeds
-      run: cd openwrt && ./scripts/feeds update -a
-
-    - name: 6. Install feeds (物理锁死第一阶段)
+    - name: 4. Feeds 注入与影子冲突物理清理
       run: |
         cd openwrt
+        ./scripts/feeds update -a
         ./scripts/feeds install -a
-        # 物理修正：清理 feeds 影子冲突。这是防止 Error 1 (bl2.img 未找到) 的核心
+        # 【物理准则二】：强制删除 feeds 影子，确保系统回溯到 package/boot 下的硬化版 Makefile
         rm -rf package/feeds/mediatek/arm-trusted-firmware-mediatek
         rm -rf package/feeds/mediatek/uboot-mediatek
-        # 物理重置索引缓存，确保系统重新扫描 package/boot 中的零件模具
         rm -rf tmp
 
-    - name: 7. Load custom configuration (物理锁死第二阶段)
+    - name: 5. 物理注入核心零件 (888 工程物理覆盖)
       run: |
-        # 1. 物理注入 888 零件到对应工地
+        # A. 物理覆盖 DTS 设备树
         [ -d 888 ] && find openwrt/target/linux/mediatek/ -type d -name "dts" -exec cp -f 888/mt7981-sl-3000-emmc.dts {} \;
-        [ -f 888/filogic.mk ] && cp -f 888/filogic.mk openwrt/target/linux/mediatek/image/
-        [ -e files ] && mv files openwrt/files
-        [ -e $CONFIG_FILE ] && cp -f $CONFIG_FILE openwrt/.config
         
-        # 2. 物理对齐路径执行修改
+        # B. 物理覆盖镜像打包宏 (救砖全家桶逻辑)
+        [ -f 888/filogic.mk ] && cp -f 888/filogic.mk openwrt/target/linux/mediatek/image/
+        
+        # C. 物理注入 .config
+        [ -f $CONFIG_FILE ] && cp -f $CONFIG_FILE openwrt/.config
+        
+        # D. 物理注入 Files 固定设置
+        [ -d files ] && mv files openwrt/files
+        
+        # 物理路径修复：修正 IP 和主机名
         cd openwrt
-        # 再次确认 IP 和主机名
         sed -i 's/192.168.1.1/192.168.10.1/g' package/base-files/files/bin/config_generate
         sed -i 's/ImmortalWrt/SL-3000/g' package/base-files/files/bin/config_generate
-        
-        # 确保注入的 mk 文件拥有物理执行权限
-        chmod +x target/linux/mediatek/image/*.mk
-        
-        # 3. 执行清道夫脚本
-        chmod +x $GITHUB_WORKSPACE/$DIY_P2_SH
-        $GITHUB_WORKSPACE/$DIY_P2_SH
 
-    - name: 8. Download package
-      id: package
+    - name: 6. 预编译零件下载
       run: |
         cd openwrt
         make defconfig
         make download -j8
-        find dl -size -1024c -exec ls -l {} \;
         find dl -size -1024c -exec rm -f {} \;
 
-    - name: 9. Compile the firmware
-      id: compile
+    - name: 7. 顺序物理编译 (准则三：循序渐进，零件必出)
       run: |
         cd openwrt
-        echo -e "$(nproc) thread compile"
-        # 物理兜底：优先多线程，失败则转单线程 V=s 暴露错误
+        # 第一阶段：编译心脏 ATF (bl2.img)
+        make package/boot/arm-trusted-firmware-mediatek/compile V=s -j1 || exit 1
+        
+        # 第二阶段：编译大脑 U-Boot (fip.bin)
+        make package/boot/uboot-mediatek/compile V=s -j1 || exit 1
+        
+        # 第三阶段：合体全量编译
         make -j$(nproc) || make -j1 V=s
-        echo "status=success" >> $GITHUB_OUTPUT
-        grep '^CONFIG_TARGET.*DEVICE.*=y' .config | sed -r 's/.*DEVICE_(.*)=y/\1/' > DEVICE_NAME
-        [ -s DEVICE_NAME ] && echo "DEVICE_NAME=_$(cat DEVICE_NAME)" >> $GITHUB_ENV
-        echo "FILE_DATE=_$(date +"%Y%m%d%H%M")" >> $GITHUB_ENV
 
-    - name: 10. Check space usage
-      if: (!cancelled())
-      run: df -hT
-
-    - name: 11. Organize files
-      id: organize
-      if: env.UPLOAD_FIRMWARE == 'true' && !cancelled()
+    - name: 8. 物理搜集救砖全家桶 (RECOVERY_PACK)
       run: |
-        cd openwrt/bin/targets/*/*
-        rm -rf packages
-        echo "FIRMWARE=$PWD" >> $GITHUB_ENV
-        echo "status=success" >> $GITHUB_OUTPUT
+        cd openwrt/bin/targets/mediatek/filogic/
+        mkdir -p RECOVERY_PACK
+        # 物理识别并提取救砖零件
+        cp *nor-programmer-dump.bin RECOVERY_PACK/ 2>/dev/null || true
+        cp *emmc-sysupgrade.bin RECOVERY_PACK/ 2>/dev/null || true
+        cp *bl2.img RECOVERY_PACK/ 2>/dev/null || true
+        cp *fip.bin RECOVERY_PACK/ 2>/dev/null || true
+        echo "FIRMWARE_PATH=$PWD/RECOVERY_PACK" >> $GITHUB_ENV
 
-    - name: 12. Upload firmware directory
-      uses: actions/upload-artifact@main
-      if: steps.organize.outputs.status == 'success' && !cancelled()
+    - name: 9. 上传物理产物
+      uses: actions/upload-artifact@v4
       with:
-        name: OpenWrt_firmware${{ env.DEVICE_NAME }}${{ env.FILE_DATE }}
-        path: ${{ env.FIRMWARE }}
+        name: SL3000_Recovery_Full_Pack
+        path: ${{ env.FIRMWARE_PATH }}
