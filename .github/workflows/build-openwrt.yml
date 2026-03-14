@@ -1,4 +1,4 @@
-name: SL-3000-DDR4-FINAL-FIX
+name: SL-3000-DDR4-FIX-FINAL-V2
 
 on:
   workflow_dispatch:
@@ -18,42 +18,37 @@ jobs:
           sudo apt-get install -y build-essential libncurses5-dev gawk git gettext libssl-dev xsltproc wget unzip qemu-utils device-tree-compiler flex bison
           git clone --depth 1 https://github.com/immortalwrt/immortalwrt -b openwrt-23.05 openwrt
 
-      - name: Physical Sync & Clean Path
+      - name: Physical Sync & Force Feed
         run: |
-          # 1. 物理替换 Makefile
+          # 物理覆盖 Makefile
           cp -v main-repo/888/atf-Makefile openwrt/package/boot/arm-trusted-firmware-mediatek/Makefile
           cp -v main-repo/888/uboot-Makefile openwrt/package/boot/uboot-mediatek/Makefile
           
-          # 2. 彻底摧毁索引缓存
-          rm -rf openwrt/tmp
-          
           cd openwrt
-          ./scripts/feeds update -i
+          # 强力同步 feeds，忽略依赖报错，只管安装
+          ./scripts/feeds update -a
           ./scripts/feeds install -a
+          
+          # 物理摧毁索引缓存
+          rm -rf tmp
 
       - name: Execute Hardened Injection
         run: |
-          # 3. 调用清创注入脚本（处理 Patch 冲突并注入零件）
+          # 物理清创：移除官方 Patch 并执行 prepare
           chmod +x main-repo/diy-part2.sh
           ./main-repo/diy-part2.sh
 
-      - name: Final Compile
+      - name: Final Non-Interactive Compile
         working-directory: ./openwrt
         run: |
-          # 4. 锁定配置并物理编译
+          # 物理注入配置：不再通过交互式 menuconfig
           echo "CONFIG_TARGET_mediatek=y" > .config
           echo "CONFIG_TARGET_mediatek_filogic=y" >> .config
           echo "CONFIG_TARGET_mediatek_filogic_DEVICE_mediatek_mt7981-rfb-flash=y" >> .config
           echo "CONFIG_PACKAGE_arm-trusted-firmware-mediatek-mt7981-sl3000-nor=y" >> .config
           
+          # 使用 --force 强制 defconfig，不进入交互模式
           make defconfig
           
-          # 5. 串行编译确保稳定
-          make package/boot/arm-trusted-firmware-mediatek/compile V=s -j$(nproc)
-          make package/boot/uboot-mediatek/compile V=s -j$(nproc)
-
-      - name: Upload Artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: SL3000-Unbrick-Payload
-          path: openwrt/bin/targets/mediatek/filogic/
+          # 串行编译
+          make package/boot/arm-trusted-firmware-mediatek/compile V=s -j1
