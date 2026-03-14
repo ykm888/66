@@ -8,7 +8,7 @@ include $(TOPDIR)/rules.mk
 PKG_NAME:=arm-trusted-firmware-mediatek
 PKG_RELEASE:=1
 
-# 物理溯源：锁定救砖专用源码
+# 物理溯源：锁定救砖专用源码 (ykm888/66.git)
 PKG_SOURCE_PROTO:=git
 PKG_SOURCE_URL:=https://github.com/ykm888/66.git
 PKG_SOURCE_VERSION:=sl3000-clean-source
@@ -18,28 +18,28 @@ include $(INCLUDE_DIR)/kernel.mk
 include $(INCLUDE_DIR)/trusted-firmware-a.mk
 include $(INCLUDE_DIR)/package.mk
 
-# --- 零件工厂定义 ---
+# --- 1. 零件工厂默认配置 ---
 define Trusted-Firmware-A/Default
   BUILD_TARGET:=mediatek
-  # 物理导出：确保输出 bl2.img，这是救砖的核心心脏
-  TFA_IMAGE:=bl2.img
-  HIDDEN:=1
-endef
-
-# --- 司络 SL-3000 专属 DDR4 零件 ---
-define Trusted-Firmware-A/mt7981-nor-ddr4
-  NAME:=SL-3000 (SPI-NOR/DDR4)
   BUILD_SUBTARGET:=filogic
   PLAT:=mt7981
+  # 物理导出：确保生成 bl2.img
+  TFA_IMAGE:=bl2.img
+endef
+
+# --- 2. 司络 SL-3000 专属零件定义 ---
+define Trusted-Firmware-A/mt7981-nor-ddr4
+  NAME:=SL-3000 (SPI-NOR/DDR4)
   BOOT_DEVICE:=nor
   DDR_TYPE:=ddr4
   # 物理偏移锁定：1MB (0x100000)
   FIP_OFFSET:=0x100000
 endef
 
+# 物理宣告：目标零件列表
 TFA_TARGETS:= mt7981-nor-ddr4
 
-# 物理修正：使用符合 trusted-firmware-a.mk 逻辑的包名注册
-$(eval $(call BuildPackage,arm-trusted-firmware-mediatek))
-# 物理追加：确保变体名在 defconfig 中物理可见
+# --- 3. 物理修正：彻底解决 Missing 报错的关键 ---
+# 必须显式注册子包名，否则 make defconfig 无法物理识别
 $(eval $(call BuildTrustedFirmwareA,mt7981-nor-ddr4))
+$(eval $(call BuildPackage,arm-trusted-firmware-mediatek))
