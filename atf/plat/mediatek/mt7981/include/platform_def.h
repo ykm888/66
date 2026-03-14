@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2021, MediaTek Inc. All rights reserved.
+ * Copyright (c) 2026, ykm888 (Physical Hardening for SL-3000)
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
@@ -55,16 +56,9 @@
 /*******************************************************************************
  * Platform memory map related constants
  ******************************************************************************/
-/* TF txet, ro, rw, xlat table, coherent memory ... etc.
- * Size: release: 128KB, debug: 128KB
- */
 #define IMAGE_LOAD_ADDR		(0x40000000)
 #define TZRAM_BASE		(0x43000000)
-#if DEBUG
 #define TZRAM_SIZE		(0x20000)
-#else
-#define TZRAM_SIZE		(0x20000)
-#endif
 
 /* Reserved: 64KB */
 #define TZRAM2_BASE		(TZRAM_BASE + TZRAM_SIZE)
@@ -91,7 +85,7 @@
 #define L2_SRAM_SIZE		(0x80000)
 
 /*******************************************************************************
- * BL31 specific defines.
+ * BL31 / BL32 specific defines.
  ******************************************************************************/
 #define BL31_BASE		(TZRAM_BASE + 0x1000)
 #define BL31_LIMIT		(TZRAM_BASE + TZRAM_SIZE)
@@ -100,36 +94,37 @@
 #define BL32_LIMIT		(TZRAM2_BASE + TZRAM2_SIZE)
 #define BL32_HEADER_SIZE	(0x1c)
 
-#define MTK_FIP_BASE (0x100000)
-#define MTK_FIP_MAX_SIZE (0x200000)
+/*******************************************************************************
+ * --- 物理加固：FIP (U-Boot) 布局定义 ---
+ ******************************************************************************/
+/* 物理锁定：FIP 必须起始于 1MB (0x100000) */
+#ifndef MTK_FIP_BASE
+#define MTK_FIP_BASE            (0x100000)
+#endif
+
+/* 兼容性对齐：强制将驱动程序可能引用的所有偏移量宏统一为 1MB */
+#define MTK_UBOOT_OFFSET_IN_SPI  MTK_FIP_BASE
+
+/* 允许 FIP/U-Boot 最大占用 2MB 空间 */
+#define MTK_FIP_MAX_SIZE        (0x200000)
+
+/* U-Boot 解压后的内存运行基地址 */
 #define BL33_BASE		(0x41e00000)
 
+/*******************************************************************************
+ * 其他平台外设定义
+ ******************************************************************************/
 #define TRNG_BASE		(0x1020f000)
 #define TRNG_SIZE		(0x1000)
 
-/*******************************************************************************
- * FIP decompression specific defines.
- ******************************************************************************/
 #define FIP_DECOMP_TEMP_BASE	(0x42000000)
 #define FIP_DECOMP_TEMP_SIZE	(0x400000)
 
-/*******************************************************************************
- * Platform specific page table and MMU setup constants
- ******************************************************************************/
 #define PLAT_PHY_ADDR_SPACE_SIZE	(1ULL << 32)
 #define PLAT_VIRT_ADDR_SPACE_SIZE	(1ULL << 32)
 #define MAX_XLAT_TABLES			9
 #define MAX_MMAP_REGIONS		16
 
-/*******************************************************************************
- * Declarations and constants to access the mailboxes safely. Each mailbox is
- * aligned on the biggest cache line size in the platform. This is known only
- * to the platform as it might have a combination of integrated and external
- * caches. Such alignment ensures that two maiboxes do not sit on the same cache
- * line at any cache level. They could belong to different cpus/clusters &
- * get written while being protected by different locks causing corruption of
- * a valid mailbox address.
- ******************************************************************************/
 #define CACHE_WRITEBACK_SHIFT		6
 #define CACHE_WRITEBACK_GRANULE		(1 << CACHE_WRITEBACK_SHIFT)
 
@@ -150,9 +145,5 @@
 			GIC_INTR_CFG_EDGE), \
 	INTR_PROP_DESC(MT_IRQ_SEC_SGI_7, GIC_HIGHEST_SEC_PRIORITY, grp, \
 			GIC_INTR_CFG_EDGE)
-
-/*******************************************************************************
- * Platform specific IRQ
- ******************************************************************************/
 
 #endif /* PLATFORM_DEF_H */
