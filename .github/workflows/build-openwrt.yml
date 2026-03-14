@@ -39,8 +39,7 @@ jobs:
         # 1. 克隆 23.05 源码地基
         git clone --depth 1 $REPO_URL -b $REPO_BRANCH openwrt
         
-        # 2. 物理全量拉起：将 888 目录及脚本物理注入源码根目录
-        # 这一步确保了 diy-part2.sh 在 openwrt 目录下可见
+        # 2. 物理全量注入：将 888 目录及脚本搬运至源码根目录
         cp -r 888 openwrt/
         cp $DIY_P2_SH openwrt/
 
@@ -50,37 +49,49 @@ jobs:
         ./scripts/feeds update -a
         ./scripts/feeds install -a
 
-    - name: Physical Stitching & Hardening (注入熔断)
+    - name: Physical Stitching & Hardening (核心注入)
       working-directory: ./openwrt
       run: |
-        # 1. 物理对齐配置
-        [ -f "888/sl3000.config" ] && cp 888/sl3000.config .config || { echo "!!! Config Missing !!!"; exit 1; }
-        
-        # 2. 赋予脚本执行权限并物理执行
-        # 脚本内含：覆盖 Makefile、注入 bl2_dev_spi_nor.c、修正 1024k 偏移
+        # 1. 执行物理搬运脚本 (覆盖 Makefile、注入驱动补丁、修正偏移)
         chmod +x $DIY_P2_SH
         ./$DIY_P2_SH || { echo "!!! DIY-Part2 Physical Break !!!"; exit 1; }
+
+        # 2. 物理强推：将 sl3000.config 覆盖为当前 .config
+        cp -f 888/sl3000.config .config
         
-        # 3. 终极零件校验：确保关键开关已在 .config 中物理锁定
-        # 即使被 feeds 重置，脚本也应该再次将其写入
+        # 3. 物理冗余锁定：强制追加关键依赖，防止被 feeds 或 defconfig 剔除
+        # 锁定 32M 闪存分区，绝对禁止溢出
+        sed -i '/CONFIG_TARGET_ROOTFS_PARTSIZE/d' .config
+        echo "CONFIG_TARGET_ROOTFS_PARTSIZE=24" >> .config
+        
+        # 锁定 ATF 和 U-Boot 的物理变体
         echo "CONFIG_PACKAGE_arm-trusted-firmware-mediatek=y" >> .config
+        echo "CONFIG_PACKAGE_arm-trusted-firmware-mediatek-mt7981-nor-ddr4=y" >> .config
         echo "CONFIG_PACKAGE_uboot-mediatek=y" >> .config
+        echo "CONFIG_PACKAGE_uboot-mediatek-mt7981_sl3000_nor=y" >> .config
         
-        # 4. 物理对齐检查
-        grep -q "CONFIG_PACKAGE_arm-trusted-firmware-mediatek=y" .config || { echo "!!! ATF Switch Error !!!"; exit 1; }
+        # 4. 执行 defconfig 并再次物理校验核心零件
+        make defconfig
+        grep -q "CONFIG_PACKAGE_arm-trusted-firmware-mediatek-mt7981-nor-ddr4=y" .config || { echo "!!! ATF Missing after defconfig !!!"; exit 1; }
 
     - name: Compile Firmware (The Great Wall)
       working-directory: ./openwrt
       run: |
-        make defconfig
         make download -j8
-        # 物理错误捕捉：先并行编译，失败则切回单核输出详细日志
+        # 并行编译失败后自动切入单核 V=s 输出详细物理报错日志
         make -j$(nproc) || make -j1 V=s || { echo "!!! Compilation Failed !!!"; exit 1; }
+
+    - name: Organize Files & Physical Check
+      working-directory: ./openwrt
+      run: |
+        mkdir -p bin/targets/mediatek/filogic/救砖专用/
+        # 物理提取：将生成的 32M 编程器固件存入专用文件夹
+        cp -f bin/targets/mediatek/filogic/*nor-programmer-dump.bin bin/targets/mediatek/filogic/救砖专用/ || true
+        # 物理提取：sysupgrade 升级包（用于 eMMC）
+        cp -f bin/targets/mediatek/filogic/*emmc-sysupgrade.bin bin/targets/mediatek/filogic/救砖专用/ || true
 
     - name: Upload Artifacts
       uses: actions/upload-artifact@v4
       with:
-        name: OpenWrt_SL3000_2305_Firmware
-        path: |
-          openwrt/bin/targets/mediatek/filogic/*
-          !openwrt/bin/targets/mediatek/filogic/*.json
+        name: SL3000_2305_32M_NOR_128G_eMMC
+        path: openwrt/bin/targets/mediatek/filogic/救砖专用/*
