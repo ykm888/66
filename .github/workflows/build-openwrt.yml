@@ -22,21 +22,23 @@ jobs:
         run: |
           git clone --depth 1 https://github.com/immortalwrt/immortalwrt -b openwrt-23.05 openwrt
 
-      - name: Prepare Source for DIY
+      - name: Prepare Source & Extract BuildDir
         working-directory: ./openwrt
         run: |
           ./scripts/feeds update -a
           ./scripts/feeds install -a
+          # 物理锁定变体配置，确保生成 build_dir
           echo "CONFIG_TARGET_mediatek=y" > .config
           echo "CONFIG_TARGET_mediatek_filogic=y" >> .config
+          echo "CONFIG_TARGET_mediatek_filogic_DEVICE_mediatek_mt7981-rfb-flash=y" >> .config
           make defconfig
-          # 物理触发源码解压，生成 build_dir 路径
-          make package/boot/arm-trusted-firmware-mediatek/prepare V=s
-          make package/boot/uboot-mediatek/prepare V=s
+          # 关键物理操作：强制解压特定变体的源码
+          make package/boot/arm-trusted-firmware-mediatek/mt7981-spim-nand-ddr3/prepare V=s
+          make package/boot/uboot-mediatek/mt7981-spim-nand-ddr3/prepare V=s
 
       - name: Execute DIY Script
         run: |
-          # 物理搬运脚本与 888 零件
+          # 物理搬运零件
           cp main-repo/diy-part2.sh .
           cp -r main-repo/888 .
           chmod +x diy-part2.sh
@@ -52,8 +54,8 @@ jobs:
         working-directory: ./openwrt
         run: |
           # 物理执行最终编译
-          make package/boot/arm-trusted-firmware-mediatek/compile V=s -j$(nproc)
-          make package/boot/uboot-mediatek/compile V=s -j$(nproc)
+          make package/boot/arm-trusted-firmware-mediatek/mt7981-spim-nand-ddr3/compile V=s -j$(nproc)
+          make package/boot/uboot-mediatek/mt7981-spim-nand-ddr3/compile V=s -j$(nproc)
           make -j$(nproc) || make -j1 V=s
 
       - name: Upload Artifact
