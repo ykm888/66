@@ -1,71 +1,74 @@
-name: Build SL-3000 Firmware (23.05 Physical Sync)
+name: SL-3000 Final Cleanup & Physical Hardening
 
 on:
-  repository_dispatch:
   workflow_dispatch:
 
-env:
-  REPO_URL: https://github.com/ykm888/66
-  REPO_BRANCH: sl3000-immortalwrt-bootstrap
-  CONFIG_FILE: 888/sl3000.config
-  DIY_P2_SH: diy-part2.sh
-  TZ: Asia/Shanghai
-
 jobs:
-  build:
+  cleanup-and-harden:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
     steps:
-    - name: Checkout Command Center
-      uses: actions/checkout@v4
-      with:
-        ref: main
+      - name: 🛡️ 物理环境初始化
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-    - name: Initialization Environment
-      run: |
-        sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc
-        sudo -E apt-get -qq update
-        sudo -E apt-get -qq install $(curl -fsSL https://is.gd/depends_ubuntu_2204)
-        sudo timedatectl set-timezone "$TZ"
+      - name: 🧹 物理清洗分支索引 (彻底抹除旧改动)
+        run: |
+          git checkout --orphan temp-clean-branch
+          git rm -rf .
+          
+      - name: 📦 拉取官方源码并创建物理文件夹
+        run: |
+          # 拉取 U-Boot 并剥离 Git 信息
+          git clone --depth 1 https://github.com/mtk-openwrt/u-boot.git temp_u
+          rm -rf temp_u/.git && mkdir -p u-boot && cp -rL temp_u/. u-boot/
+          
+          # 拉取 ATF 并剥离 Git 信息
+          git clone --depth 1 https://github.com/mtk-openwrt/arm-trusted-firmware.git temp_a
+          rm -rf temp_a/.git && mkdir -p atf && cp -rL temp_a/. atf/
+          
+          rm -rf temp_u temp_a
 
-    - name: Clone Foundation & Merge 888
-      run: |
-        git clone --depth 1 $REPO_URL -b $REPO_BRANCH openwrt
-        # 物理溯源：确保 888 零件仓库完整复制到 openwrt 根目录
-        cp -r 888 openwrt/
-        cp $DIY_P2_SH openwrt/
+      - name: 🏗️ 注入 SL-3000 物理零件 (全链路硬化)
+        run: |
+          DTS_DIR="u-boot/arch/arm/dts"
+          
+          # 1. 物理创建专属 DTS (补全 pinctrl 基础定义)
+          # 注意：此 DTS 已经包含了基本的 eMMC 和 SPI 启动配置
+          printf '/dts-v1/;\n#include "mt7981.dtsi"\n/ {\n  model = "SL-3000 (ykm888 Hardened)";\n  compatible = "mediatek,mt7981-sl3000", "mediatek,mt7981";\n  memory@40000000 {\n    device_type = "memory";\n    reg = <0x40000000 0x20000000>;\n  };\n  chosen { stdout-path = &uart0; };\n};\n&uart0 { status = "okay"; };\n&mmc0 { status = "okay"; bus-width = <8>; cap-mmc-highspeed; non-removable; };\n&spi0 { status = "okay"; };\n' > $DTS_DIR/mt7981-sl3000.dts
+          chmod 644 $DTS_DIR/mt7981-sl3000.dts
 
-    - name: Update & Install Feeds
-      working-directory: ./openwrt
-      run: |
-        ./scripts/feeds update -a
-        ./scripts/feeds install -a
+          # 2. 物理注册 Makefile (确保 sl3000 在编译清单首位)
+          # 使用 sed 在第一行插入，防止被后续的条件判断屏蔽
+          sed -i '1i dtb-y += mt7981-sl3000.dtb' $DTS_DIR/Makefile
 
-    - name: Physical Stitching & Hardening
-      working-directory: ./openwrt
-      run: |
-        chmod +x $DIY_P2_SH
-        ./$DIY_P2_SH
-        
-        # 准则 3 物理自检：确认零件是否物理就位
-        [ -f "package/boot/arm-trusted-firmware-mediatek/Makefile" ] || { echo "ATF Makefile Missing!"; exit 1; }
-        grep -q "FIP_BASE" 888/bl2_dev_spi_nor.c || { echo "BL2 Patch Missing!"; exit 1; }
-        
-        make defconfig
+          # 3. 物理覆盖 Defconfig 逻辑
+          DEFCONFIG="u-boot/configs/mt7981_nor_emmc_rfb_defconfig"
+          if [ -f "$DEFCONFIG" ]; then
+            # 先删除旧定义，再注入新定义，防止重复导致的编译错误
+            sed -i '/CONFIG_DEFAULT_DEVICE_TREE/d' $DEFCONFIG
+            sed -i '/CONFIG_OF_LIST/d' $DEFCONFIG
+            echo 'CONFIG_DEFAULT_DEVICE_TREE="mt7981-sl3000"' >> $DEFCONFIG
+            echo 'CONFIG_OF_LIST="mt7981-sl3000"' >> $DEFCONFIG
+          fi
 
-    - name: Compile Firmware
-      working-directory: ./openwrt
-      run: |
-        make download -j8
-        # 最小物理修补：优先编译引导零件，确保日志清晰
-        make package/boot/arm-trusted-firmware-mediatek/compile V=s -j$(nproc)
-        make package/boot/uboot-mediatek/compile V=s -j$(nproc)
-        # 执行全局编译
-        make -j$(nproc) || make -j1 V=s
+          # 4. ATF 1MB 偏移物理同步
+          ATF_DEF="atf/plat/mediatek/mt7981/include/platform_def.h"
+          if [ -f "$ATF_DEF" ]; then
+            sed -i '/MTK_FIP_BASE/d' $ATF_DEF
+            sed -i '/MTK_FIP_MAX_SIZE/d' $ATF_DEF
+            # 在 BL33_BASE 之前精准插入物理坐标
+            sed -i '/#define BL33_BASE/i #define MTK_FIP_BASE (0x100000)\n#define MTK_FIP_MAX_SIZE (0x200000)' $ATF_DEF
+          fi
 
-    - name: Upload Artifacts
-      uses: actions/upload-artifact@v4
-      with:
-        name: SL3000_Firmware
-        path: |
-          openwrt/bin/targets/mediatek/filogic/*nor-programmer-dump.bin
-          openwrt/bin/targets/mediatek/filogic/*emmc-sysupgrade.bin
+      - name: 🚀 强制推送物理零件包
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add u-boot atf
+          git commit -m "SL-3000: Official Source Recovery with Physical Hardening (Final Version)"
+          # 物理执行：用全新的、干净的 orphan 分支强制覆盖现有的 sl3000-clean-source
+          git push origin temp-clean-branch:sl3000-clean-source --force
