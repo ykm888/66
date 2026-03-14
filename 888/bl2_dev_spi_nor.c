@@ -1,47 +1,44 @@
-#include <assert.h>
-#include <common/debug.h>
-#include <drivers/io/io_driver.h>
-#include <drivers/io/io_fip.h>
-#include <drivers/io/io_memmap.h>
-#include <drivers/io/io_storage.h>
-#include <plat/mediatek/common/mtk_plat_common.h>
-
-/* * 物理执行准则：强制定义 FIP 偏移为 1MB (0x100000)
- * 这是救砖全家桶的核心地图坐标
+/*
+ * Copyright (c) 2023, MediaTek Inc. All rights reserved.
+ * 司络 SL-3000 硬件加固版：锁定 1MB 偏移与 2MB 载入空间
+ * SPDX-License-Identifier: BSD-3-Clause
  */
-#ifndef FIP_OFFSET
-#define FIP_OFFSET 0x100000
-#endif
 
-#ifndef FIP_SIZE
-#define FIP_SIZE 0x200000
-#endif
+#include <stddef.h>
+#include <stdint.h>
+#include <boot_spi.h>
+#include <mtk_spi.h>
 
-static const io_block_spec_t fip_spec = {
-	.offset = FIP_OFFSET,
-	.length = FIP_SIZE
-};
+/* 物理核心：坐标锁定 1MB。必须与 filogic.mk 中的 seek=1024 严格对齐 */
+#define FIP_BASE			0x100000
 
-static const io_uuid_spec_t bl31_uuid_spec = {
-	.uuid = {0x47, 0xd4, 0x08, 0x6d, 0x4c, 0xfe, 0xe4, 0x11, 0x9b, 0x7b, 0x00, 0x02, 0xa5, 0xd5, 0xc5, 0x1b}
-};
+/* 物理核心：载入空间预留 2MB。防止 U-Boot 镜像体积过大导致读取截断 */
+#define FIP_SIZE			0x200000
 
-static const io_uuid_spec_t uboot_uuid_spec = {
-	.uuid = {0x5c, 0x63, 0xf8, 0x5b, 0xef, 0x6d, 0x8a, 0x45, 0xad, 0xbb, 0xa1, 0x8f, 0xcb, 0x55, 0xca, 0x19}
-};
+/* 物理核心：MT7981 默认 MPLL 分频时钟 */
+#define MTK_QSPI_SRC_CLK		CB_MPLL_D2
 
-/* 硬件初始化逻辑：物理对齐 SPI-NOR 驱动 */
-void mtk_io_setup(void)
+/**
+ * mtk_plat_qspi_init: 初始化物理链路
+ * 负责打通 CPU 到 SPI-NOR 闪存的引脚通路
+ */
+int mtk_plat_qspi_init(void)
 {
-	int io_result;
+	/* 物理引脚对齐：初始化 SPI 硬件接口引脚复用 */
+	mtk_spi_gpio_init(SPIM2);
 
-	NOTICE("SL-3000: Physical Injection - Setting FIP Offset to 0x%lx\n", (unsigned long)FIP_OFFSET);
+	/* 物理时钟锁定：选择 208M 高速时钟确保启动效率 */
+	mtk_spi_source_clock_select(MTK_QSPI_SRC_CLK);
 
-	io_result = register_io_dev_fip(&fip_dev_con);
-	assert(io_result == 0);
+	return mtk_qspi_init(MTK_QSPI_SRC_CLK);
+}
 
-	io_result = io_dev_open(fip_dev_con, (uintptr_t)&fip_spec, &fip_dev_handle);
-	assert(io_result == 0);
-
-	(void)io_result;
+/**
+ * mtk_plat_fip_location: 定义地图坐标
+ * 告知 BL2 逻辑 U-Boot (FIP) 存放在 Flash 的具体位置
+ */
+void mtk_plat_fip_location(size_t *fip_off, size_t *fip_size)
+{
+	*fip_off = FIP_BASE;
+	*fip_size = FIP_SIZE;
 }
