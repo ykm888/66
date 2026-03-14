@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # =========================================================
-# 司络 SL-3000 (MT7981B) 物理加固脚本 - 底层对齐修正版
+# 司络 SL-3000 (MT7981B) 物理加固脚本 - 路径对齐修正版
 # =========================================================
 
 echo "Starting Physical Injection for SL-3000..."
@@ -12,15 +12,15 @@ rm -rf package/feeds/devices/arm-trusted-firmware-mediatek
 mkdir -p package/boot/arm-trusted-firmware-mediatek
 
 # --- 2. 物理注入 ---
+# 注入 Makefile
 [ -f "888/atf-Makefile" ] && cp -f 888/atf-Makefile package/boot/arm-trusted-firmware-mediatek/Makefile
 [ -f "888/uboot-Makefile" ] && cp -f 888/uboot-Makefile package/boot/uboot-mediatek/Makefile
 
-ATF_SRC_DIR="package/boot/arm-trusted-firmware-mediatek/src/plat/mediatek/mt7981/bl2"
-if [ -f "888/bl2_dev_spi_nor.c" ]; then
-    mkdir -p $ATF_SRC_DIR
-    cp -f 888/bl2_dev_spi_nor.c $ATF_SRC_DIR/bl2_dev_spi_nor.c
-fi
+# 物理加固：确保 888 零件仓库在根目录可见，供 Makefile 内部 Build/Prepare 调用
+mkdir -p 888
+[ -f "888/bl2_dev_spi_nor.c" ] || echo "Warning: bl2_dev_spi_nor.c missing in 888/"
 
+# 注入其他零件到内核
 [ -f "888/filogic.mk" ] && cp -f 888/filogic.mk target/linux/mediatek/image/filogic.mk
 cp -f 888/*.dts target/linux/mediatek/dts/
 
