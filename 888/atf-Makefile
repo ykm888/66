@@ -4,6 +4,7 @@
 
 include $(TOPDIR)/rules.mk
 
+# 物理执行准则 1：复刻原有命名
 PKG_NAME:=arm-trusted-firmware-mediatek
 PKG_VERSION:=sl3000-c
 PKG_RELEASE:=1
@@ -14,8 +15,9 @@ PKG_SOURCE_URL:=https://github.com/ykm888/66.git
 PKG_SOURCE_VERSION:=sl3000-clean-source
 PKG_MIRROR_HASH:=skip
 
-# 物理硬锁定编译目录
-PKG_BUILD_DIR:=$(BUILD_DIR)/$(PKG_NAME)-$(BUILD_VARIANT)/$(PKG_NAME)-$(PKG_VERSION)
+# --- 物理执行准则 2：核心修补点 ---
+# 强行覆盖 trusted-firmware-a.mk 的错误路径计算，实现物理对齐
+PKG_BUILD_DIR:=$(BUILD_DIR)/$(PKG_NAME)-$(BUILD_VARIANT)
 
 include $(INCLUDE_DIR)/kernel.mk
 include $(INCLUDE_DIR)/trusted-firmware-a.mk
@@ -40,13 +42,16 @@ TFA_TARGETS:= mt7981-nor-ddr4
 # --- 物理加固准备逻辑：解决目录嵌套与路径缺失 ---
 define Build/Prepare
 	$(call Build/Prepare/Default)
-	# 1. 自动剥皮：如果解压后多了一层同名文件夹，物理提取内容到根部
-	if [ -d "$(PKG_BUILD_DIR)/$(PKG_NAME)-$(PKG_VERSION)" ]; then \
+	# 1. 物理对齐：如果源码内多出一层嵌套目录，将其移至 PKG_BUILD_DIR 根目录
+	@if [ -d "$(PKG_BUILD_DIR)/$(PKG_NAME)-$(PKG_VERSION)" ]; then \
 		mv $(PKG_BUILD_DIR)/$(PKG_NAME)-$(PKG_VERSION)/* $(PKG_BUILD_DIR)/; \
+	elif [ -d "$(PKG_BUILD_DIR)/$(PKG_NAME)" ]; then \
+		mv $(PKG_BUILD_DIR)/$(PKG_NAME)/* $(PKG_BUILD_DIR)/; \
 	fi
-	# 2. 强制创建物理目录：防止 cp 指令因找不到文件夹而熔断
+	# 2. 物理校验：确保 Makefile 物理存在于当前工作目录，防止 make 熔断
+	@[ -f $(PKG_BUILD_DIR)/Makefile ] || (echo "FATAL: Makefile not found at $(PKG_BUILD_DIR)"; exit 1)
+	# 3. 强制创建物理目录并注入补丁
 	mkdir -p $(PKG_BUILD_DIR)/plat/mediatek/mt7981/bl2/
-	# 3. 物理注入补丁：将寻宝图（1MB偏移）强制熔刻进源码
 	$(CP) $(TOPDIR)/888/bl2_dev_spi_nor.c $(PKG_BUILD_DIR)/plat/mediatek/mt7981/bl2/bl2_dev_spi_nor.c
 endef
 
