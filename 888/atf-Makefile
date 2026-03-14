@@ -1,16 +1,14 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=arm-trusted-firmware-mediatek
-PKG_VERSION:=sl3000-c
+PKG_VERSION:=23.05-sl3000
 PKG_RELEASE:=1
 
+# 物理溯源：锁定你的分支
 PKG_SOURCE_PROTO:=git
 PKG_SOURCE_URL:=https://github.com/ykm888/66.git
 PKG_SOURCE_VERSION:=sl3000-clean-source
 
-PKG_BUILD_DIR:=$(BUILD_DIR)/$(PKG_NAME)-$(BUILD_VARIANT)
-
-include $(INCLUDE_DIR)/kernel.mk
 include $(INCLUDE_DIR)/trusted-firmware-a.mk
 include $(INCLUDE_DIR)/package.mk
 
@@ -18,27 +16,19 @@ define Trusted-Firmware-A/Default
   BUILD_TARGET:=mediatek
   BUILD_SUBTARGET:=filogic
   PLAT:=mt7981
-  TFA_IMAGE:=bl2.img
+  TFA_IMAGE:=bl2.img fip.bin
 endef
 
-# 物理名称修正：这是 U-Boot 唯一认出的身份
-define Trusted-Firmware-A/mt7981-nor-ddr4
-  NAME:=SL-3000 (DDR4-Hardened)
-  BOOT_DEVICE:=nor
-  DDR_TYPE:=ddr4
+# 物理变体定义
+define Trusted-Firmware-A/mt7981-sl3000-nor
+  NAME:=SL-3000 (NOR-DDR4-1MB-Fix)
+  BUILD_DEVICES:=mediatek_mt7981-sl-3000
+  TFA_MAKE_FLAGS:= \
+    BOOT_DEVICE=nor \
+    DRAM_USE_DDR4=1 \
+    DEBUG=0
 endef
 
-TFA_TARGETS:= mt7981-nor-ddr4
-
-define Build/Prepare
-	$(call Build/Prepare/Default)
-	# 物理强插：确保 1MB 偏移逻辑进入源码心脏
-	$(CP) $(TOPDIR)/888/bl2_dev_spi_nor.c $(PKG_BUILD_DIR)/plat/mediatek/mt7981/bl2/bl2_dev_spi_nor.c
-	$(CP) $(TOPDIR)/888/platform_def.h $(PKG_BUILD_DIR)/plat/mediatek/mt7981/include/platform_def.h
-	$(CP) $(TOPDIR)/888/platform.mk $(PKG_BUILD_DIR)/plat/mediatek/mt7981/platform.mk
-	# 物理硬化：强制写入 1MB 偏移参数
-	echo "MTK_FIP_BASE = 0x100000" >> $(PKG_BUILD_DIR)/plat/mediatek/mt7981/platform.mk
-	echo "DRAM_USE_DDR4 := 1" >> $(PKG_BUILD_DIR)/plat/mediatek/mt7981/platform.mk
-endef
+TFA_TARGETS:=mt7981-sl3000-nor
 
 $(eval $(call BuildPackage/Trusted-Firmware-A))
