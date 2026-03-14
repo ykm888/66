@@ -1,4 +1,4 @@
-name: SL-3000-DDR4-Final-Payload
+name: SL-3000-DDR4-ULTIMATE-FIX
 
 on:
   workflow_dispatch:
@@ -24,36 +24,42 @@ jobs:
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
-      - name: Physical Injection
+      - name: Physical Force Injection
         run: |
-          # 必须在编译前将 888 零件注入工作区
+          # 1. 物理覆盖 Makefile：确保系统在扫描前就换成我们的零件
+          cp -v main-repo/888/atf-Makefile openwrt/package/boot/arm-trusted-firmware-mediatek/Makefile
+          cp -v main-repo/888/uboot-Makefile openwrt/package/boot/uboot-mediatek/Makefile
+          
+          # 2. 【核心修复】摧毁 OpenWrt 索引缓存，强制重新扫描新 Makefile 规则
+          rm -rf openwrt/tmp
+          
+          # 3. 执行脚本锁定配置
           chmod +x main-repo/diy-part2.sh
           cd openwrt && ../main-repo/diy-part2.sh
 
-      - name: Configure Target
+      - name: Configure and Lock Variants
         working-directory: ./openwrt
         run: |
+          # 强制在 .config 中开启我们定义的变体，防止被自动剔除
           echo "CONFIG_TARGET_mediatek=y" > .config
           echo "CONFIG_TARGET_mediatek_filogic=y" >> .config
           echo "CONFIG_TARGET_mediatek_filogic_DEVICE_mediatek_mt7981-rfb-flash=y" >> .config
+          echo "CONFIG_PACKAGE_arm-trusted-firmware-mediatek-mt7981-nor-ddr4=y" >> .config
+          echo "CONFIG_PACKAGE_uboot-mediatek-mt7981-spim-nand-ddr4=y" >> .config
+          
           make defconfig
 
-      - name: Compile ATF (The Heart)
+      - name: Compile Unbrick Payload
         working-directory: ./openwrt
         run: |
-          # 首先产出 nor-ddr4 变体，供 U-Boot 依赖
+          # 物理串行编译，确保依赖关系 100% 正确
           make package/boot/arm-trusted-firmware-mediatek/mt7981-nor-ddr4/compile V=s -j1
-
-      - name: Compile U-Boot (The Bridge)
-        working-directory: ./openwrt
-        run: |
-          # U-Boot 此时会自动寻找刚才生成的 ATF 零件
           make package/boot/uboot-mediatek/mt7981-spim-nand-ddr4/compile V=s -j1
 
-      - name: Upload Unbrick Artifacts
+      - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: SL3000-DDR4-1MB-Offset-Firmware
+          name: SL3000-DDR4-Hardened-Firmware
           path: |
             openwrt/bin/targets/mediatek/filogic/*-bl2.img
             openwrt/bin/targets/mediatek/filogic/*-fip.bin
