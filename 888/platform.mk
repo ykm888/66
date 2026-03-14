@@ -1,6 +1,6 @@
 #
 # Copyright (c) 2023, MediaTek Inc. All rights reserved.
-# Copyright (c) 2026, ykm888 (Physical Hardening for SL-3000)
+# Copyright (c) 2026, ykm888 (DDR4 Physical Hardening for SL-3000)
 #
 # SPDX-License-Identifier: BSD-3-Clause
 #
@@ -8,6 +8,12 @@
 MTK_PLAT		:=	plat/mediatek
 MTK_PLAT_SOC		:=	$(MTK_PLAT)/$(PLAT)
 APSOC_COMMON		:=	$(MTK_PLAT)/apsoc_common
+
+# --- 【物理加固：DDR4 强制锁定】 ---
+DRAM_USE_DDR4		:=	1
+DRAM_DEBUG_LOG		:=	1
+DRAM_SIZE_LIMIT		:=	0
+BOARD_BGA			:=	1
 
 # 启用 Cortex-A53 勘误修复
 ERRATA_A53_826319	:=	1
@@ -42,9 +48,8 @@ include $(MTK_PLAT_SOC)/bl31/bl31.mk
 include $(MTK_PLAT_SOC)/drivers/efuse/efuse.mk
 
 # --- 【物理加固：强行注入驱动源】 ---
-ifeq ($(BOOT_DEVICE),nor)
+# 无论 boot 模式如何，强制 BL2 包含你的物理偏移逻辑文件
 BL2_SOURCES		+=	$(MTK_PLAT_SOC)/bl2/bl2_dev_spi_nor.c
-endif
 
 include $(APSOC_COMMON)/bl2/tbbr_post.mk
 include $(APSOC_COMMON)/bl2/ar_post.mk
@@ -63,12 +68,12 @@ DEFINES += -DOPTEE_TZRAM_SIZE=$(OPTEE_TZRAM_SIZE)
 # 依赖规则包含
 include make_helpers/dep.mk
 
-# --- 【物理加固：逻辑注册】 ---
-# 确保 bl2_dev_spi_nor 在依赖链中，使其被正确编译
+# --- 【物理加固：逻辑注册与 DDR4 参数对齐】 ---
 $(call GEN_DEP_RULES,bl2,bl2_dev_spi_nor emicfg dram_log bl2_boot_ram bl2_boot_nand_nmbm bl2_dev_mmc bl2_plat_init bl2_plat_setup mt7981_gpio dtb)
-$(call MAKE_DEP,bl2,bl2_dev_spi_nor,BOOT_DEVICE)
 
-$(call MAKE_DEP,bl2,emicfg,DRAM_USE_DDR4 DRAM_SIZE_LIMIT DDR3_FREQ_2133 DDR3_FREQ_1866 BOARD_QFN BOARD_BGA)
+# 物理像素级传递 DDR4 宏定义到编译器
+$(call MAKE_DEP,bl2,bl2_dev_spi_nor,BOOT_DEVICE DRAM_USE_DDR4)
+$(call MAKE_DEP,bl2,emicfg,DRAM_USE_DDR4 DRAM_SIZE_LIMIT BOARD_QFN BOARD_BGA)
 $(call MAKE_DEP,bl2,dram_log,DRAM_DEBUG_LOG)
 $(call MAKE_DEP,bl2,bl2_plat_init,BL2_COMPRESS)
 $(call MAKE_DEP,bl2,bl2_plat_setup,BOOT_DEVICE TRUSTED_BOARD_BOOT DUAL_FIP)
