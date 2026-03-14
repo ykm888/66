@@ -1,5 +1,6 @@
 #
 # Copyright (C) 2021-2026 ykm888 (23.05 Optimized)
+# 针对 司络 SL-3000 (32M/1G/128G) 物理加固
 #
 
 include $(TOPDIR)/rules.mk
@@ -7,7 +8,7 @@ include $(TOPDIR)/rules.mk
 PKG_NAME:=arm-trusted-firmware-mediatek
 PKG_RELEASE:=1
 
-# 物理核心：锁定你的救砖源码库
+# 物理溯源：锁定救砖专用源码
 PKG_SOURCE_PROTO:=git
 PKG_SOURCE_URL:=https://github.com/ykm888/66.git
 PKG_SOURCE_VERSION:=sl3000-clean-source
@@ -17,23 +18,26 @@ include $(INCLUDE_DIR)/kernel.mk
 include $(INCLUDE_DIR)/trusted-firmware-a.mk
 include $(INCLUDE_DIR)/package.mk
 
+# --- 零件工厂定义 ---
 define Trusted-Firmware-A/Default
   BUILD_TARGET:=mediatek
-  # 物理对齐：确保输出文件名能被 Actions 脚本识别
-  TFA_IMAGE:=bl2.img bl31.bin
-  HIDDEN:=y
-  FIP_OFFSET:=0x100000
-  FIP_SIZE:=0x200000
+  # 物理导出：确保输出 bl2.img，这是救砖的核心心脏
+  TFA_IMAGE:=bl2.img
+  HIDDEN:=1
 endef
 
+# --- 司络 SL-3000 专属 DDR4 零件 ---
 define Trusted-Firmware-A/mt7981-nor-ddr4
-  NAME:=MediaTek MT7981 (SPI-NOR, DDR4)
-  BOOT_DEVICE:=nor
+  NAME:=SL-3000 (SPI-NOR/DDR4)
   BUILD_SUBTARGET:=filogic
   PLAT:=mt7981
+  BOOT_DEVICE:=nor
   DDR_TYPE:=ddr4
+  # 物理偏移锁定：1MB (0x100000)
+  FIP_OFFSET:=0x100000
 endef
 
 TFA_TARGETS:= mt7981-nor-ddr4
 
-$(eval $(call BuildPackage,Trusted-Firmware-A))
+# 物理修正：BuildPackage 的名称必须与 PKG_NAME 严格对齐
+$(eval $(call BuildPackage,arm-trusted-firmware-mediatek))
