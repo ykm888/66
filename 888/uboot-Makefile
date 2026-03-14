@@ -4,6 +4,7 @@ include $(INCLUDE_DIR)/kernel.mk
 PKG_NAME:=uboot-mediatek
 PKG_RELEASE:=1
 
+# 物理溯源：指向你的救砖源码分支
 PKG_SOURCE_PROTO:=git
 PKG_SOURCE_URL:=https://github.com/ykm888/66.git
 PKG_SOURCE_VERSION:=sl3000-clean-source
@@ -13,23 +14,31 @@ include $(INCLUDE_DIR)/u-boot.mk
 include $(INCLUDE_DIR)/package.mk
 include $(INCLUDE_DIR)/host-build.mk
 
+# --- 默认零件定义 ---
 define U-Boot/Default
   BUILD_TARGET:=mediatek
   UBOOT_IMAGE:=u-boot.fip
   HIDDEN:=1
 endef
 
+# --- 司络 SL-3000 专属救砖目标 ---
 define U-Boot/mt7981_sl3000_nor
   NAME:=SL-3000 (SPI-NOR)
   BUILD_SUBTARGET:=filogic
   UBOOT_CONFIG:=mt7981_sl3000_nor
   UBOOT_IMAGE:=u-boot.fip
+  
+  # 物理属性硬化
   BL2_BOOTDEV:=nor
   BL2_SOC:=mt7981
   BL2_DDRTYPE:=ddr4
-  DEPENDS:=+trusted-firmware-a-mt7981-nor-ddr4
+  
+  # 物理依赖对齐：必须与 ATF 的零件名完全一致
+  # 这里确保了编译器会先去构建 1GB DDR4 适配的 TFA 零件
+  DEPENDS:=+arm-trusted-firmware-mediatek-mt7981-nor-ddr4
 endef
 
+# 物理导出目标
 UBOOT_TARGETS:= mt7981_sl3000_nor
 
 $(eval $(call BuildPackage,u-boot))
