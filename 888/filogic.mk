@@ -13,7 +13,7 @@ define Build/mt798x-gpt-emmc-production
 		-t 0x83 -N production -p 1024M@128M
 endef
 
-# --- 2. 定义 32MB NOR 救砖全家桶 (物理强化搜寻版) ---
+# --- 2. 定义 32MB NOR 救砖全家桶 (物理真名搜索版) ---
 define Build/sl3000-nor-bundle
 	rm -f $@.nor
 	touch $@.nor
@@ -21,20 +21,22 @@ define Build/sl3000-nor-bundle
 	truncate -s 32M $@.nor
 	
 	# [物理零件 A]: 智能搜寻 BL2 (ATF)
+	# 物理修正：对齐 trusted-firmware-a.mk 生成的真实文件名
 	BL2_FILE=""; \
 	[ -f "$(STAGING_DIR_IMAGE)/bl2.img" ] && BL2_FILE="$(STAGING_DIR_IMAGE)/bl2.img"; \
 	[ -z "$$BL2_FILE" -a -f "$(KDIR)/bl2.img" ] && BL2_FILE="$(KDIR)/bl2.img"; \
-	[ -z "$$BL2_FILE" -a -f "$(STAGING_DIR_IMAGE)/$(TFA_PART)-bl2.bin" ] && BL2_FILE="$(STAGING_DIR_IMAGE)/$(TFA_PART)-bl2.bin"; \
+	[ -z "$$BL2_FILE" -a -f "$(STAGING_DIR_IMAGE)/trusted-firmware-a-$(TFA_PART)-bl2.bin" ] && BL2_FILE="$(STAGING_DIR_IMAGE)/trusted-firmware-a-$(TFA_PART)-bl2.bin"; \
 	if [ -n "$$BL2_FILE" ]; then \
 		echo "Physical Found BL2: $$BL2_FILE"; \
 		dd if=$$BL2_FILE of=$@.nor bs=1k conv=notrunc; \
 	else \
-		echo "!!! ERROR: bl2.img 未找到，物理链路断裂 !!!"; exit 1; \
+		echo "!!! ERROR: bl2.img 未找到，物理名匹配失败 !!!"; exit 1; \
 	fi; \
 	
 	# [物理零件 B]: 智能搜寻 U-Boot 并注入 1MB (1024k) 偏移
+	# 物理修正：对齐 uboot-mediatek 导出的变体名
 	UBOOT_FILE=""; \
-	[ -f "$(STAGING_DIR_IMAGE)/$(TFA_PART)-u-boot.bin" ] && UBOOT_FILE="$(STAGING_DIR_IMAGE)/$(TFA_PART)-u-boot.bin"; \
+	[ -f "$(STAGING_DIR_IMAGE)/uboot-$(TFA_PART)-u-boot.bin" ] && UBOOT_FILE="$(STAGING_DIR_IMAGE)/uboot-$(TFA_PART)-u-boot.bin"; \
 	[ -z "$$UBOOT_FILE" -a -f "$(STAGING_DIR_IMAGE)/u-boot.bin" ] && UBOOT_FILE="$(STAGING_DIR_IMAGE)/u-boot.bin"; \
 	if [ -n "$$UBOOT_FILE" ]; then \
 		echo "Physical Found U-Boot: $$UBOOT_FILE"; \
@@ -56,7 +58,7 @@ define Device/sl_3000-nor-emmc
   DEVICE_DTS_DIR := $(DTS_DIR)/mediatek
   SUPPORTED_DEVICES := ykm888,sl-3000
   
-  # 物理零件索引：对齐你的 Makefile 变体
+  # 物理零件索引：对齐你的 Makefile 中定义的变体名
   TFA_PART := mt7981-nor-ddr4
   
   # 物理驱动包：开启 128G eMMC 支持
