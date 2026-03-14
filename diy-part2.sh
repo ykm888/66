@@ -1,26 +1,48 @@
 #!/bin/bash
 
-# --- 1. 物理置顶：Makefile 缝合 ---
-# 将 888 里的 Makefile 强制推送到官方构建路径，启动你的 sl3000-clean-source 源码抓取
+# =========================================================
+# 司络 SL-3000 (MT7981B) 物理加固脚本 - ykm888 专用版
+# 规格：512M(限流)/1G RAM + 32MB SPI-NOR + 128GB eMMC
+# =========================================================
+
+echo "Starting Physical Injection for SL-3000..."
+
+# --- 1. 物理心脏：注入救砖驱动 (锁定 1MB 偏移量) ---
+# 必须精准对齐源码中的 bl2 子目录，否则偏移量修改无效
+ATF_HEART="package/boot/arm-trusted-firmware-mediatek/src/plat/mediatek/mt7981/bl2"
+mkdir -p $ATF_HEART
+if [ -f "888/bl2_dev_spi_nor.c" ]; then
+    echo "Injecting: bl2_dev_spi_nor.c -> $ATF_HEART"
+    cp -f 888/bl2_dev_spi_nor.c $ATF_HEART/bl2_dev_spi_nor.c
+fi
+
+# --- 2. 物理框架：覆盖引导零件 Makefile ---
+# 确保编译器拉取你指定的 sl3000-clean-source 分支
+echo "Injecting: Bootloader Makefiles"
 [ -f "888/atf-Makefile" ] && cp -f 888/atf-Makefile package/boot/arm-trusted-firmware-mediatek/Makefile
 [ -f "888/uboot-Makefile" ] && cp -f 888/uboot-Makefile package/boot/uboot-mediatek/Makefile
 
-# --- 2. 物理移植：救砖驱动注入 ---
-# 无论源码何时拉取，强行将救砖驱动注入到 ATF 的物理心脏位置
-ATF_SRC="package/boot/arm-trusted-firmware-mediatek/src/plat/mediatek/mt7981"
-mkdir -p $ATF_SRC
-[ -f "888/bl2_dev_spi_nor.c" ] && cp -f 888/bl2_dev_spi_nor.c $ATF_SRC/bl2_dev_spi_nor.c
-
-# --- 3. 物理地图：镜像偏移补丁 ---
-# 直接使用你 888 里的 filogic.mk 覆盖官方，确保 1MB (1024k) 物理坐标生效
+# --- 3. 物理地图：覆盖镜像打包逻辑 (解决 Error 1) ---
+# 这里的 mk 文件包含了智能零件搜寻逻辑和 32MB 空间锁定
+echo "Injecting: Image Building Logic (filogic.mk)"
 [ -f "888/filogic.mk" ] && cp -f 888/filogic.mk target/linux/mediatek/image/filogic.mk
 
-# --- 4. 物理零件：设备树与配置同步 ---
-# 拉起所有 .dts 硬件定义
+# --- 4. 物理零件：覆盖设备树 (DTS) ---
+# 包含 512MB 内存限流、2.5G 网口、128GB eMMC 定义
+echo "Injecting: Device Tree Files"
 cp -f 888/*.dts target/linux/mediatek/dts/
 
-# 拉起 sl3000.config 作为编译总控
-[ -f "888/sl3000.config" ] && cp -f 888/sl3000.config .config
+# --- 5. 物理控制：同步总控配置 (.config) ---
+# 锁定 PARTSIZE=24，防止 32MB 闪存溢出
+if [ -f "888/sl3000.config" ]; then
+    echo "Deploying: sl3000.config -> .config"
+    cp -f 888/sl3000.config .config
+fi
 
-# --- 5. 物理校验 (可选) ---
-echo "Physical Injection Complete: All parts from 888 folder have been deployed."
+# --- 6. 物理校准补丁 (强制性二次对齐) ---
+# 防止源码目录中其他隐藏的 mk 文件干扰 1MB (1024k) 偏移量
+echo "Patching: Global Offset Alignment"
+find target/linux/mediatek/image/ -name "*.mk" -exec sed -i 's/pad-to 512k/pad-to 1024k/g' {} +
+find target/linux/mediatek/image/ -name "*.mk" -exec sed -i 's/seek=512/seek=1024/g' {} +
+
+echo "Physical Injection Complete. Ready for make."
