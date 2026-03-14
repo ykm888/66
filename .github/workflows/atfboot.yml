@@ -15,43 +15,60 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: 🧹 物理清洗分支索引
+      - name: 🧹 物理清洗分支索引 (彻底抹除旧改动)
         run: |
-          # 建立孤儿分支，彻底断开历史遗留，实现物理清场
           git checkout --orphan temp-clean-branch
           git rm -rf .
           
       - name: 📦 拉取官方源码并创建物理文件夹
         run: |
-          # 1. 创建并填充 u-boot 文件夹
+          # 拉取 U-Boot 并剥离 Git 信息
           git clone --depth 1 https://github.com/mtk-openwrt/u-boot.git temp_u
-          rm -rf temp_u/.git
-          mkdir -p u-boot
-          cp -rL temp_u/. u-boot/
+          rm -rf temp_u/.git && mkdir -p u-boot && cp -rL temp_u/. u-boot/
           
-          # 2. 创建并填充 atf 文件夹
+          # 拉取 ATF 并剥离 Git 信息
           git clone --depth 1 https://github.com/mtk-openwrt/arm-trusted-firmware.git temp_a
-          rm -rf temp_a/.git
-          mkdir -p atf
-          cp -rL temp_a/. atf/
+          rm -rf temp_a/.git && mkdir -p atf && cp -rL temp_a/. atf/
           
-          # 清理物理残留
           rm -rf temp_u temp_a
 
-      - name: 🏗️ 注入物理补丁 (1MB 偏移硬化)
+      - name: 🏗️ 注入 SL-3000 物理零件 (全链路硬化)
         run: |
-          # 物理锁定 ATF 的 1MB 偏移逻辑
+          DTS_DIR="u-boot/arch/arm/dts"
+          
+          # 1. 物理创建专属 DTS (补全 pinctrl 基础定义)
+          # 注意：此 DTS 已经包含了基本的 eMMC 和 SPI 启动配置
+          printf '/dts-v1/;\n#include "mt7981.dtsi"\n/ {\n  model = "SL-3000 (ykm888 Hardened)";\n  compatible = "mediatek,mt7981-sl3000", "mediatek,mt7981";\n  memory@40000000 {\n    device_type = "memory";\n    reg = <0x40000000 0x20000000>;\n  };\n  chosen { stdout-path = &uart0; };\n};\n&uart0 { status = "okay"; };\n&mmc0 { status = "okay"; bus-width = <8>; cap-mmc-highspeed; non-removable; };\n&spi0 { status = "okay"; };\n' > $DTS_DIR/mt7981-sl3000.dts
+          chmod 644 $DTS_DIR/mt7981-sl3000.dts
+
+          # 2. 物理注册 Makefile (确保 sl3000 在编译清单首位)
+          # 使用 sed 在第一行插入，防止被后续的条件判断屏蔽
+          sed -i '1i dtb-y += mt7981-sl3000.dtb' $DTS_DIR/Makefile
+
+          # 3. 物理覆盖 Defconfig 逻辑
+          DEFCONFIG="u-boot/configs/mt7981_nor_emmc_rfb_defconfig"
+          if [ -f "$DEFCONFIG" ]; then
+            # 先删除旧定义，再注入新定义，防止重复导致的编译错误
+            sed -i '/CONFIG_DEFAULT_DEVICE_TREE/d' $DEFCONFIG
+            sed -i '/CONFIG_OF_LIST/d' $DEFCONFIG
+            echo 'CONFIG_DEFAULT_DEVICE_TREE="mt7981-sl3000"' >> $DEFCONFIG
+            echo 'CONFIG_OF_LIST="mt7981-sl3000"' >> $DEFCONFIG
+          fi
+
+          # 4. ATF 1MB 偏移物理同步
           ATF_DEF="atf/plat/mediatek/mt7981/include/platform_def.h"
           if [ -f "$ATF_DEF" ]; then
             sed -i '/MTK_FIP_BASE/d' $ATF_DEF
+            sed -i '/MTK_FIP_MAX_SIZE/d' $ATF_DEF
+            # 在 BL33_BASE 之前精准插入物理坐标
             sed -i '/#define BL33_BASE/i #define MTK_FIP_BASE (0x100000)\n#define MTK_FIP_MAX_SIZE (0x200000)' $ATF_DEF
           fi
 
-      - name: 🚀 强制推送物理文件夹至仓库
+      - name: 🚀 强制推送物理零件包
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git add u-boot atf
-          git commit -m "SL-3000: Official Source Recovery with Physical Hardening (u-boot & atf)"
-          # 物理执行：将临时分支的内容强行覆盖到目标远程分支
-          git push origin temp-clean-branch:sl3000-clean-source --force
+          git commit -m "SL-3000: Official Source Recovery with Physical Hardening (Final Version)"
+          # 物理执行：用全新的、干净的 orphan 分支强制覆盖现有的 sl3000-clean-source
+          git push origin temp-clean-branch:sl3000-clean-source --forc
