@@ -18,7 +18,6 @@ jobs:
 
       - name: Clone Source
         run: |
-          # 物理锁定仓库与分支
           git clone --depth 1 https://github.com/immortalwrt/immortalwrt -b openwrt-23.05 openwrt
 
       - name: Update Feeds
@@ -30,39 +29,30 @@ jobs:
       - name: Execute DIY Script
         working-directory: ./openwrt
         run: |
-          # 物理执行注入脚本
           chmod +x ../diy-part2.sh
           ../diy-part2.sh
 
-      - name: Generate Config & Build Toolchain
+      - name: Build Toolchain
         working-directory: ./openwrt
         run: |
-          # 1. 物理注入核心配置
           echo "CONFIG_TARGET_mediatek=y" > .config
           echo "CONFIG_TARGET_mediatek_filogic=y" >> .config
           echo "CONFIG_TARGET_mediatek_filogic_DEVICE_mediatek_mt7981-rfb-flash=y" >> .config
           make defconfig
-
-          # 2. 物理补齐编译链路 (解决 ld-musl 缺失错误)
-          # 注意：此过程较慢，约为 40 分钟
           make tools/install -j$(nproc)
           make toolchain/install -j$(nproc)
 
       - name: Compile Unbrick Kit
         working-directory: ./openwrt
         run: |
-          # 3. 物理构建救砖零件 (ATF/U-Boot)
+          # 现在的逻辑直接修改源码，不再需要 patch，直接编译
           make package/boot/arm-trusted-firmware-mediatek/compile V=s -j$(nproc)
           make package/boot/uboot-mediatek/compile V=s -j$(nproc)
-          
-          # 4. 生成全家桶镜像
           make -j$(nproc) || make -j1 V=s
 
       - name: Upload Artifact
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: SL3000-Unbrick-Full-Kit
-          path: |
-            openwrt/bin/targets/mediatek/filogic/*nor-programmer-dump.bin
-            openwrt/bin/targets/mediatek/filogic/*sysupgrade.bin
-            openwrt/bin/targets/mediatek/filogic/*factory.bin
+          name: SL3000-Final-Artifacts
+          path: openwrt/bin/targets/mediatek/filogic/*
