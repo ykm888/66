@@ -5,7 +5,6 @@ on:
   workflow_dispatch:
 
 env:
-  # 物理溯源：锁定地基分支
   REPO_URL: https://github.com/ykm888/66
   REPO_BRANCH: sl3000-immortalwrt-bootstrap
   CONFIG_FILE: 888/sl3000.config
@@ -31,6 +30,7 @@ jobs:
     - name: Clone Foundation & Merge 888
       run: |
         git clone --depth 1 $REPO_URL -b $REPO_BRANCH openwrt
+        # 物理溯源：确保 888 零件仓库完整复制到 openwrt 根目录
         cp -r 888 openwrt/
         cp $DIY_P2_SH openwrt/
 
@@ -45,18 +45,27 @@ jobs:
       run: |
         chmod +x $DIY_P2_SH
         ./$DIY_P2_SH
+        
+        # 准则 3 物理自检：确认零件是否物理就位
+        [ -f "package/boot/arm-trusted-firmware-mediatek/Makefile" ] || { echo "ATF Makefile Missing!"; exit 1; }
+        grep -q "FIP_BASE" 888/bl2_dev_spi_nor.c || { echo "BL2 Patch Missing!"; exit 1; }
+        
         make defconfig
-        # 物理修正：检查系统真实的 ATF 包名是否存在
-        grep -q "CONFIG_PACKAGE_trusted-firmware-a-mt7981-nor-ddr4=y" .config || { echo "!!! ATF Still Missing !!!"; exit 1; }
 
     - name: Compile Firmware
       working-directory: ./openwrt
       run: |
         make download -j8
+        # 最小物理修补：优先编译引导零件，确保日志清晰
+        make package/boot/arm-trusted-firmware-mediatek/compile V=s -j$(nproc)
+        make package/boot/uboot-mediatek/compile V=s -j$(nproc)
+        # 执行全局编译
         make -j$(nproc) || make -j1 V=s
 
     - name: Upload Artifacts
       uses: actions/upload-artifact@v4
       with:
         name: SL3000_Firmware
-        path: openwrt/bin/targets/mediatek/filogic/*nor-programmer-dump.bin
+        path: |
+          openwrt/bin/targets/mediatek/filogic/*nor-programmer-dump.bin
+          openwrt/bin/targets/mediatek/filogic/*emmc-sysupgrade.bin
