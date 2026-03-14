@@ -14,7 +14,7 @@ ERRATA_A53_826319	:=	1
 ERRATA_A53_836870	:=	1
 ERRATA_A53_855873	:=	1
 
-# indicate the reset vector address can be programmed
+# Indicate the reset vector address can be programmed
 PROGRAMMABLE_RESET_ADDRESS	:=	1
 
 # Do not enable SVE
@@ -23,9 +23,10 @@ MULTI_CONSOLE_API	:=	1
 
 RESET_TO_BL2		:=	1
 
-# FIP alignment
+# FIP alignment (Ensures FIP structure integrity)
 FIP_ARGS		+=	--align 8
 
+# --- 物理包含路径 ---
 PLAT_INCLUDES		:=	-I$(APSOC_COMMON)				\
 				-I$(APSOC_COMMON)/drivers/uart			\
 				-I$(APSOC_COMMON)/drivers/trng/v2		\
@@ -39,35 +40,38 @@ PLAT_INCLUDES		:=	-I$(APSOC_COMMON)				\
 				-I$(MTK_PLAT_SOC)/include			\
 				-I$(MTK_PLAT_SOC)/drivers/dram
 
-# --- 原始模块包含 ---
+# --- 核心组件包含 ---
 include $(MTK_PLAT_SOC)/bl2pl/bl2pl.mk
 include $(MTK_PLAT_SOC)/bl2/bl2.mk
 include $(MTK_PLAT_SOC)/bl31/bl31.mk
 include $(MTK_PLAT_SOC)/drivers/efuse/efuse.mk
 
-# --- 【物理加固注入点】 ---
-# 在包含完原生 bl2.mk 后，物理强制追加我们的加固驱动
+# --- 【物理加固点 1】：强制追加 SPI-NOR 驱动到 BL2 源码列表 ---
+# 这一步确保即使 bl2.mk 逻辑失效，驱动也会被编译进去
 BL2_SOURCES		+=	$(MTK_PLAT_SOC)/bl2/bl2_dev_spi_nor.c
 
 include $(APSOC_COMMON)/bl2/tbbr_post.mk
 include $(APSOC_COMMON)/bl2/ar_post.mk
 include $(APSOC_COMMON)/bl2/bl2_image_post.mk
 
+# OP-TEE & Memory Security
 OPTEE_TZRAM_SIZE := 0x10000
 ifneq ($(BL32),)
-ifeq ($(TRUSTED_BOARD_BOOT),1)
-DEFINES += -DNEED_BL32
-OPTEE_TZRAM_SIZE := 0x500000
-endif
+    ifeq ($(TRUSTED_BOARD_BOOT),1)
+        DEFINES += -DNEED_BL32
+        OPTEE_TZRAM_SIZE := 0x500000
+    endif
 endif
 DEFINES += -DOPTEE_TZRAM_SIZE=$(OPTEE_TZRAM_SIZE)
 
 # Make sure make command parameter reflects on .o files immediately
 include make_helpers/dep.mk
 
-# --- 【逻辑注册点】 ---
-# 在 GEN_DEP_RULES 中加入 bl2_dev_spi_nor，使其成为正式编译对象
+# --- 【物理加固点 2】：逻辑注册与依赖锁定 ---
+# 将 bl2_dev_spi_nor 加入 GEN_DEP_RULES，确保生成对应的 .o 目标文件
 $(call GEN_DEP_RULES,bl2,bl2_dev_spi_nor emicfg dram_log bl2_boot_ram bl2_boot_nand_nmbm bl2_dev_mmc bl2_plat_init bl2_plat_setup mt7981_gpio dtb)
+
+# 物理链接：将驱动与 BOOT_DEVICE 参数锁定，确保在 NOR 启动时激活 1MB 偏移逻辑
 $(call MAKE_DEP,bl2,bl2_dev_spi_nor,BOOT_DEVICE)
 
 $(call MAKE_DEP,bl2,emicfg,DRAM_USE_DDR4 DRAM_SIZE_LIMIT DDR3_FREQ_2133 DDR3_FREQ_1866 BOARD_QFN BOARD_BGA)
