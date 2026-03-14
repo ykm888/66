@@ -25,8 +25,8 @@ endef
 # --- 司络 SL-3000 专属 U-Boot 定义 ---
 define U-Boot/mt7981_sl3000_nor
   NAME:=SL-3000 (SPI-NOR)
-  # 物理对齐：必须与 atf-Makefile 生成的子包名完全一致
-  DEPENDS:=+arm-trusted-firmware-mediatek-mt7981-nor-ddr4
+  # 物理修正：对齐底层模板强制生成的包名
+  DEPENDS:=+trusted-firmware-a-mt7981-nor-ddr4
 endef
 
 UBOOT_TARGETS:= mt7981_sl3000_nor
