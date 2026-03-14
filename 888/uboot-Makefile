@@ -1,21 +1,18 @@
 #
-# Copyright (C) 2021-2026 ykm888 (23.05 Physical Hardened)
+# Copyright (C) 2021-2026 ykm888 (23.05 DDR4 Hardened)
 #
 
 include $(TOPDIR)/rules.mk
 
-# 物理执行准则 1：原文照抄并补全关键变量
 PKG_NAME:=uboot-mediatek
 PKG_VERSION:=sl3000-c
 PKG_RELEASE:=1
 
-# 物理溯源：锁定救砖 U-Boot 源码 (ykm888/66.git)
 PKG_SOURCE_PROTO:=git
 PKG_SOURCE_URL:=https://github.com/ykm888/66.git
 PKG_SOURCE_VERSION:=sl3000-clean-source
 PKG_MIRROR_HASH:=skip
 
-# 准则 2 物理修正：覆盖宏定义路径，确保 make 进入后直接看到 Makefile
 PKG_BUILD_DIR:=$(BUILD_DIR)/$(PKG_NAME)-$(BUILD_VARIANT)
 
 include $(INCLUDE_DIR)/u-boot.mk
@@ -28,23 +25,20 @@ define U-Boot/Default
   HIDDEN:=1
 endef
 
-# --- 司络 SL-3000 专属 U-Boot 定义 ---
 define U-Boot/mt7981_sl3000_nor
-  NAME:=SL-3000 (SPI-NOR)
-  # 物理修正：像素级对齐 ATF 产出的包名
+  NAME:=SL-3000 (SPI-NOR/DDR4)
+  # 物理修正：对齐 ATF 的 DDR4 产物包名
   DEPENDS:=+arm-trusted-firmware-mediatek-mt7981-nor-ddr4
 endef
 
 UBOOT_TARGETS:= mt7981_sl3000_nor
 
-# --- 物理加固准备逻辑 ---
 define Build/Prepare
 	$(call Build/Prepare/Default)
-	# 物理对齐：清理可能存在的二级嵌套
 	@if [ -d "$(PKG_BUILD_DIR)/$(PKG_NAME)" ]; then \
 		mv $(PKG_BUILD_DIR)/$(PKG_NAME)/* $(PKG_BUILD_DIR)/; \
 	fi
-	@[ -f $(PKG_BUILD_DIR)/Makefile ] || (echo "FATAL: U-Boot Makefile not found at $(PKG_BUILD_DIR)"; exit 1)
+	@[ -f $(PKG_BUILD_DIR)/Makefile ] || (echo "FATAL: U-Boot Makefile not found"; exit 1)
 endef
 
 $(eval $(call BuildPackage/U-Boot))
