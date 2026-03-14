@@ -1,81 +1,57 @@
-name: Build SL-3000 Firmware
+name: SL-3000 Build Unbrick Full-Kit
 
 on:
-  repository_dispatch:
   workflow_dispatch:
-
-env:
-  REPO_URL: https://github.com/ykm888/66
-  REPO_BRANCH: sl3000-immortalwrt-bootstrap
-  CONFIG_FILE: 888/sl3000.config
-  DIY_P1_SH: diy-part1.sh
-  DIY_P2_SH: diy-part2.sh
-  TZ: Asia/Shanghai
 
 jobs:
   build:
     runs-on: ubuntu-latest
-
     steps:
-    - name: Checkout Main (The Command Center)
-      uses: actions/checkout@v4
-      with:
-        ref: main
+      - name: Checkout Main
+        uses: actions/checkout@v4
+        with:
+          path: main-repo # 将你的仓库（含888目录）检出到此物理路径
 
-    - name: Initialization Environment
-      env:
-        DEBIAN_FRONTEND: noninteractive
-      run: |
-        sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc
-        sudo -E apt-get -qq update
-        # 物理修正：补齐编译 ATF/DTS 必需的零件编译器 (dtc)
-        sudo -E apt-get -qq install $(curl -fsSL https://is.gd/depends_ubuntu_2204) device-tree-compiler
-        sudo -E apt-get -qq autoremove --purge
-        sudo -E apt-get -qq clean
-        sudo timedatectl set-timezone "$TZ"
+      - name: Initialization Environment
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential libncurses5-dev gawk git gettext libssl-dev xsltproc wget unzip qemu-utils device-tree-compiler flex bison
+          sudo timedatectl set-timezone "Asia/Shanghai"
 
-    - name: Clone OS Source (The Foundation)
-      run: |
-        git clone --depth 1 $REPO_URL -b $REPO_BRANCH openwrt
-        # 物理关键：将 888 目录下的 9 个核心零件物理注入到编译环境
-        cp -r 888 openwrt/
-        cp $DIY_P1_SH openwrt/
-        cp $DIY_P2_SH openwrt/
+      - name: Clone Source
+        run: |
+          git clone --depth 1 https://github.com/immortalwrt/immortalwrt -b openwrt-23.05 openwrt
 
-    - name: Load Custom Feeds & Scripts
-      working-directory: ./openwrt
-      run: |
-        chmod +x $DIY_P1_SH
-        ./$DIY_P1_SH
-        ./scripts/feeds update -a
-        ./scripts/feeds install -a
+      - name: Execute DIY Script
+        run: |
+          # 物理移动脚本到 openwrt 同级目录并执行
+          cp main-repo/diy-part2.sh .
+          # 将 888 目录物理移动到 openwrt 同级，方便脚本读取
+          cp -r main-repo/888 .
+          chmod +x diy-part2.sh
+          cd openwrt && ../diy-part2.sh
 
-    - name: Load Configuration & Physical Stitching
-      working-directory: ./openwrt
-      run: |
-        # 物理复刻：优先使用 888 目录下的 config 配置
-        [ -f 888/sl3000.config ] && cp 888/sl3000.config .config
-        chmod +x $DIY_P2_SH
-        # 执行第 14 版脚本，完成全零件拉起
-        ./$DIY_P2_SH
+      - name: Build Toolchain
+        working-directory: ./openwrt
+        run: |
+          echo "CONFIG_TARGET_mediatek=y" > .config
+          echo "CONFIG_TARGET_mediatek_filogic=y" >> .config
+          echo "CONFIG_TARGET_mediatek_filogic_DEVICE_mediatek_mt7981-rfb-flash=y" >> .config
+          make defconfig
+          make tools/install -j$(nproc)
+          make toolchain/install -j$(nproc)
 
-    - name: Download Packages
-      working-directory: ./openwrt
-      run: |
-        make defconfig
-        make download -j8
-        find dl -size -1024c -exec ls -l {} \;
-        find dl -size -1024c -exec rm -f {} \;
+      - name: Compile Unbrick Kit
+        working-directory: ./openwrt
+        run: |
+          # 物理执行全量替换后的编译
+          make package/boot/arm-trusted-firmware-mediatek/compile V=s -j$(nproc)
+          make package/boot/uboot-mediatek/compile V=s -j$(nproc)
+          make -j$(nproc) || make -j1 V=s
 
-    - name: Compile Firmware
-      working-directory: ./openwrt
-      run: |
-        echo -e "$(nproc) thread compile"
-        # 物理防御：一旦失败自动开启详细日志 V=s 模式
-        make -j$(nproc) || make -j1 V=s
-
-    - name: Upload Artifacts
-      uses: actions/upload-artifact@v4
-      with:
-        name: OpenWrt_SL3000_Firmware
-        path: openwrt/bin/targets/mediatek/filogic/*
+      - name: Upload Artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: SL3000-Final-Artifacts
+          path: openwrt/bin/targets/mediatek/filogic/*
