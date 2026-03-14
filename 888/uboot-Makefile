@@ -1,17 +1,17 @@
 #
-# Copyright (C) 2021-2026 ykm888 (23.05 DDR4 Hardened)
+# Copyright (C) 2021-2026 ykm888 (SL-3000 Physical Hardening)
 #
 
 include $(TOPDIR)/rules.mk
+include $(INCLUDE_DIR)/kernel.mk
 
 PKG_NAME:=uboot-mediatek
-PKG_VERSION:=sl3000-c
+PKG_VERSION:=sl3000-v1
 PKG_RELEASE:=1
 
 PKG_SOURCE_PROTO:=git
 PKG_SOURCE_URL:=https://github.com/ykm888/66.git
 PKG_SOURCE_VERSION:=sl3000-clean-source
-PKG_MIRROR_HASH:=skip
 
 PKG_BUILD_DIR:=$(BUILD_DIR)/$(PKG_NAME)-$(BUILD_VARIANT)
 
@@ -21,24 +21,37 @@ include $(INCLUDE_DIR)/package.mk
 define U-Boot/Default
   BUILD_TARGET:=mediatek
   BUILD_SUBTARGET:=filogic
-  NAME:=MT7981 (SL-3000)
-  HIDDEN:=1
+  BUILD_DEVICES:=mediatek_mt7981-rfb-flash
+  UBOOT_IMAGE:=u-boot.bin
 endef
 
-define U-Boot/mt7981_sl3000_nor
-  NAME:=SL-3000 (SPI-NOR/DDR4)
-  # 物理修正：对齐 ATF 的 DDR4 产物包名
+# --- 【物理命门：变体定义与依赖对齐】 ---
+define U-Boot/mt7981-spim-nand-ddr4
+  NAME:=SL-3000 (DDR4/SPI-NOR)
+  # 物理依赖锁定：必须指向 ATF 定义的名称，确保 1MB 偏移补丁生效
   DEPENDS:=+arm-trusted-firmware-mediatek-mt7981-nor-ddr4
+  UBOOT_CONFIG:=mtk_mt7981_rfb_defconfig
+  # 物理标志传递
+  MAKE_FLAGS += \
+    DRAM_USE_DDR4=1 \
+    DEVICE_TREE=mt7981-sl3000
 endef
 
-UBOOT_TARGETS:= mt7981_sl3000_nor
+UBOOT_TARGETS:= mt7981-spim-nand-ddr4
 
 define Build/Prepare
 	$(call Build/Prepare/Default)
-	@if [ -d "$(PKG_BUILD_DIR)/$(PKG_NAME)" ]; then \
-		mv $(PKG_BUILD_DIR)/$(PKG_NAME)/* $(PKG_BUILD_DIR)/; \
-	fi
-	@[ -f $(PKG_BUILD_DIR)/Makefile ] || (echo "FATAL: U-Boot Makefile not found"; exit 1)
+	# 物理注入：将 888 目录下的自定义设备树强制打入 U-Boot 源码
+	mkdir -p $(PKG_BUILD_DIR)/arch/arm/dts/
+	$(CP) $(TOPDIR)/888/mt7981-spi2.dts $(PKG_BUILD_DIR)/arch/arm/dts/mt7981-sl3000.dts
+	# 物理修正：确保 Makefile 能够识别新的设备树文件
+	echo 'dtb-y += mt7981-sl3000.dtb' >> $(PKG_BUILD_DIR)/arch/arm/dts/Makefile
 endef
 
-$(eval $(call BuildPackage/U-Boot))
+define Package/u-boot-$(1)/install
+	$(Package/u-boot/install/default)
+endef
+
+$(foreach ot,$(UBOOT_TARGETS), \
+  $(eval $(call BuildPackage/U-Boot/$(ot))) \
+)
