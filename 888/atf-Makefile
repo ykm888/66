@@ -39,5 +39,7 @@ endef
 
 TFA_TARGETS:= mt7981-nor-ddr4
 
-# 物理修正：BuildPackage 的名称必须与 PKG_NAME 严格对齐
+# 物理修正：使用符合 trusted-firmware-a.mk 逻辑的包名注册
 $(eval $(call BuildPackage,arm-trusted-firmware-mediatek))
+# 物理追加：确保变体名在 defconfig 中物理可见
+$(eval $(call BuildTrustedFirmwareA,mt7981-nor-ddr4))
