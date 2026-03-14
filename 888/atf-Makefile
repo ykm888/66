@@ -1,18 +1,21 @@
 #
 # Copyright (C) 2021-2026 ykm888 (23.05 Optimized)
-# 针对 司络 SL-3000 (32M/1G/128G) 物理加固
 #
 
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=arm-trusted-firmware-mediatek
+PKG_VERSION:=sl3000-c
 PKG_RELEASE:=1
 
-# 物理溯源：锁定救砖专用源码 (ykm888/66.git)
+# 物理溯源：锁定救砖专用源码分支
 PKG_SOURCE_PROTO:=git
 PKG_SOURCE_URL:=https://github.com/ykm888/66.git
 PKG_SOURCE_VERSION:=sl3000-clean-source
 PKG_MIRROR_HASH:=skip
+
+# 物理核心：硬锁定编译路径，防止 No targets specified 报错
+PKG_BUILD_DIR:=$(BUILD_DIR)/$(PKG_NAME)-$(BUILD_VARIANT)/$(PKG_NAME)-$(PKG_VERSION)
 
 include $(INCLUDE_DIR)/kernel.mk
 include $(INCLUDE_DIR)/trusted-firmware-a.mk
@@ -23,7 +26,6 @@ define Trusted-Firmware-A/Default
   BUILD_TARGET:=mediatek
   BUILD_SUBTARGET:=filogic
   PLAT:=mt7981
-  # 物理导出：确保生成 bl2.img
   TFA_IMAGE:=bl2.img
 endef
 
@@ -32,12 +34,15 @@ define Trusted-Firmware-A/mt7981-nor-ddr4
   NAME:=SL-3000 (SPI-NOR/DDR4)
   BOOT_DEVICE:=nor
   DDR_TYPE:=ddr4
-  # 物理偏移锁定：1MB (0x100000)
   FIP_OFFSET:=0x100000
 endef
 
-# 物理宣告：目标零件列表
 TFA_TARGETS:= mt7981-nor-ddr4
 
-# --- 3. 物理修正：对齐 include/trusted-firmware-a.mk 的专用宏 ---
+# 物理修正：在源码解压后，强制把寻宝图（1MB偏移补丁）打进去
+define Build/Prepare
+	$(call Build/Prepare/Default)
+	$(CP) $(TOPDIR)/888/bl2_dev_spi_nor.c $(PKG_BUILD_DIR)/plat/mediatek/mt7981/bl2/bl2_dev_spi_nor.c
+endef
+
 $(eval $(call BuildPackage/Trusted-Firmware-A))
