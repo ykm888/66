@@ -3,64 +3,47 @@ name: SL-3000 Build Unbrick Full-Kit
 on:
   workflow_dispatch:
 
-env:
-  REPO_URL: https://github.com/immortalwrt/immortalwrt
-  REPO_BRANCH: openwrt-23.05
-  FEEDS_CONF: feeds.conf.default
-  CONFIG_FILE: .config
-  DIY_P2_SH: diy-part2.sh
-
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-    - name: Checkout
-      uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
-    - name: Initialization Environment
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y build-essential libncurses5-dev gawk git gettext libssl-dev xsltproc wget unzip qemu-utils
-        sudo timedatectl set-timezone "Asia/Shanghai"
+      - name: Initialization Environment
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential libncurses5-dev gawk git gettext libssl-dev xsltproc wget unzip qemu-utils
 
-    - name: Clone Source & Load DIY
-      run: |
-        git clone --depth 1 $REPO_URL -b $REPO_BRANCH openwrt
-        cp $DIY_P2_SH openwrt/
+      - name: Clone Source
+        run: |
+          git clone --depth 1 https://github.com/immortalwrt/immortalwrt -b openwrt-23.05 openwrt
 
-    - name: Update & Install Feeds
-      working-directory: ./openwrt
-      run: |
-        ./scripts/feeds update -a
-        ./scripts/feeds install -a
+      - name: Update Feeds
+        working-directory: ./openwrt
+        run: |
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
 
-    - name: Physical Hardening (Injection)
-      working-directory: ./openwrt
-      run: |
-        # 强制注入救砖 .config 核心项
-        echo "CONFIG_TARGET_mediatek=y" > .config
-        echo "CONFIG_TARGET_mediatek_filogic=y" >> .config
-        echo "CONFIG_TARGET_mediatek_filogic_DEVICE_mediatek_mt7981-rfb-flash=y" >> .config
-        echo "CONFIG_PACKAGE_kmod-mt7981-firmware=y" >> .config
-        
-        chmod +x $DIY_P2_SH
-        ./$DIY_P2_SH
-        make defconfig
+      - name: Execute DIY Script
+        working-directory: ./openwrt
+        run: |
+          chmod +x ../diy-part2.sh
+          ../diy-part2.sh
 
-    - name: Compile Unbrick Kit
-      working-directory: ./openwrt
-      run: |
-        # 优先编译救砖核心：ATF 与 U-Boot
-        make package/boot/arm-trusted-firmware-mediatek/compile V=s -j$(nproc)
-        make package/boot/uboot-mediatek/compile V=s -j$(nproc)
-        # 编译完整镜像
-        make -j$(nproc) || make -j1 V=s
+      - name: Generate Config & Compile
+        working-directory: ./openwrt
+        run: |
+          echo "CONFIG_TARGET_mediatek=y" > .config
+          echo "CONFIG_TARGET_mediatek_filogic=y" >> .config
+          echo "CONFIG_TARGET_mediatek_filogic_DEVICE_mediatek_mt7981-rfb-flash=y" >> .config
+          make defconfig
+          make package/boot/arm-trusted-firmware-mediatek/compile V=s -j$(nproc)
+          make package/boot/uboot-mediatek/compile V=s -j$(nproc)
+          make -j$(nproc) || make -j1 V=s
 
-    - name: Upload Unbrick Kit
-      uses: actions/upload-artifact@v4
-      with:
-        name: SL3000-Unbrick-Full-Kit
-        path: |
-          openwrt/bin/targets/mediatek/filogic/*nor-programmer-dump.bin
-          openwrt/bin/targets/mediatek/filogic/*.fip
-          openwrt/bin/targets/mediatek/filogic/*.bin
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: SL3000-Final-Kit
+          path: openwrt/bin/targets/mediatek/filogic/*
