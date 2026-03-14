@@ -1,4 +1,4 @@
-name: SL-3000-DDR4-ULTIMATE-FIX
+name: SL-3000-DDR4-24.10-Final
 
 on:
   workflow_dispatch:
@@ -16,50 +16,43 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential libncurses5-dev gawk git gettext libssl-dev xsltproc wget unzip qemu-utils device-tree-compiler flex bison
-          git clone --depth 1 https://github.com/immortalwrt/immortalwrt -b openwrt-23.05 openwrt
+          git clone --depth 1 https://github.com/immortalwrt/immortalwrt -b openwrt-24.10 openwrt
 
-      - name: Update & Install Feeds
-        working-directory: ./openwrt
+      - name: Physical Force Sync & Index Reset
         run: |
-          ./scripts/feeds update -a
-          ./scripts/feeds install -a
-
-      - name: Physical Force Injection
-        run: |
-          # 1. 物理覆盖 Makefile：确保系统在扫描前就换成我们的零件
+          # 1. 物理替换 Makefile
           cp -v main-repo/888/atf-Makefile openwrt/package/boot/arm-trusted-firmware-mediatek/Makefile
           cp -v main-repo/888/uboot-Makefile openwrt/package/boot/uboot-mediatek/Makefile
           
-          # 2. 【核心修复】摧毁 OpenWrt 索引缓存，强制重新扫描新 Makefile 规则
+          # 2. 【核心修复】摧毁旧索引，迫使系统读取新定义的 mt7981-sl3000-nor
           rm -rf openwrt/tmp
           
-          # 3. 执行脚本锁定配置
-          chmod +x main-repo/diy-part2.sh
-          cd openwrt && ../main-repo/diy-part2.sh
-
-      - name: Configure and Lock Variants
-        working-directory: ./openwrt
-        run: |
-          # 强制在 .config 中开启我们定义的变体，防止被自动剔除
+          # 3. 注入初始配置
+          cd openwrt
+          ./scripts/feeds update -a && ./scripts/feeds install -a
           echo "CONFIG_TARGET_mediatek=y" > .config
           echo "CONFIG_TARGET_mediatek_filogic=y" >> .config
           echo "CONFIG_TARGET_mediatek_filogic_DEVICE_mediatek_mt7981-rfb-flash=y" >> .config
-          echo "CONFIG_PACKAGE_arm-trusted-firmware-mediatek-mt7981-nor-ddr4=y" >> .config
-          echo "CONFIG_PACKAGE_uboot-mediatek-mt7981-spim-nand-ddr4=y" >> .config
           
+          # 4. 强制开启变体
+          echo "CONFIG_PACKAGE_arm-trusted-firmware-mediatek-mt7981-sl3000-nor=y" >> .config
           make defconfig
 
-      - name: Compile Unbrick Payload
+      - name: Physical Pull-up & Inject
+        run: |
+          # 5. 执行你的 24.10 物理拉起脚本
+          chmod +x main-repo/diy-part2.sh
+          ./main-repo/diy-part2.sh
+
+      - name: Final Compile
         working-directory: ./openwrt
         run: |
-          # 物理串行编译，确保依赖关系 100% 正确
-          make package/boot/arm-trusted-firmware-mediatek/mt7981-nor-ddr4/compile V=s -j1
-          make package/boot/uboot-mediatek/mt7981-spim-nand-ddr4/compile V=s -j1
+          # 6. 物理对齐编译：名称必须与 atf-Makefile 像素级一致
+          make package/boot/arm-trusted-firmware-mediatek/mt7981-sl3000-nor/compile V=s -j$(nproc)
+          make package/boot/uboot-mediatek/mt7981-spim-nand-ddr4/compile V=s -j$(nproc)
 
-      - name: Upload Artifacts
+      - name: Upload Unbrick Payload
         uses: actions/upload-artifact@v4
         with:
-          name: SL3000-DDR4-Hardened-Firmware
-          path: |
-            openwrt/bin/targets/mediatek/filogic/*-bl2.img
-            openwrt/bin/targets/mediatek/filogic/*-fip.bin
+          name: SL3000-24.10-Payload
+          path: openwrt/bin/targets/mediatek/filogic/
