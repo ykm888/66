@@ -1,5 +1,6 @@
 #
 # Copyright (c) 2023, MediaTek Inc. All rights reserved.
+# Copyright (c) 2026, ykm888 (Physical Hardening for SL-3000)
 #
 # SPDX-License-Identifier: BSD-3-Clause
 #
@@ -38,10 +39,15 @@ PLAT_INCLUDES		:=	-I$(APSOC_COMMON)				\
 				-I$(MTK_PLAT_SOC)/include			\
 				-I$(MTK_PLAT_SOC)/drivers/dram
 
+# --- 原始模块包含 ---
 include $(MTK_PLAT_SOC)/bl2pl/bl2pl.mk
 include $(MTK_PLAT_SOC)/bl2/bl2.mk
 include $(MTK_PLAT_SOC)/bl31/bl31.mk
 include $(MTK_PLAT_SOC)/drivers/efuse/efuse.mk
+
+# --- 【物理加固注入点】 ---
+# 在包含完原生 bl2.mk 后，物理强制追加我们的加固驱动
+BL2_SOURCES		+=	$(MTK_PLAT_SOC)/bl2/bl2_dev_spi_nor.c
 
 include $(APSOC_COMMON)/bl2/tbbr_post.mk
 include $(APSOC_COMMON)/bl2/ar_post.mk
@@ -59,7 +65,11 @@ DEFINES += -DOPTEE_TZRAM_SIZE=$(OPTEE_TZRAM_SIZE)
 # Make sure make command parameter reflects on .o files immediately
 include make_helpers/dep.mk
 
-$(call GEN_DEP_RULES,bl2,emicfg dram_log bl2_boot_ram bl2_boot_nand_nmbm bl2_dev_mmc bl2_plat_init bl2_plat_setup mt7981_gpio dtb)
+# --- 【逻辑注册点】 ---
+# 在 GEN_DEP_RULES 中加入 bl2_dev_spi_nor，使其成为正式编译对象
+$(call GEN_DEP_RULES,bl2,bl2_dev_spi_nor emicfg dram_log bl2_boot_ram bl2_boot_nand_nmbm bl2_dev_mmc bl2_plat_init bl2_plat_setup mt7981_gpio dtb)
+$(call MAKE_DEP,bl2,bl2_dev_spi_nor,BOOT_DEVICE)
+
 $(call MAKE_DEP,bl2,emicfg,DRAM_USE_DDR4 DRAM_SIZE_LIMIT DDR3_FREQ_2133 DDR3_FREQ_1866 BOARD_QFN BOARD_BGA)
 $(call MAKE_DEP,bl2,dram_log,DRAM_DEBUG_LOG)
 $(call MAKE_DEP,bl2,bl2_plat_init,BL2_COMPRESS)
