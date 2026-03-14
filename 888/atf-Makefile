@@ -21,22 +21,24 @@ define Trusted-Firmware-A/Default
   TFA_IMAGE:=bl2.img
 endef
 
-define Trusted-Firmware-A/mt7981-spim-nand-ddr4
-  NAME:=SL-3000 (SPI-NOR/DDR4)
+# 物理名称修正：必须叫这个，U-Boot 才能找到依赖
+define Trusted-Firmware-A/mt7981-nor-ddr4
+  NAME:=SL-3000 (DDR4-Hardened)
   BOOT_DEVICE:=nor
   DDR_TYPE:=ddr4
-  MAKE_FLAGS += BOOT_DEVICE=nor DRAM_USE_DDR4=1 MTK_FIP_BASE=0x100000
 endef
 
-TFA_TARGETS:= mt7981-spim-nand-ddr4
+TFA_TARGETS:= mt7981-nor-ddr4
 
 define Build/Prepare
 	$(call Build/Prepare/Default)
-	# 物理心脏注入：强制覆盖源码目录
-	mkdir -p $(PKG_BUILD_DIR)/plat/mediatek/mt7981/bl2/
+	# 物理强插：在源码解压后立即注入 1MB 偏移补丁
 	$(CP) $(TOPDIR)/888/bl2_dev_spi_nor.c $(PKG_BUILD_DIR)/plat/mediatek/mt7981/bl2/bl2_dev_spi_nor.c
 	$(CP) $(TOPDIR)/888/platform_def.h $(PKG_BUILD_DIR)/plat/mediatek/mt7981/include/platform_def.h
 	$(CP) $(TOPDIR)/888/platform.mk $(PKG_BUILD_DIR)/plat/mediatek/mt7981/platform.mk
+	# 物理硬化：确保 Makefile 变量包含偏移定义
+	echo "MTK_FIP_BASE = 0x100000" >> $(PKG_BUILD_DIR)/plat/mediatek/mt7981/platform.mk
+	echo "DRAM_USE_DDR4 := 1" >> $(PKG_BUILD_DIR)/plat/mediatek/mt7981/platform.mk
 endef
 
 $(eval $(call BuildPackage/Trusted-Firmware-A))
