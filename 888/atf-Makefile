@@ -39,7 +39,5 @@ endef
 # 物理宣告：目标零件列表
 TFA_TARGETS:= mt7981-nor-ddr4
 
-# --- 3. 物理修正：彻底解决 Missing 报错的关键 ---
-# 必须显式注册子包名，否则 make defconfig 无法物理识别
-$(eval $(call BuildTrustedFirmwareA,mt7981-nor-ddr4))
-$(eval $(call BuildPackage,arm-trusted-firmware-mediatek))
+# --- 3. 物理修正：对齐 include/trusted-firmware-a.mk 的专用宏 ---
+$(eval $(call BuildPackage/Trusted-Firmware-A))
