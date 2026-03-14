@@ -1,7 +1,3 @@
-#
-# Copyright (C) 2021-2026 ykm888 (23.05 Physical Hardened for DDR4)
-#
-
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=arm-trusted-firmware-mediatek
@@ -11,7 +7,6 @@ PKG_RELEASE:=1
 PKG_SOURCE_PROTO:=git
 PKG_SOURCE_URL:=https://github.com/ykm888/66.git
 PKG_SOURCE_VERSION:=sl3000-clean-source
-PKG_MIRROR_HASH:=skip
 
 PKG_BUILD_DIR:=$(BUILD_DIR)/$(PKG_NAME)-$(BUILD_VARIANT)
 
@@ -26,28 +21,22 @@ define Trusted-Firmware-A/Default
   TFA_IMAGE:=bl2.img
 endef
 
-# 物理修正：锁定 DDR4 与 1MB 偏移
-define Trusted-Firmware-A/mt7981-nor-ddr4
+define Trusted-Firmware-A/mt7981-spim-nand-ddr4
   NAME:=SL-3000 (SPI-NOR/DDR4)
   BOOT_DEVICE:=nor
   DDR_TYPE:=ddr4
-  FIP_OFFSET:=0x100000
+  MAKE_FLAGS += BOOT_DEVICE=nor DRAM_USE_DDR4=1 MTK_FIP_BASE=0x100000
 endef
 
-TFA_TARGETS:= mt7981-nor-ddr4
+TFA_TARGETS:= mt7981-spim-nand-ddr4
 
 define Build/Prepare
 	$(call Build/Prepare/Default)
-	@if [ -d "$(PKG_BUILD_DIR)/$(PKG_NAME)-$(PKG_VERSION)" ]; then \
-		mv $(PKG_BUILD_DIR)/$(PKG_NAME)-$(PKG_VERSION)/* $(PKG_BUILD_DIR)/; \
-	elif [ -d "$(PKG_BUILD_DIR)/$(PKG_NAME)" ]; then \
-		mv $(PKG_BUILD_DIR)/$(PKG_NAME)/* $(PKG_BUILD_DIR)/; \
-	fi
-	@[ -f $(PKG_BUILD_DIR)/Makefile ] || (echo "FATAL: Makefile not found at $(PKG_BUILD_DIR)"; exit 1)
-	
-	# 物理注入：确保驱动心脏进入正确的源码目录
+	# 物理心脏注入：强制覆盖源码目录
 	mkdir -p $(PKG_BUILD_DIR)/plat/mediatek/mt7981/bl2/
 	$(CP) $(TOPDIR)/888/bl2_dev_spi_nor.c $(PKG_BUILD_DIR)/plat/mediatek/mt7981/bl2/bl2_dev_spi_nor.c
+	$(CP) $(TOPDIR)/888/platform_def.h $(PKG_BUILD_DIR)/plat/mediatek/mt7981/include/platform_def.h
+	$(CP) $(TOPDIR)/888/platform.mk $(PKG_BUILD_DIR)/plat/mediatek/mt7981/platform.mk
 endef
 
 $(eval $(call BuildPackage/Trusted-Firmware-A))
