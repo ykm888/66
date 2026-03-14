@@ -18,10 +18,10 @@
 	chosen {
 		stdout-path = "serial0:115200n8";
 		/* 物理对齐：root 挂载点匹配 filogic.mk 中 GPT 布局的 production 分区 */
-		bootargs = "console=ttyS0,115200n1 loglevel=8 earlycon=uart8250,mmio32,0x11002000 root=PARTLABEL=production rootwait rw rootfstype=f2fs,squashfs";
+		bootargs = "console=ttyS0,115200n1 loglevel=8 earlycon=uart8250,mmio32,0x11002000 root=PARTLABEL=production rootwait rw rootfstype=f2fs,squashfs,ext4";
 	};
 
-	/* 物理锁定：救砖阶段强制锁定 512MB RAM (0x20000000) */
+	/* 物理锁定：强制锁定 512MB RAM 映射，确保救砖阶段绝对稳定 */
 	memory@40000000 {
 		device_type = "memory";
 		reg = <0 0x40000000 0 0x20000000>;
@@ -45,7 +45,7 @@
 	};
 };
 
-/* 物理加固：SPI-NOR 32MB 闪存节点（必须存在以支持配置保存） */
+/* 物理加固：SPI-NOR 32MB 闪存节点（救砖区隔离） */
 &spi0 {
 	pinctrl-names = "default";
 	pinctrl-0 = <&spi0_flash_pins>;
@@ -61,7 +61,7 @@
 			#address-cells = <1>;
 			#size-cells = <1>;
 
-			/* 物理偏移对齐：1MB (0x100000) 起始给固件，避开 BL2/U-Boot 救砖区 */
+			/* 物理偏移对齐：1MB (0x100000) 起始，确保不破坏 NOR 上的引导零件 */
 			partition@100000 {
 				label = "firmware";
 				reg = <0x100000 0x1f00000>; 
@@ -70,7 +70,7 @@
 	};
 };
 
-/* eMMC 存储链路：对齐引脚复用组 45 */
+/* eMMC 存储链路：对齐引脚复用组 45 (128G 物理支持) */
 &mmc0 {
 	bus-width = <8>;
 	cap-mmc-highspeed;
