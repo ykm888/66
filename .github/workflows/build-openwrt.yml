@@ -1,4 +1,4 @@
-name: SL-3000 DDR4 1MB-Hardened Build
+name: SL-3000-DDR4-Final-Payload
 
 on:
   workflow_dispatch:
@@ -7,55 +7,53 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout Repository
+      - name: Checkout Hardened Parts
         uses: actions/checkout@v4
         with:
           path: main-repo
 
-      - name: Initialization Environment
+      - name: Initialize Environment
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential libncurses5-dev gawk git gettext libssl-dev xsltproc wget unzip qemu-utils device-tree-compiler flex bison
-          sudo timedatectl set-timezone "Asia/Shanghai"
-
-      - name: Clone OpenWrt Source
-        run: |
           git clone --depth 1 https://github.com/immortalwrt/immortalwrt -b openwrt-23.05 openwrt
 
-      - name: Update Feeds
+      - name: Update & Install Feeds
         working-directory: ./openwrt
         run: |
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
-      - name: Prepare Config & Source
+      - name: Physical Injection
+        run: |
+          # 必须在编译前将 888 零件注入工作区
+          chmod +x main-repo/diy-part2.sh
+          cd openwrt && ../main-repo/diy-part2.sh
+
+      - name: Configure Target
         working-directory: ./openwrt
         run: |
           echo "CONFIG_TARGET_mediatek=y" > .config
           echo "CONFIG_TARGET_mediatek_filogic=y" >> .config
           echo "CONFIG_TARGET_mediatek_filogic_DEVICE_mediatek_mt7981-rfb-flash=y" >> .config
           make defconfig
-          # 物理预处理：解压 ATF 和 U-Boot，为 diy-part2.sh 注入零件创造物理空间
-          make package/boot/arm-trusted-firmware-mediatek/prepare V=s
-          make package/boot/uboot-mediatek/prepare V=s
 
-      - name: Execute Physical Hardening (diy-part2.sh)
-        run: |
-          chmod +x main-repo/diy-part2.sh
-          cd openwrt && ../main-repo/diy-part2.sh
-
-      - name: Compile Unbrick Kit (DDR4 Locked)
+      - name: Compile ATF (The Heart)
         working-directory: ./openwrt
         run: |
-          # 像素级对齐变体名称
-          make package/boot/arm-trusted-firmware-mediatek/mt7981-spim-nand-ddr4/compile V=s -j$(nproc)
-          make package/boot/uboot-mediatek/mt7981-spim-nand-ddr4/compile V=s -j$(nproc)
-          make -j$(nproc) || make -j1 V=s
+          # 首先产出 nor-ddr4 变体，供 U-Boot 依赖
+          make package/boot/arm-trusted-firmware-mediatek/mt7981-nor-ddr4/compile V=s -j1
 
-      - name: Upload Artifacts
+      - name: Compile U-Boot (The Bridge)
+        working-directory: ./openwrt
+        run: |
+          # U-Boot 此时会自动寻找刚才生成的 ATF 零件
+          make package/boot/uboot-mediatek/mt7981-spim-nand-ddr4/compile V=s -j1
+
+      - name: Upload Unbrick Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: SL3000-DDR4-Unbrick-Payload
+          name: SL3000-DDR4-1MB-Offset-Firmware
           path: |
             openwrt/bin/targets/mediatek/filogic/*-bl2.img
             openwrt/bin/targets/mediatek/filogic/*-fip.bin
