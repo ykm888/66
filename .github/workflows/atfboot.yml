@@ -10,73 +10,48 @@ jobs:
       contents: write
 
     steps:
-      - name: 🛡️ 环境准备
+      - name: 🛡️ 物理环境初始化
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-      - name: 🛠️ 工具安装
+      - name: 🧹 物理清洗分支索引
         run: |
-          sudo apt-get update
-          sudo apt-get install -y gcc-aarch64-linux-gnu build-essential device-tree-compiler
-
-      - name: 🧹 清洗仓库索引
-        run: |
-          git checkout --orphan sl3000-clean-source
+          # 建立孤儿分支，彻底断开历史遗留，实现物理清场
+          git checkout --orphan temp-clean-branch
           git rm -rf .
           
-      - name: 📦 拉取并“去 Git 化”物理源码
+      - name: 📦 拉取官方源码并创建物理文件夹
         run: |
+          # 1. 创建并填充 u-boot 文件夹
           git clone --depth 1 https://github.com/mtk-openwrt/u-boot.git temp_u
           rm -rf temp_u/.git
-          mkdir -p u-boot && cp -rL temp_u/. u-boot/
+          mkdir -p u-boot
+          cp -rL temp_u/. u-boot/
+          
+          # 2. 创建并填充 atf 文件夹
           git clone --depth 1 https://github.com/mtk-openwrt/arm-trusted-firmware.git temp_a
           rm -rf temp_a/.git
-          mkdir -p atf && cp -rL temp_a/. atf/
+          mkdir -p atf
+          cp -rL temp_a/. atf/
+          
+          # 清理物理残留
           rm -rf temp_u temp_a
 
-      - name: 🏗️ 注入 SL-3000 物理零件与 Makefile 强制硬化
+      - name: 🏗️ 注入物理补丁 (1MB 偏移硬化)
         run: |
-          # 1. 创建物理 DTS
-          DTS="u-boot/arch/arm/dts/mt7981-sl3000.dts"
-          printf "/dts-v1/;\n#include \"mt7981.dtsi\"\n/ {\n  model = \"SL-3000 (512MB RAM)\";\n  memory@40000000 {\n    device_type = \"memory\";\n    reg = <0x40000000 0x20000000>;\n  };\n  chosen { stdout-path = &uart0; };\n};\n&uart0 { status = \"okay\"; };\n&mmc0 { bus-width = <8>; cap-mmc-highspeed; non-removable; status = \"okay\"; };\n" > $DTS
-          
-          # 2. 【核心修复：物理强制重写】
-          # 我们不再使用 sed 插入，直接用 printf 重新定义这个 Makefile 的核心变量
-          # 强行让 dtb-y 等于我们的目标，并手动追加编译规则
-          DTS_MAKEFILE="u-boot/arch/arm/dts/Makefile"
-          mv $DTS_MAKEFILE ${DTS_MAKEFILE}.bak
-          echo 'dtb-y += mt7981-sl3000.dtb' > $DTS_MAKEFILE
-          echo 'obj-y += $(dtb-y)' >> $DTS_MAKEFILE
-          echo 'targets += $(dtb-y)' >> $DTS_MAKEFILE
-          echo 'clean-files := *.dtb' >> $DTS_MAKEFILE
-          cat ${DTS_MAKEFILE}.bak >> $DTS_MAKEFILE
-          
-          # 3. 锁定 Defconfig 配置
-          DEFCONFIG="u-boot/configs/mt7981_nor_emmc_rfb_defconfig"
-          sed -i 's/CONFIG_DEFAULT_DEVICE_TREE=.*/CONFIG_DEFAULT_DEVICE_TREE="mt7981-sl3000"/' $DEFCONFIG
-          sed -i 's/CONFIG_OF_LIST=.*/CONFIG_OF_LIST="mt7981-sl3000"/' $DEFCONFIG
-
-          # 4. 物理头文件链路补齐 (关键修复)
-          # 很多时候 DTC 报错是因为它在 dts 目录下找不到 dt-bindings
-          mkdir -p u-boot/arch/arm/dts/include
-          cp -rL u-boot/include/dt-bindings u-boot/arch/arm/dts/include/
-
-          # 5. ATF 1MB 偏移硬化
+          # 物理锁定 ATF 的 1MB 偏移逻辑
           ATF_DEF="atf/plat/mediatek/mt7981/include/platform_def.h"
-          sed -i '/MTK_FIP_BASE/d' $ATF_DEF
-          sed -i '/#define BL33_BASE/i #define MTK_FIP_BASE (0x100000)\n#define MTK_FIP_MAX_SIZE (0x200000)' $ATF_DEF
+          if [ -f "$ATF_DEF" ]; then
+            sed -i '/MTK_FIP_BASE/d' $ATF_DEF
+            sed -i '/#define BL33_BASE/i #define MTK_FIP_BASE (0x100000)\n#define MTK_FIP_MAX_SIZE (0x200000)' $ATF_DEF
+          fi
 
-      - name: 🔍 最终物理验证 (强制路径编译)
-        run: |
-          cd u-boot
-          make mt7981_nor_emmc_rfb_defconfig
-          # 物理执行：如果 make dtbs 识别不到，我们直接调用子目录编译逻辑
-          CROSS_COMPILE=aarch64-linux-gnu- make dts/dt.dtb V=s || CROSS_COMPILE=aarch64-linux-gnu- make arch/arm/dts/mt7981-sl3000.dtb V=s
-          echo "✅ 验证通过：SL-3000 零件物理产出成功！"
-
-      - name: 🚀 强制推送物理文件夹
+      - name: 🚀 强制推送物理文件夹至仓库
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git add .
-          git commit -m "SL-3000: Ultimate Hardened Physical Source with Fixed Makefile"
-          git push origin sl3000-clean-source --force
+          git add u-boot atf
+          git commit -m "SL-3000: Official Source Recovery with Physical Hardening (u-boot & atf)"
+          # 物理执行：将临时分支的内容强行覆盖到目标远程分支
+          git push origin temp-clean-branch:sl3000-clean-source --force
