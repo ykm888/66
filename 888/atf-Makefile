@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2021-2026 ykm888 (23.05 Optimized)
+# Copyright (C) 2021-2026 ykm888 (23.05 Physical Hardened)
 #
 
 include $(TOPDIR)/rules.mk
@@ -14,14 +14,13 @@ PKG_SOURCE_URL:=https://github.com/ykm888/66.git
 PKG_SOURCE_VERSION:=sl3000-clean-source
 PKG_MIRROR_HASH:=skip
 
-# 物理核心：硬锁定编译路径，防止 No targets specified 报错
+# 物理硬锁定编译目录
 PKG_BUILD_DIR:=$(BUILD_DIR)/$(PKG_NAME)-$(BUILD_VARIANT)/$(PKG_NAME)-$(PKG_VERSION)
 
 include $(INCLUDE_DIR)/kernel.mk
 include $(INCLUDE_DIR)/trusted-firmware-a.mk
 include $(INCLUDE_DIR)/package.mk
 
-# --- 1. 零件工厂默认配置 ---
 define Trusted-Firmware-A/Default
   BUILD_TARGET:=mediatek
   BUILD_SUBTARGET:=filogic
@@ -29,7 +28,6 @@ define Trusted-Firmware-A/Default
   TFA_IMAGE:=bl2.img
 endef
 
-# --- 2. 司络 SL-3000 专属零件定义 ---
 define Trusted-Firmware-A/mt7981-nor-ddr4
   NAME:=SL-3000 (SPI-NOR/DDR4)
   BOOT_DEVICE:=nor
@@ -39,9 +37,16 @@ endef
 
 TFA_TARGETS:= mt7981-nor-ddr4
 
-# 物理修正：在源码解压后，强制把寻宝图（1MB偏移补丁）打进去
+# --- 物理加固准备逻辑：解决目录嵌套与路径缺失 ---
 define Build/Prepare
 	$(call Build/Prepare/Default)
+	# 1. 自动剥皮：如果解压后多了一层同名文件夹，物理提取内容到根部
+	if [ -d "$(PKG_BUILD_DIR)/$(PKG_NAME)-$(PKG_VERSION)" ]; then \
+		mv $(PKG_BUILD_DIR)/$(PKG_NAME)-$(PKG_VERSION)/* $(PKG_BUILD_DIR)/; \
+	fi
+	# 2. 强制创建物理目录：防止 cp 指令因找不到文件夹而熔断
+	mkdir -p $(PKG_BUILD_DIR)/plat/mediatek/mt7981/bl2/
+	# 3. 物理注入补丁：将寻宝图（1MB偏移）强制熔刻进源码
 	$(CP) $(TOPDIR)/888/bl2_dev_spi_nor.c $(PKG_BUILD_DIR)/plat/mediatek/mt7981/bl2/bl2_dev_spi_nor.c
 endef
 
