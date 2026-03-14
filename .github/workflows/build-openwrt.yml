@@ -1,4 +1,4 @@
-name: SL-3000-DDR4-FIX-FINAL-V2
+name: SL-3000-DDR4-ULTIMATE-FIX
 
 on:
   workflow_dispatch:
@@ -18,37 +18,40 @@ jobs:
           sudo apt-get install -y build-essential libncurses5-dev gawk git gettext libssl-dev xsltproc wget unzip qemu-utils device-tree-compiler flex bison
           git clone --depth 1 https://github.com/immortalwrt/immortalwrt -b openwrt-23.05 openwrt
 
-      - name: Physical Sync & Force Feed
+      - name: Physical Sync & Pre-Config
         run: |
-          # 物理覆盖 Makefile
+          # 1. 物理强插 Makefile
           cp -v main-repo/888/atf-Makefile openwrt/package/boot/arm-trusted-firmware-mediatek/Makefile
           cp -v main-repo/888/uboot-Makefile openwrt/package/boot/uboot-mediatek/Makefile
           
           cd openwrt
-          # 强力同步 feeds，忽略依赖报错，只管安装
-          ./scripts/feeds update -a
-          ./scripts/feeds install -a
+          ./scripts/feeds update -a && ./scripts/feeds install -a
           
-          # 物理摧毁索引缓存
-          rm -rf tmp
-
-      - name: Execute Hardened Injection
-        run: |
-          # 物理清创：移除官方 Patch 并执行 prepare
-          chmod +x main-repo/diy-part2.sh
-          ./main-repo/diy-part2.sh
-
-      - name: Final Non-Interactive Compile
-        working-directory: ./openwrt
-        run: |
-          # 物理注入配置：不再通过交互式 menuconfig
+          # 2. 【核心修复】在工作流中先物理锁定架构，防止脚本触发 menuconfig
+          # 这消除了日志中出现的 "Target System (x86)" 错误
           echo "CONFIG_TARGET_mediatek=y" > .config
           echo "CONFIG_TARGET_mediatek_filogic=y" >> .config
           echo "CONFIG_TARGET_mediatek_filogic_DEVICE_mediatek_mt7981-rfb-flash=y" >> .config
           echo "CONFIG_PACKAGE_arm-trusted-firmware-mediatek-mt7981-sl3000-nor=y" >> .config
           
-          # 使用 --force 强制 defconfig，不进入交互模式
+          # 3. 强制非交互刷新
           make defconfig
-          
-          # 串行编译
+
+      - name: Execute Hardened Injection
+        run: |
+          # 4. 执行注入脚本（此时环境已经锁定为 mt7981，不会再弹窗）
+          chmod +x main-repo/diy-part2.sh
+          ./main-repo/diy-part2.sh
+
+      - name: Final Static Compile
+        working-directory: ./openwrt
+        run: |
+          # 5. 最终物理编译
           make package/boot/arm-trusted-firmware-mediatek/compile V=s -j1
+          make package/boot/uboot-mediatek/compile V=s -j1
+
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: SL3000-Unbrick-Payload
+          path: openwrt/bin/targets/mediatek/filogic/
