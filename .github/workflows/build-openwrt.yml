@@ -7,10 +7,10 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout Main
+      - name: Checkout Main Repo
         uses: actions/checkout@v4
         with:
-          path: main-repo # 将你的仓库（含888目录）检出到此物理路径
+          path: main-repo
 
       - name: Initialization Environment
         run: |
@@ -18,15 +18,26 @@ jobs:
           sudo apt-get install -y build-essential libncurses5-dev gawk git gettext libssl-dev xsltproc wget unzip qemu-utils device-tree-compiler flex bison
           sudo timedatectl set-timezone "Asia/Shanghai"
 
-      - name: Clone Source
+      - name: Clone OpenWrt Source
         run: |
           git clone --depth 1 https://github.com/immortalwrt/immortalwrt -b openwrt-23.05 openwrt
 
+      - name: Prepare Source for DIY
+        working-directory: ./openwrt
+        run: |
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
+          echo "CONFIG_TARGET_mediatek=y" > .config
+          echo "CONFIG_TARGET_mediatek_filogic=y" >> .config
+          make defconfig
+          # 物理触发源码解压，生成 build_dir 路径
+          make package/boot/arm-trusted-firmware-mediatek/prepare V=s
+          make package/boot/uboot-mediatek/prepare V=s
+
       - name: Execute DIY Script
         run: |
-          # 物理移动脚本到 openwrt 同级目录并执行
+          # 物理搬运脚本与 888 零件
           cp main-repo/diy-part2.sh .
-          # 将 888 目录物理移动到 openwrt 同级，方便脚本读取
           cp -r main-repo/888 .
           chmod +x diy-part2.sh
           cd openwrt && ../diy-part2.sh
@@ -34,17 +45,13 @@ jobs:
       - name: Build Toolchain
         working-directory: ./openwrt
         run: |
-          echo "CONFIG_TARGET_mediatek=y" > .config
-          echo "CONFIG_TARGET_mediatek_filogic=y" >> .config
-          echo "CONFIG_TARGET_mediatek_filogic_DEVICE_mediatek_mt7981-rfb-flash=y" >> .config
-          make defconfig
           make tools/install -j$(nproc)
           make toolchain/install -j$(nproc)
 
       - name: Compile Unbrick Kit
         working-directory: ./openwrt
         run: |
-          # 物理执行全量替换后的编译
+          # 物理执行最终编译
           make package/boot/arm-trusted-firmware-mediatek/compile V=s -j$(nproc)
           make package/boot/uboot-mediatek/compile V=s -j$(nproc)
           make -j$(nproc) || make -j1 V=s
@@ -53,5 +60,5 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: SL3000-Final-Artifacts
+          name: SL3000-Final-Binary
           path: openwrt/bin/targets/mediatek/filogic/*
