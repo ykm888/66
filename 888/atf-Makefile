@@ -1,22 +1,18 @@
 #
-# Copyright (C) 2021-2026 ykm888 (23.05 Physical Hardened)
+# Copyright (C) 2021-2026 ykm888 (23.05 Physical Hardened for DDR4)
 #
 
 include $(TOPDIR)/rules.mk
 
-# 物理执行准则 1：复刻原有命名
 PKG_NAME:=arm-trusted-firmware-mediatek
 PKG_VERSION:=sl3000-c
 PKG_RELEASE:=1
 
-# 物理溯源：锁定救砖专用源码分支
 PKG_SOURCE_PROTO:=git
 PKG_SOURCE_URL:=https://github.com/ykm888/66.git
 PKG_SOURCE_VERSION:=sl3000-clean-source
 PKG_MIRROR_HASH:=skip
 
-# --- 物理执行准则 2：核心修补点 ---
-# 强行覆盖 trusted-firmware-a.mk 的错误路径计算，实现物理对齐
 PKG_BUILD_DIR:=$(BUILD_DIR)/$(PKG_NAME)-$(BUILD_VARIANT)
 
 include $(INCLUDE_DIR)/kernel.mk
@@ -30,6 +26,7 @@ define Trusted-Firmware-A/Default
   TFA_IMAGE:=bl2.img
 endef
 
+# 物理修正：锁定 DDR4 与 1MB 偏移
 define Trusted-Firmware-A/mt7981-nor-ddr4
   NAME:=SL-3000 (SPI-NOR/DDR4)
   BOOT_DEVICE:=nor
@@ -39,18 +36,16 @@ endef
 
 TFA_TARGETS:= mt7981-nor-ddr4
 
-# --- 物理加固准备逻辑：解决目录嵌套与路径缺失 ---
 define Build/Prepare
 	$(call Build/Prepare/Default)
-	# 1. 物理对齐：如果源码内多出一层嵌套目录，将其移至 PKG_BUILD_DIR 根目录
 	@if [ -d "$(PKG_BUILD_DIR)/$(PKG_NAME)-$(PKG_VERSION)" ]; then \
 		mv $(PKG_BUILD_DIR)/$(PKG_NAME)-$(PKG_VERSION)/* $(PKG_BUILD_DIR)/; \
 	elif [ -d "$(PKG_BUILD_DIR)/$(PKG_NAME)" ]; then \
 		mv $(PKG_BUILD_DIR)/$(PKG_NAME)/* $(PKG_BUILD_DIR)/; \
 	fi
-	# 2. 物理校验：确保 Makefile 物理存在于当前工作目录，防止 make 熔断
 	@[ -f $(PKG_BUILD_DIR)/Makefile ] || (echo "FATAL: Makefile not found at $(PKG_BUILD_DIR)"; exit 1)
-	# 3. 强制创建物理目录并注入补丁
+	
+	# 物理注入：确保驱动心脏进入正确的源码目录
 	mkdir -p $(PKG_BUILD_DIR)/plat/mediatek/mt7981/bl2/
 	$(CP) $(TOPDIR)/888/bl2_dev_spi_nor.c $(PKG_BUILD_DIR)/plat/mediatek/mt7981/bl2/bl2_dev_spi_nor.c
 endef
