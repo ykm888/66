@@ -1,4 +1,4 @@
-name: SL-3000-PHYSICAL-PIXEL-FIX
+name: SL-3000-PHYSICAL-PIXEL-LOCKED
 
 on:
   workflow_dispatch:
@@ -17,17 +17,17 @@ jobs:
         with:
           path: main-repo
 
-      - name: 物理硬化编译环境
+      - name: 物理环境硬化
         run: |
           sudo rm -rf /etc/apt/sources.list.d/*
           sudo -E apt-get -qq update
           sudo -E apt-get -qq install $(curl -fsSL https://raw.githubusercontent.com/P3TERX/Actions-OpenWrt/master/files/debian-pkgs)
           sudo timedatectl set-timezone "$TZ"
 
-      - name: 源码溯源与物理拉起
+      - name: 源码溯源
         run: |
           git clone --depth 1 $REPO_URL -b $REPO_BRANCH openwrt
-          # 准则：先物理覆盖 Makefile，再更新 Feeds
+          # 物理覆盖核心 Makefile 零件
           cp -v main-repo/888/atf-Makefile openwrt/package/boot/arm-trusted-firmware-mediatek/Makefile
           cp -v main-repo/888/uboot-Makefile openwrt/package/boot/uboot-mediatek/Makefile
           cd openwrt
@@ -36,11 +36,10 @@ jobs:
       - name: 像素级配置锁死
         run: |
           cd openwrt
-          # 溯源修复：物理注入 U-Boot 变体配置
           mkdir -p package/boot/uboot-mediatek/config
           cp -v ../main-repo/888/mt7981_sl3000_defconfig package/boot/uboot-mediatek/config/mt7981_sl3000_defconfig
           
-          # 物理隔离 .config，绝对禁止触发 menuconfig
+          # 物理隔离 .config，绝对禁止触发交互式 menuconfig
           cat > .config <<EOF
           CONFIG_TARGET_mediatek=y
           CONFIG_TARGET_mediatek_filogic=y
@@ -48,35 +47,42 @@ jobs:
           CONFIG_PACKAGE_uboot-mediatek-mt7981_sl3000=y
           CONFIG_PACKAGE_arm-trusted-firmware-mediatek-mt7981-sl3000-nor=y
           EOF
-          
-          # 非交互式刷入配置
           make defconfig
 
-      - name: 物理零件强灌与地基修筑
+      - name: 物理零件强灌
         run: |
-          # 物理准则：先 prepare 生成路径，再 cp 注入零件
+          # 第一阶段：物理清创
           chmod +x main-repo/diy-part2.sh
-          ./main-repo/diy-part2.sh
+          ./main-repo/diy-part2.sh clean
           
           cd openwrt
-          # 锁定地基工具链
+          # 物理拉起具体变体（解决 No rule to make target 'prepare' 报错）
+          make package/boot/arm-trusted-firmware-mediatek/mt7981-sl3000-nor/prepare V=s
+          make package/boot/uboot-mediatek/mt7981_sl3000/prepare V=s
+          
+          # 第二阶段：物理穿透注入 (基于扁平化仓库结构)
+          cd ..
+          ./main-repo/diy-part2.sh inject
+
+      - name: 全链路成品编译
+        run: |
+          cd openwrt
           make tools/install -j$(nproc)
           make toolchain/install -j$(nproc)
-          
-          # 物理编译零件
+          # 编译 1MB 对齐的 BL2 和 FIP
           make package/boot/arm-trusted-firmware-mediatek/compile V=s -j1
           make package/boot/uboot-mediatek/compile V=s -j1
 
-      - name: 全链路成品提取
+      - name: 物理提取产物
         run: |
           mkdir -p outputs
-          # 像素级搜寻：不再信任 bin 目录，直接搜寻构建层
+          # 暴力扫描 build_dir 提取二进制零件
           find openwrt/build_dir/target-aarch64* -name "bl2.img" -exec cp -v {} outputs/ \;
           find openwrt/build_dir/target-aarch64* -name "fip.bin" -exec cp -v {} outputs/ \;
-          [ -z "$(ls -A outputs)" ] && exit 1 || ls -lh outputs/
+          [ -z "$(ls -A outputs)" ] && echo "物理报错：无产出" && exit 1 || ls -lh outputs/
 
-      - name: 上传救砖零件
+      - name: 上传零件包
         uses: actions/upload-artifact@v4
         with:
-          name: SL3000-FIRMWARE-FINAL
+          name: SL3000-FIXED-PAYLOADS
           path: outputs/
