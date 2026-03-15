@@ -8,9 +8,7 @@
 	compatible = "sl,3000-emmc", "mediatek,mt7981";
 
 	aliases {
-		/* 物理别名锁定：确保引导日志输出到正确的 UART */
 		serial0 = &uart0;
-		/* 物理反馈：系统状态灯逻辑对齐 */
 		led-boot = &status_green_led;
 		led-failsafe = &status_red_led;
 		led-running = &status_green_led;
@@ -18,14 +16,12 @@
 	};
 
 	chosen {
-		/* 物理对齐：stdout-path 确保内核崩溃信息能通过串口 0 输出 */
 		stdout-path = "serial0:115200n8";
-		/* 物理对齐：root 参数匹配 filogic.mk 中的 production 分区名 */
-		bootargs = "console=ttyS0,115200n1 loglevel=8 earlycon=uart8250,mmio32,0x11002000 root=PARTLABEL=production rootwait rw rootfstype=f2fs,squashfs";
+		/* 物理对齐：root 挂载点匹配 filogic.mk 中 GPT 布局的 production 分区 */
+		bootargs = "console=ttyS0,115200n1 loglevel=8 earlycon=uart8250,mmio32,0x11002000 root=PARTLABEL=production rootwait rw rootfstype=f2fs,squashfs,ext4";
 	};
 
-	/* 物理锁定：为了极致的救砖稳定性，暂时锁定 512MB RAM (0x20000000) */
-	/* 物理起始地址 0x40000000 是 MT7981 的标准 DRAM 映射起点 */
+	/* 物理锁定：强制锁定 512MB RAM 映射，确保救砖阶段绝对稳定 */
 	memory@40000000 {
 		device_type = "memory";
 		reg = <0 0x40000000 0 0x20000000>;
@@ -33,27 +29,13 @@
 
 	leds {
 		compatible = "gpio-leds";
-
-		status_red_led: led-0 {
-			label = "red:status";
-			gpios = <&pio 10 GPIO_ACTIVE_LOW>;
-		};
-
-		status_green_led: led-1 {
-			label = "green:status";
-			gpios = <&pio 11 GPIO_ACTIVE_LOW>;
-			linux,default-trigger = "default-on";
-		};
-
-		status_blue_led: led-2 {
-			label = "blue:status";
-			gpios = <&pio 12 GPIO_ACTIVE_LOW>;
-		};
+		status_red_led: led-0 { label = "red:status"; gpios = <&pio 10 GPIO_ACTIVE_LOW>; };
+		status_green_led: led-1 { label = "green:status"; gpios = <&pio 11 GPIO_ACTIVE_LOW>; linux,default-trigger = "default-on"; };
+		status_blue_led: led-2 { label = "blue:status"; gpios = <&pio 12 GPIO_ACTIVE_LOW>; };
 	};
 
 	gpio-keys {
 		compatible = "gpio-keys";
-
 		reset {
 			label = "reset";
 			linux,code = <KEY_RESTART>;
@@ -63,57 +45,32 @@
 	};
 };
 
-/* 2.5G 网络链路硬化：MT7531 交换机与 GMAC0 咬合 */
-&eth {
+/* 物理加固：SPI-NOR 32MB 闪存节点（救砖区隔离） */
+&spi0 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&spi0_flash_pins>;
 	status = "okay";
 
-	gmac0: mac@0 {
-		compatible = "mediatek,eth-mac";
+	flash@0 {
+		compatible = "jedec,spi-nor";
 		reg = <0>;
-		phy-mode = "2500base-x";
-		fixed-link {
-			speed = <2500>;
-			full-duplex;
-			pause;
-		};
-	};
+		spi-max-frequency = <52000000>;
 
-	mdio: mdio-bus {
-		#address-cells = <1>;
-		#size-cells = <0>;
+		partitions {
+			compatible = "fixed-partitions";
+			#address-cells = <1>;
+			#size-cells = <1>;
 
-		switch@0 {
-			compatible = "mediatek,mt7531";
-			reg = <31>; /* 物理 MDIO 地址锁定在 31 */
-			reset-gpios = <&pio 39 GPIO_ACTIVE_LOW>;
-			reset-delay-us = <10000>;
-
-			ports {
-				#address-cells = <1>;
-				#size-cells = <0>;
-
-				port@0 { reg = <0>; label = "lan1"; };
-				port@1 { reg = <1>; label = "lan2"; };
-				port@2 { reg = <2>; label = "lan3"; };
-				port@3 { reg = <3>; label = "wan"; };
-
-				port@6 {
-					reg = <6>;
-					label = "cpu";
-					ethernet = <&gmac0>;
-					phy-mode = "2500base-x";
-					fixed-link {
-						speed = <2500>;
-						full-duplex;
-						pause;
-					};
-				};
+			/* 物理偏移对齐：1MB (0x100000) 起始，确保不破坏 NOR 上的引导零件 */
+			partition@100000 {
+				label = "firmware";
+				reg = <0x100000 0x1f00000>; 
 			};
 		};
 	};
 };
 
-/* eMMC 存储链路硬化：对齐引脚复用组 45 */
+/* eMMC 存储链路：对齐引脚复用组 45 (128G 物理支持) */
 &mmc0 {
 	bus-width = <8>;
 	cap-mmc-highspeed;
@@ -125,29 +82,57 @@
 	status = "okay";
 };
 
-&pio {
-	/* 物理锁定 eMMC 引脚组，防止与 GPIO 冲突 */
-	mmc0_pins_default: mmc0-pins-default {
-		mux {
-			function = "flash";
-			groups = "emmc_45";
+/* 2.5G 网络物理咬合：MT7531 交换机 */
+&eth {
+	status = "okay";
+	gmac0: mac@0 {
+		compatible = "mediatek,eth-mac";
+		reg = <0>;
+		phy-mode = "2500base-x";
+		fixed-link { speed = <2500>; full-duplex; pause; };
+	};
+
+	mdio: mdio-bus {
+		#address-cells = <1>;
+		#size-cells = <0>;
+		switch@0 {
+			compatible = "mediatek,mt7531";
+			reg = <31>;
+			reset-gpios = <&pio 39 GPIO_ACTIVE_LOW>;
+			reset-delay-us = <10000>;
+			ports {
+				#address-cells = <1>;
+				#size-cells = <0>;
+				port@0 { reg = <0>; label = "lan1"; };
+				port@1 { reg = <1>; label = "lan2"; };
+				port@2 { reg = <2>; label = "lan3"; };
+				port@3 { reg = <3>; label = "wan"; };
+				port@6 {
+					reg = <6>;
+					label = "cpu";
+					ethernet = <&gmac0>;
+					phy-mode = "2500base-x";
+					fixed-link { speed = <2500>; full-duplex; pause; };
+				};
+			};
 		};
+	};
+};
+
+&pio {
+	spi0_flash_pins: spi0-pins {
+		mux { function = "spi"; groups = "spi0", "spi0_wp_hold"; };
+		conf-pu { pins = "SPI0_CS", "SPI0_HOLD", "SPI0_WP"; bias-pull-up; };
+	};
+
+	mmc0_pins_default: mmc0-pins-default {
+		mux { function = "flash"; groups = "emmc_45"; };
 	};
 
 	mmc0_pins_uhs: mmc0-pins-uhs {
-		mux {
-			function = "flash";
-			groups = "emmc_45";
-		};
+		mux { function = "flash"; groups = "emmc_45"; };
 	};
 };
 
-/* 强制启用看门狗，确保系统在致命错误时能物理重置 */
-&watchdog {
-	status = "okay";
-};
-
-/* 串口物理锁定 */
-&uart0 {
-	status = "okay";
-};
+&watchdog { status = "okay"; };
+&uart0 { status = "okay"; };
