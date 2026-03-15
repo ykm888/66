@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: GPL-2.0-only
 # SL-3000 (MT7981) Physical Hardening Makefile
-# Target: 1MB FIP Offset + DDR4 Support
+# Target: 1MB FIP Offset + DDR4 Support + Physical Auto-Injection
 
 include $(TOPDIR)/rules.mk
 
@@ -30,7 +30,6 @@ define Trusted-Firmware-A/Default
 endef
 
 # 物理定义：SL-3000 专属变体 (NOR 启动 + DDR4 内存)
-# 此名称必须与 Workflow 中的 CONFIG_PACKAGE_... 一致
 define Trusted-Firmware-A/mt7981-sl3000-nor
   NAME:=SL-3000 (NOR-DDR4-1MB-Fix)
   BUILD_DEVICES:=mediatek_mt7981-rfb-flash
@@ -43,11 +42,31 @@ endef
 # 物理导出变体列表
 TFA_TARGETS:=mt7981-sl3000-nor
 
-# 物理钩子：在源码准备好后执行，确保 prepare 阶段逻辑纯净
-# 实际的文件注入（cp 888 零件）将由外部 diy-part2.sh 在本阶段后强力拉起
+# =========================================================
+# 核心修复点：物理硬化注入逻辑
+# =========================================================
 define Build/Prepare
 	$(call Build/Prepare/Default)
-	@echo "Makefile: Source for $(PKG_NAME) is ready. Waiting for diy-part2.sh injection."
+	@echo "--- [物理溯源]：执行 Build/Prepare 强灌逻辑 ---"
+	# 1. 确保目标目录物理存在
+	mkdir -p $(PKG_BUILD_DIR)/plat/mediatek/mt7981/bl2
+	mkdir -p $(PKG_BUILD_DIR)/plat/mediatek/mt7981/include
+	
+	# 2. 物理劫持：从 files 目录（由 diy-part2.sh 放入）强行覆盖源码
+	# 即使源码解压后层级混乱，这里直接进行像素级精准定位覆盖
+	[ -f $(TOPDIR)/package/boot/arm-trusted-firmware-mediatek/files/bl2_dev_spi_nor.c ] && \
+		$(CP) $(TOPDIR)/package/boot/arm-trusted-firmware-mediatek/files/bl2_dev_spi_nor.c $(PKG_BUILD_DIR)/plat/mediatek/mt7981/bl2/
+	
+	[ -f $(TOPDIR)/package/boot/arm-trusted-firmware-mediatek/files/platform_def.h ] && \
+		$(CP) $(TOPDIR)/package/boot/arm-trusted-firmware-mediatek/files/platform_def.h $(PKG_BUILD_DIR)/plat/mediatek/mt7981/include/
+	
+	[ -f $(TOPDIR)/package/boot/arm-trusted-firmware-mediatek/files/platform.mk ] && \
+		$(CP) $(TOPDIR)/package/boot/arm-trusted-firmware-mediatek/files/platform.mk $(PKG_BUILD_DIR)/plat/mediatek/mt7981/
+	
+	[ -f $(TOPDIR)/package/boot/arm-trusted-firmware-mediatek/files/bl2.mk ] && \
+		$(CP) $(TOPDIR)/package/boot/arm-trusted-firmware-mediatek/files/bl2.mk $(PKG_BUILD_DIR)/plat/mediatek/mt7981/
+		
+	@echo "--- [物理溯源]：救砖零件已成功强灌至源码心脏 ---"
 endef
 
 $(eval $(call BuildPackage/Trusted-Firmware-A))
