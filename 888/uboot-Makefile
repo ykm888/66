@@ -1,5 +1,3 @@
-# SPDX-License-Identifier: GPL-2.0-only
-# SL-3000 (MT7981) Physical Hardening U-Boot Makefile
 include $(TOPDIR)/rules.mk
 include $(INCLUDE_DIR)/kernel.mk
 
@@ -7,7 +5,6 @@ PKG_NAME:=uboot-mediatek
 PKG_VERSION:=sl3000-v1
 PKG_RELEASE:=1
 
-# 物理死锁：指向底层驱动源码分支
 PKG_SOURCE_PROTO:=git
 PKG_SOURCE_URL:=https://github.com/ykm888/66.git
 PKG_SOURCE_VERSION:=sl3000-clean-source
@@ -24,32 +21,29 @@ endef
 
 define U-Boot/mt7981_sl3000
   NAME:=SL-3000 (DDR4/SPI-NOR-1MB-Offset)
-  DEPENDS:=+arm-trusted-firmware-mediatek-mt7981-sl3000-nor
-  UBOOT_CONFIG:=mt7981_sl3000_defconfig
-  # 物理锁定设备树文件名 (必须带 -emmc)
+  # 物理依赖对齐：必须指向上面 ATF 的变体名
+  DEPENDS:=+arm-trusted-firmware-mediatek-mt7981-nor-ddr4
+  # 配置名修正：移除 _defconfig，适配 u-boot.mk 模板自动补全 _config
+  UBOOT_CONFIG:=mt7981_sl3000
   MAKE_FLAGS += DRAM_USE_DDR4=1 DEVICE_TREE=mt7981-sl-3000-emmc
 endef
 
-UBOOT_TARGETS:= mt7981_sl3000
+UBOOT_TARGETS:=mt7981_sl3000
 
 define Build/Prepare
 	$(call Build/Prepare/Default)
-	@echo "--- [物理溯源]：执行 U-Boot 零件物理强灌 ---"
 	mkdir -p $(PKG_BUILD_DIR)/arch/arm/dts/
 	mkdir -p $(PKG_BUILD_DIR)/configs/
-	
-	# 对齐拷贝
 	$(CP) -f $(TOPDIR)/package/boot/uboot-mediatek/files/mt7981-sl-3000-emmc.dts $(PKG_BUILD_DIR)/arch/arm/dts/
 	$(CP) -f $(TOPDIR)/package/boot/uboot-mediatek/files/mt7981_sl3000_defconfig $(PKG_BUILD_DIR)/configs/
-	
-	# 修改编译列表
 	echo 'dtb-y += mt7981-sl-3000-emmc.dtb' >> $(PKG_BUILD_DIR)/arch/arm/dts/Makefile
-	
-	@echo "--- [物理溯源]：U-Boot 灌入完成 ---"
 endef
 
 define Package/u-boot-$(1)/install
 	$(Package/u-boot/install/default)
+	$(INSTALL_DIR) $(BIN_DIR)/sl3000-recovery
+	[ -f $(PKG_BUILD_DIR)/u-boot.bin ] && \
+		$(CP) $(PKG_BUILD_DIR)/u-boot.bin $(BIN_DIR)/sl3000-recovery/u-boot.bin
 endef
 
 $(foreach ot,$(UBOOT_TARGETS),$(eval $(call BuildPackage/U-Boot/$(ot))))
