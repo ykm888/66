@@ -26,26 +26,36 @@ define U-Boot/Default
 endef
 
 # --- 【物理命门：变体定义与依赖对齐】 ---
-define U-Boot/mt7981-spim-nand-ddr4
-  NAME:=SL-3000 (DDR4/SPI-NOR)
-  # 物理依赖锁定：必须指向 ATF 定义的名称，确保 1MB 偏移补丁生效
-  DEPENDS:=+arm-trusted-firmware-mediatek-mt7981-nor-ddr4
-  UBOOT_CONFIG:=mtk_mt7981_rfb_defconfig
-  # 物理标志传递
+define U-Boot/mt7981_sl3000
+  NAME:=SL-3000 (DDR4/SPI-NOR-1MB-Offset)
+  # 物理修正 1：对齐 atf-Makefile 中的物理名称
+  DEPENDS:=+arm-trusted-firmware-mediatek-mt7981-sl3000-nor
+  # 物理修正 2：强制使用我们预设的 1MB 偏移 defconfig 零件
+  UBOOT_CONFIG:=mt7981_sl3000_defconfig
+  # 物理修正 3：锁定设备树名称
   MAKE_FLAGS += \
     DRAM_USE_DDR4=1 \
     DEVICE_TREE=mt7981-sl3000
 endef
 
-UBOOT_TARGETS:= mt7981-spim-nand-ddr4
+UBOOT_TARGETS:= mt7981_sl3000
 
 define Build/Prepare
 	$(call Build/Prepare/Default)
-	# 物理注入：将 888 目录下的自定义设备树强制打入 U-Boot 源码
+	@echo "--- [物理溯源]：执行 U-Boot 强灌逻辑 ---"
+	# 物理强灌设备树：从 files 目录精准投递 (由 diy-part2.sh 放入)
 	mkdir -p $(PKG_BUILD_DIR)/arch/arm/dts/
-	$(CP) $(TOPDIR)/888/mt7981-spi2.dts $(PKG_BUILD_DIR)/arch/arm/dts/mt7981-sl3000.dts
-	# 物理修正：确保 Makefile 能够识别新的设备树文件
+	[ -f $(TOPDIR)/package/boot/uboot-mediatek/files/mt7981-sl3000.dts ] && \
+		$(CP) $(TOPDIR)/package/boot/uboot-mediatek/files/mt7981-sl3000.dts $(PKG_BUILD_DIR)/arch/arm/dts/
+	
+	# 物理强灌 Defconfig：锁定分区表位置
+	mkdir -p $(PKG_BUILD_DIR)/configs/
+	[ -f $(TOPDIR)/package/boot/uboot-mediatek/files/mt7981_sl3000_defconfig ] && \
+		$(CP) $(TOPDIR)/package/boot/uboot-mediatek/files/mt7981_sl3000_defconfig $(PKG_BUILD_DIR)/configs/
+	
+	# 物理修正 Makefile 识别逻辑
 	echo 'dtb-y += mt7981-sl3000.dtb' >> $(PKG_BUILD_DIR)/arch/arm/dts/Makefile
+	@echo "--- [物理溯源]：U-Boot 零件注入完成 ---"
 endef
 
 define Package/u-boot-$(1)/install
