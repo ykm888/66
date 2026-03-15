@@ -1,4 +1,4 @@
-name: SL-3000-DDR4-ULTIMATE-FIX
+name: SL-3000-DDR4-PHYSICAL-HARDENING
 
 on:
   workflow_dispatch:
@@ -18,40 +18,45 @@ jobs:
           sudo apt-get install -y build-essential libncurses5-dev gawk git gettext libssl-dev xsltproc wget unzip qemu-utils device-tree-compiler flex bison
           git clone --depth 1 https://github.com/immortalwrt/immortalwrt -b openwrt-23.05 openwrt
 
-      - name: Physical Sync & Pre-Config
+      - name: Physical Sync & Feed Reset
         run: |
-          # 1. 物理强插 Makefile
+          # 准则一：环境硬化 - 物理替换 Makefile 并清理官方 Patch 干扰
           cp -v main-repo/888/atf-Makefile openwrt/package/boot/arm-trusted-firmware-mediatek/Makefile
           cp -v main-repo/888/uboot-Makefile openwrt/package/boot/uboot-mediatek/Makefile
           
           cd openwrt
           ./scripts/feeds update -a && ./scripts/feeds install -a
-          
-          # 2. 【核心修复】在工作流中先物理锁定架构，防止脚本触发 menuconfig
-          # 这消除了日志中出现的 "Target System (x86)" 错误
+          rm -rf tmp
+
+      - name: Execute Hardened Injection
+        run: |
+          # 准则二：路径唯一 - 注入 888 核心零件并锁定 1MB 偏移
+          chmod +x main-repo/diy-part2.sh
+          ./main-repo/diy-part2.sh
+
+      - name: Build Toolchain Foundation
+        working-directory: ./openwrt
+        run: |
+          # 核心修复：先给配置，再编地基。否则会出现 ld-musl 缺失
           echo "CONFIG_TARGET_mediatek=y" > .config
           echo "CONFIG_TARGET_mediatek_filogic=y" >> .config
           echo "CONFIG_TARGET_mediatek_filogic_DEVICE_mediatek_mt7981-rfb-flash=y" >> .config
           echo "CONFIG_PACKAGE_arm-trusted-firmware-mediatek-mt7981-sl3000-nor=y" >> .config
-          
-          # 3. 强制非交互刷新
           make defconfig
+          
+          # 物理拉起交叉编译器（解决 cp: cannot stat 报错的关键）
+          make tools/install -j$(nproc)
+          make toolchain/install -j$(nproc)
 
-      - name: Execute Hardened Injection
-        run: |
-          # 4. 执行注入脚本（此时环境已经锁定为 mt7981，不会再弹窗）
-          chmod +x main-repo/diy-part2.sh
-          ./main-repo/diy-part2.sh
-
-      - name: Final Static Compile
+      - name: Final Payload Compile
         working-directory: ./openwrt
         run: |
-          # 5. 最终物理编译
+          # 准则三：配置锁死 - 此时工具链已就位，物理产出固件
           make package/boot/arm-trusted-firmware-mediatek/compile V=s -j1
           make package/boot/uboot-mediatek/compile V=s -j1
 
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: SL3000-Unbrick-Payload
+          name: SL3000-DDR4-1MB-Fixed
           path: openwrt/bin/targets/mediatek/filogic/
