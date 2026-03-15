@@ -12,57 +12,62 @@ jobs:
   build:
     runs-on: ubuntu-22.04
     steps:
-      - name: 物理检出当前仓库
+      - name: 物理检出当前零件仓库
         uses: actions/checkout@v4
 
       - name: 环境筑基 (安装核心编译工具)
         run: |
           sudo apt-get update
+          # 必须安装 python3-pyelftools，否则 U-Boot 编译 binman 会报错
           sudo apt-get install -y build-essential git gawk libncurses5-dev gettext libssl-dev xsltproc wget zstd curl python3-pyelftools
           git clone --depth 1 $REPO_URL -b $REPO_BRANCH openwrt
 
-      - name: Feeds 更新与安装
+      - name: Feeds 同步与注入
         run: |
           cd openwrt
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
-      - name: 物理强灌救砖零件
+      - name: 执行物理强灌脚本 (diy-part2.sh)
         run: |
+          # 这里会执行你刚修改的脚本：覆盖 Makefile、选中变体、删除 tmp 缓存
           chmod +x diy-part2.sh
           ./diy-part2.sh
 
-      - name: 筑基与工具链准备
+      - name: 筑基与刷新索引 (100% 成功关键)
         run: |
           cd openwrt
-          # 重新生成配置索引 (此时将识别到新 Makefile)
+          # 重新生成 .config 和索引，确保系统认领了 mt7981-nor-ddr4
           make defconfig
-          # 优先编译必须的底层工具
+          # 优先编译必须的底层工具链
           make tools/install -j$(nproc)
           make toolchain/install -j$(nproc)
 
-      - name: 炼化救砖全家桶 (强制路径编译)
+      - name: 炼化救砖全家桶 (物理强制编译)
         run: |
           cd openwrt
-          # [诊断修正]：直接编译包目录，系统将根据 .config 中的 CONFIG_PACKAGE_... 自动炼制
+          # [核心修正]：路径不再包含变体名，直接指向包目录。
+          # 系统会根据 .config 中的 CONFIG_PACKAGE_... 自动炼制对应的变体
           make package/boot/arm-trusted-firmware-mediatek/compile V=s -j1
           make package/boot/uboot-mediatek/compile V=s -j1
 
-      - name: 产物搜救提取
+      - name: 产物搜救与提取
         if: always()
         run: |
           mkdir -p outputs
-          # 优先从你在 Makefile 中定义的 recovery 专用目录打捞
+          # 1. 优先打捞你在 Makefile 中定义的 recovery 专用目录
           if [ -d "openwrt/bin/sl3000-recovery" ]; then
             cp -v openwrt/bin/sl3000-recovery/* outputs/
           fi
           
-          # 备选搜寻：防止路径变动导致的遗漏
-          find openwrt/bin/targets/mediatek/filogic/ -type f -name "*bl2*" -exec cp -v {} outputs/ \;
-          find openwrt/bin/targets/mediatek/filogic/ -type f -name "*u-boot*" -exec cp -v {} outputs/ \;
+          # 2. 备选方案：全盘打捞防止遗漏
+          find openwrt/bin/targets/mediatek/filogic/ -type f \( -name "*bl2*" -o -name "*u-boot*" -o -name "*fip*" \) -exec cp -v {} outputs/ \;
+          
+          echo "--- [搜救结果展示] ---"
+          ls -R outputs/
 
-      - name: 上传救砖黄金产物
+      - name: 上传救砖黄金镜像 (1MB Offset)
         uses: actions/upload-artifact@v4
         with:
-          name: SL3000-Recovery-Binaries
+          name: SL3000-Recovery-Package
           path: outputs/
