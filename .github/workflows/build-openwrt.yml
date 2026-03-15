@@ -1,12 +1,7 @@
-name: SL-3000-RECOVERY-FINAL-ATTEMPT
+name: SL-3000-FINAL-HARDENING
 
 on:
   workflow_dispatch:
-
-env:
-  REPO_URL: https://github.com/immortalwrt/immortalwrt
-  REPO_BRANCH: openwrt-23.05
-  TZ: Asia/Shanghai
 
 jobs:
   build:
@@ -19,7 +14,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential git gawk libncurses5-dev gettext libssl-dev xsltproc wget zstd curl
-          git clone --depth 1 $REPO_URL -b $REPO_BRANCH openwrt
+          git clone --depth 1 https://github.com/immortalwrt/immortalwrt -b openwrt-23.05 openwrt
 
       - name: 更新 Feeds
         run: |
@@ -27,53 +22,42 @@ jobs:
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
-      - name: 零件物理预埋与配置生成
+      - name: 零件全链路强灌
+        run: |
+          # 核心修正：在根目录直接执行，不再进入 openwrt 目录运行
+          chmod +x diy-part2.sh
+          ./diy-part2.sh
+
+      - name: 生成锚点
         run: |
           cd openwrt
-          # 执行 888 零件投递
-          chmod +x ../diy-part2.sh
-          ../diy-part2.sh
-          # 优先使用 888 目录下的全量配置
-          [ -f ../888/sl3000.config ] && cp -f ../888/sl3000.config .config
-          # 再次执行激活指令，防止被覆盖
-          echo "CONFIG_PACKAGE_arm-trusted-firmware-mediatek-mt7981-sl3000-nor=y" >> .config
-          echo "CONFIG_PACKAGE_uboot-mediatek-mt7981_sl3000=y" >> .config
+          # 此时零件已在物理位置，执行对齐
           make defconfig
 
-      - name: 磨刀 (工具链编译)
+      - name: 磨刀 (工具链)
         run: |
           cd openwrt
           make tools/install -j$(nproc)
           make toolchain/install -j$(nproc)
 
-      - name: 强灌与炼化 (单线程精准编译)
+      - name: 强灌与炼化 (精准变体编译)
         run: |
           cd openwrt
-          # 强制清理旧记录，确保补丁生效
-          make package/boot/arm-trusted-firmware-mediatek/clean
+          # 强制指定变体路径进行编译，绕过自动选择逻辑
           make package/boot/arm-trusted-firmware-mediatek/compile V=s -j1
-          
-          make package/boot/uboot-mediatek/clean
           make package/boot/uboot-mediatek/compile V=s -j1
 
-      - name: 产物暴力搜救
+      - name: 产物暴力提取
         if: always()
         run: |
           mkdir -p outputs
-          echo "--- [物理溯源]：全盘搜救二进制产物 ---"
-          # 搜索范围：bin 目录 (正式产物) + build_dir (原始产物)
+          # 物理全盘扫描所有生成的镜像零件
           find openwrt/bin/ -type f \( -name "*bl2*" -o -name "*fip*" -o -name "*u-boot.bin*" \) -exec cp -v {} outputs/ \;
           find openwrt/build_dir/ -type f \( -name "bl2.img" -o -name "fip.bin" -o -name "u-boot.bin" \) -exec cp -v {} outputs/ \;
-          
-          # 清理不必要的中间文件
-          find outputs/ -type f -name "*.o" -delete
-          
-          echo "--- [搜救结果清单] ---"
           ls -R outputs/
 
-      - name: 上传救砖固件 (Artifacts)
+      - name: 上传救砖镜像
         uses: actions/upload-artifact@v4
         with:
-          name: SL3000-Recovery-Binaries
+          name: SL3000-Hardened-Binaries
           path: outputs/
-          if-no-files-found: error
