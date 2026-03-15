@@ -1,4 +1,4 @@
-name: SL-3000-DDR4-ULTIMATE-FIRMWARE
+name: SL-3000-DDR4-FINAL-HARDENING
 
 on:
   workflow_dispatch:
@@ -29,54 +29,63 @@ jobs:
       - name: Clone Source & Sync Feeds
         run: |
           git clone $REPO_URL -b $REPO_BRANCH openwrt
-          # 物理同步：将你仓库 888 目录下的 Makefile 覆盖到源码中
+          # 物理锁定 Makefile 路径
           cp -v main-repo/888/atf-Makefile openwrt/package/boot/arm-trusted-firmware-mediatek/Makefile
           cp -v main-repo/888/uboot-Makefile openwrt/package/boot/uboot-mediatek/Makefile
           cd openwrt
           ./scripts/feeds update -a && ./scripts/feeds install -a
 
-      - name: Execute Hardened Injection
+      - name: Physical Core Injection
         run: |
-          # 运行 diy-part2.sh 进行零件注入
+          # 1. 注入 U-Boot 自定义 defconfig
+          # 这步非常关键，要在 compile 前把你的配置塞进 U-Boot 源码池
+          mkdir -p openwrt/package/boot/uboot-mediatek/config
+          cp -v main-repo/888/mt7981_sl3000_defconfig openwrt/package/boot/uboot-mediatek/config/mt7981_sl3000_defconfig
+          
+          # 2. 执行 diy-part2.sh 进行 ATF 源码强灌
           chmod +x main-repo/diy-part2.sh
           ./main-repo/diy-part2.sh
 
       - name: Build Toolchain & Payloads
         working-directory: ./openwrt
         run: |
-          # 物理锁定 SL-3000 配置
+          # 物理锁定 OpenWrt 顶层配置
           echo "CONFIG_TARGET_mediatek=y" > .config
           echo "CONFIG_TARGET_mediatek_filogic=y" >> .config
           echo "CONFIG_TARGET_mediatek_filogic_DEVICE_mediatek_mt7981-rfb-flash=y" >> .config
+          # 锁定使用你的自定义 U-Boot 变体
+          echo "CONFIG_PACKAGE_uboot-mediatek-mt7981_sl3000=y" >> .config
           echo "CONFIG_PACKAGE_arm-trusted-firmware-mediatek-mt7981-sl3000-nor=y" >> .config
           make defconfig
           
-          # 1. 编地基（工具链）- 解决 ld-musl 报错
+          # 物理拉起交叉编译器
           make tools/install -j$(nproc)
           make toolchain/install -j$(nproc)
           
-          # 2. 编零件（ATF 和 U-Boot）
+          # 编译目标
           make package/boot/arm-trusted-firmware-mediatek/compile V=s -j1
           make package/boot/uboot-mediatek/compile V=s -j1
 
-      - name: Force Physical Extraction
+      - name: Force Extraction & Final Check
         run: |
-          # 核心修复：绕过 bin 目录，直接去源码深处抢出 .img 和 .bin
           mkdir -p outputs
-          echo "--- 开始物理抓取救砖零件 ---"
+          echo "--- 物理提取 1MB 救砖固件 ---"
+          # 抓取 BL2 (ATF)
           find openwrt/build_dir/target-aarch64* -name "bl2.img" -exec cp -v {} outputs/ \;
+          # 抓取 FIP (包含 U-Boot)
           find openwrt/build_dir/target-aarch64* -name "fip.bin" -exec cp -v {} outputs/ \;
+          # 抓取原始 U-Boot 二进制
           find openwrt/build_dir/target-aarch64* -name "*u-boot*bin" -exec cp -v {} outputs/ \;
           
-          # 物理校验
+          # 验证提取结果
           if [ -z "$(ls -A outputs)" ]; then
-            echo "错误：未能在 build_dir 中找到任何固件文件，请检查编译日志！"
+            echo "物理报错：未找到任何固件，请检查编译日志中的 Error 信息。"
             exit 1
           fi
           ls -lh outputs/
 
-      - name: Upload Firmware
+      - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: SL3000-DDR4-NOR-PAYLOADS
+          name: SL3000-DDR4-FIXED-FIRMWARE
           path: outputs/
