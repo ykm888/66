@@ -1,17 +1,11 @@
 #!/bin/bash
-#
-# Copyright (C) 2024-2026 ykm888
-# 物理修复 7 版：定义水源，确保依赖修正逻辑延迟触发
-#
+# 物理执行：Part 1 源码清理与源注入
 
-# --- 1. 注入自定义插件源 (物理水源定义) ---
-# 如果你有额外的插件仓库，在这里取消注释并修改
-# echo 'src-git small8 https://github.com/kenzok8/small-package' >> feeds.conf.default
-# echo 'src-git kenzo https://github.com/kenzok8/openwrt-packages' >> feeds.conf.default
+# 1. 添加插件源 (成功案例必备)
+echo 'src-git helloworld https://github.com/fw876/helloworld' >>feeds.conf.default
 
-# --- 2. 核心依赖预防 (物理占位) ---
-# 由于 feeds 尚未下载，我们无法直接修改 Makefile。
-# 所有的 sed 修改逻辑已经物理迁移到了 diy-part2.sh 中。
-# 这里仅保留对 feeds.conf 的操作。
+# 2. 物理清理：删除源码自带的旧版 uboot 和 atf 定义，确保后续使用 888 补丁
+rm -rf package/boot/uboot-mediatek
+rm -rf package/boot/arm-trusted-firmware-mediatek
 
-echo "DIY-Part1: Water sources configured."
+echo "物理诊断：Part 1 清理完成，为救砖零件腾出了物理空间。"
