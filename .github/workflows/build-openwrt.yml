@@ -1,4 +1,4 @@
-name: SL-3000-PHYSICAL-RECOVERY
+name: SL-3000-PHYSICAL-ONE-STEP
 
 on:
   workflow_dispatch:
@@ -10,51 +10,47 @@ jobs:
       - name: 检出当前仓库
         uses: actions/checkout@v4
 
-      - name: 筑基环境
+      - name: 环境筑基
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential git gawk libncurses5-dev gettext libssl-dev xsltproc wget zstd curl python3-pyelftools
           git clone --depth 1 https://github.com/ykm888/66.git -b sl3000-immortalwrt-bootstrap openwrt
 
-      - name: 执行自愈脚本
+      - name: 执行自愈脚本 (单体包注入)
         run: |
           chmod +x diy-part2.sh
           ./diy-part2.sh
 
-      - name: 配置审计与架构校验
+      - name: 刷新 feeds 并强制验证
         run: |
           cd openwrt
           ./scripts/feeds update -a && ./scripts/feeds install -a
+          # 重新注入配置，防止 feeds 覆盖
+          printf "CONFIG_TARGET_mediatek=y\nCONFIG_TARGET_mediatek_filogic=y\nCONFIG_PACKAGE_arm-trusted-firmware-mediatek-mt7981-nor-ddr4=y\n" >> .config
           make defconfig
           echo "--- [验证架构锁定状态] ---"
           grep "CONFIG_TARGET_mediatek=y" .config || (echo "FATAL: Architecture mismatch!" && exit 1)
-          grep "CONFIG_PACKAGE_arm-trusted-firmware-mediatek-mt7981-nor-ddr4=y" .config || (echo "FATAL: ATF Variant not found!" && exit 1)
+          # 检查包是否真的被选中（物理验证）
+          grep "CONFIG_PACKAGE_arm-trusted-firmware-mediatek-mt7981-nor-ddr4=y" .config || (echo "FATAL: ATF Variant not found in .config!" && exit 1)
 
       - name: 暴力炼化编译
         run: |
           cd openwrt
           make tools/install -j$(nproc)
           make toolchain/install -j$(nproc)
-          # 物理强制重新编译
-          make package/boot/arm-trusted-firmware-mediatek/clean
-          make package/boot/arm-trusted-firmware-mediatek/compile V=s -j1
+          # 使用强制路径编译，不依赖变体索引
+          make package/custom-atf/compile V=s -j1
 
-      - name: 地毯式全链路打捞
+      - name: 全链路打捞
         if: always()
         run: |
           mkdir -p outputs
-          echo "--- [物理第一现场打捞] ---"
           find openwrt/build_dir/ -name "bl2.bin" -exec cp -v {} outputs/bl2.img \; || true
           find openwrt/build_dir/ -name "fip.bin" -exec cp -v {} outputs/fip.bin \; || true
-          
-          echo "--- [物理第二现场回收] ---"
-          [ -d "openwrt/bin" ] && find openwrt/bin/ -type f \( -name "*bl2*" -o -name "*fip*" \) -exec cp -v {} outputs/ \; || true
-          
-          ls -R outputs/
+          [ "$(ls -A outputs)" ] || (echo "❌ ERROR: No files produced!" && exit 1)
 
       - name: 上传黄金救砖产物
         uses: actions/upload-artifact@v4
         with:
-          name: SL3000-RECOVERY
+          name: SL3000-FINAL
           path: outputs/
-          if-no-files-found: error
