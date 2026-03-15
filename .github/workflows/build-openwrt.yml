@@ -1,4 +1,4 @@
-name: SL-3000-PHYSICAL-FINAL-FIX
+name: SL-3000-PHYSICAL-ONE-STEP-FIX
 
 on:
   workflow_dispatch:
@@ -15,13 +15,13 @@ jobs:
       - name: 检出仓库
         uses: actions/checkout@v4
 
-      - name: 环境筑基 (安装核心依赖)
+      - name: 筑基环境 (物理依赖对齐)
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential git gawk libncurses5-dev gettext libssl-dev xsltproc wget zstd curl python3-pyelftools
           git clone --depth 1 $REPO_URL -b $REPO_BRANCH openwrt
 
-      - name: 强灌零件与锁定架构
+      - name: 强灌零件与架构死锁
         run: |
           chmod +x diy-part2.sh
           ./diy-part2.sh
@@ -30,40 +30,40 @@ jobs:
         run: |
           cd openwrt
           ./scripts/feeds update -a && ./scripts/feeds install -a
-          # 第一次刷新：生成基础架构
+          # 建立架构索引，此步会产生你之前见到的 override 警告，那是成功的标志
           make defconfig
-          # 第二次补强：防止被系统依赖自动修正回 x86
+          # 强制补强，防止 feeds 或 defconfig 意外修正回 x86
           printf "CONFIG_TARGET_mediatek=y\nCONFIG_TARGET_mediatek_filogic=y\nCONFIG_PACKAGE_arm-trusted-firmware-mediatek-mt7981-nor-ddr4=y\nCONFIG_PACKAGE_uboot-mediatek-mt7981_sl3000=y\n" >> .config
           make defconfig
 
-      - name: 炼化救砖全家桶 (强制路径编译)
+      - name: 炼化救砖全家桶 (物理编译)
         run: |
           cd openwrt
-          # 优先编译交叉工具链，这是产出二进制文件的物理地基
+          # 预编译底层工具链 (MT7981 必须)
           make tools/install -j$(nproc)
           make toolchain/install -j$(nproc)
-          # 核心编译：ATF + U-Boot
+          # 核心编译指令
           make package/boot/arm-trusted-firmware-mediatek/compile V=s -j1
           make package/boot/uboot-mediatek/compile V=s -j1
 
-      - name: 产物地毯式搜索与提取
+      - name: 暴力打捞 (物理现场搜救)
         if: always()
         run: |
           mkdir -p outputs
-          echo "--- [开始全链路搜索产物] ---"
-          # 直接进入编译输出的物理第一现场打捞
+          echo "--- [正在搜救二进制产物] ---"
+          # 直接进入源码编译位置打捞，这是物理第一现场，产物绝对逃不掉
           find openwrt/build_dir/ -name "bl2.bin" -exec cp -v {} outputs/bl2.img \; || true
           find openwrt/build_dir/ -name "fip.bin" -exec cp -v {} outputs/fip.bin \; || true
           find openwrt/build_dir/ -name "u-boot.bin" -exec cp -v {} outputs/u-boot.bin \; || true
           
-          # 备选搜救：检查 bin 目录
+          # 检查 bin 目录 (作为备选)
           [ -d "openwrt/bin" ] && find openwrt/bin/ -type f \( -name "*bl2*" -o -name "*u-boot*" -o -name "*fip*" \) -exec cp -v {} outputs/ \; || true
           
-          echo "--- [搜索结果展示] ---"
+          echo "--- [打捞清单展示] ---"
           ls -R outputs/
 
-      - name: 上传救砖黄金产物
+      - name: 上传黄金产物
         uses: actions/upload-artifact@v4
         with:
-          name: SL3000-Recovery-Binaries
+          name: SL3000-RECOVERY-BINARIES
           path: outputs/
