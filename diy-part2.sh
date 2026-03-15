@@ -1,57 +1,57 @@
 #!/bin/bash
 # =========================================================
-# SL-3000 救砖零件全链路溯源投递脚本 (绝对路径版)
+# SL-3000 救砖零件物理死锁投递脚本 (Final Hardened Version)
 # =========================================================
 
-# 1. 物理环境侦测
-# 如果在 GitHub Actions 环境中，使用物理根目录；否则使用当前工作目录
+# 1. 物理环境侦测与路径锚定
+# 自动识别 GitHub Actions 工作空间，确保 cp 指令不会因路径位移失效
 WORK_DIR="${GITHUB_WORKSPACE:-$(pwd)}"
 SRC_DIR="$WORK_DIR/888"
 TARGET_DIR="$WORK_DIR/openwrt"
 
-echo "--- [全链路溯源]：定位物理根目录: $WORK_DIR ---"
+echo "--- [物理溯源]：锁定构建根目录 $WORK_DIR ---"
 
-# 2. 零件投递目标定义
+# 2. 目标目录初始化
+# 这里的路径对应你克隆的 sl3000-immortalwrt-bootstrap 分支结构
 ATF_PATH="$TARGET_DIR/package/boot/arm-trusted-firmware-mediatek"
 UBOOT_PATH="$TARGET_DIR/package/boot/uboot-mediatek"
 
-# 3. 物理熔断机制：检查零件源
-if [ ! -d "$SRC_DIR" ]; then
-    echo "❌ 像素级报错：无法找到零件源目录 $SRC_DIR"
-    exit 1
-fi
+echo "--- [物理溯源]：准备零件预埋区 ---"
+mkdir -p "$ATF_PATH/files"
+mkdir -p "$UBOOT_PATH/files"
 
-echo "--- [全链路溯源]：开始零件投递 ---"
-
-# 4. 执行物理劫持与灌入
-mkdir -p "$ATF_PATH/files" "$UBOOT_PATH/files"
-
-# 劫持 Makefile
+# 3. 物理强灌：ATF 救砖零件
+# 灌入 Makefile 劫持编译流程，灌入 .c 和 .h 零件修正 1MB 偏移逻辑
+echo "--- [物理溯源]：正在投递 ATF 1MB 偏移补丁 ---"
 [ -f "$SRC_DIR/atf-Makefile" ] && cp -f "$SRC_DIR/atf-Makefile" "$ATF_PATH/Makefile"
-[ -f "$SRC_DIR/uboot-Makefile" ] && cp -f "$SRC_DIR/uboot-Makefile" "$UBOOT_PATH/Makefile"
-
-# 灌入 ATF 补丁零件 (5个)
 cp -f "$SRC_DIR/bl2_dev_spi_nor.c" "$ATF_PATH/files/"
 cp -f "$SRC_DIR/platform_def.h"    "$ATF_PATH/files/"
 cp -f "$SRC_DIR/platform.mk"      "$ATF_PATH/files/"
 cp -f "$SRC_DIR/bl2.mk"           "$ATF_PATH/files/"
 cp -f "$SRC_DIR/mt7981-spi2.dts"  "$ATF_PATH/files/"
 
-# 灌入 U-Boot 零件 (2个)
+# 4. 物理强灌：U-Boot 对齐零件
+# 重点：DTS 文件名必须与 Makefile 里的 DEVICE_TREE 变量像素级对齐
+echo "--- [物理溯源]：正在投递 U-Boot 分区对齐零件 ---"
+[ -f "$SRC_DIR/uboot-Makefile" ] && cp -f "$SRC_DIR/uboot-Makefile" "$UBOOT_PATH/Makefile"
 cp -f "$SRC_DIR/mt7981_sl3000_defconfig" "$UBOOT_PATH/files/"
-cp -f "$SRC_DIR/mt7981-sl3000.dts"       "$UBOOT_PATH/files/"
+cp -f "$SRC_DIR/mt7981-sl-3000-emmc.dts"  "$UBOOT_PATH/files/"
 
-# 5. 配置文件 (.config) 物理锁死
-CONF_FILE="$TARGET_DIR/.config"
+# 5. 配置物理死锁 (.config)
+# 强制选中这两个包，防止 OpenWrt 的依赖检查将其跳过 (Skipping)
+echo "--- [物理溯源]：执行配置物理注入 ---"
 if [ -f "$SRC_DIR/sl3000.config" ]; then
-    cp -f "$SRC_DIR/sl3000.config" "$CONF_FILE"
+    cp -f "$SRC_DIR/sl3000.config" "$TARGET_DIR/.config"
 fi
 
-# 强行注入激活指令，防止 Skipping 再次发生
-echo "CONFIG_PACKAGE_arm-trusted-firmware-mediatek-mt7981-sl3000-nor=y" >> "$CONF_FILE"
-echo "CONFIG_PACKAGE_uboot-mediatek-mt7981_sl3000=y" >> "$CONF_FILE"
+# 双重保险：在配置末尾追加强制选中指令
+echo "CONFIG_PACKAGE_arm-trusted-firmware-mediatek-mt7981-sl3000-nor=y" >> "$TARGET_DIR/.config"
+echo "CONFIG_PACKAGE_uboot-mediatek-mt7981_sl3000=y" >> "$TARGET_DIR/.config"
 
-# 6. 强制清理物理缓存
+# 6. 权限硬化与缓存清除
+# 确保 Runner 有权读取新灌入的零件，并删除 tmp 强制重新索引 Makefile
+chmod -R 755 "$ATF_PATH"
+chmod -R 755 "$UBOOT_PATH"
 rm -rf "$TARGET_DIR/tmp"
 
-echo "--- [全链路溯源]：11 个零件已成功完成像素级投递 ---"
+echo "--- [物理溯源]：11 个零件已成功通过物理死锁完成投递 ---"
