@@ -1,62 +1,82 @@
-name: SL-3000-DDR4-PHYSICAL-HARDENING
+name: SL-3000-DDR4-ULTIMATE-FIRMWARE
 
 on:
   workflow_dispatch:
 
+env:
+  REPO_URL: https://github.com/immortalwrt/immortalwrt
+  REPO_BRANCH: openwrt-23.05
+  TZ: Asia/Shanghai
+
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     steps:
       - name: Checkout Your Repo
         uses: actions/checkout@v4
         with:
           path: main-repo
 
-      - name: Initialize Environment
+      - name: Initialization Environment
         run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential libncurses5-dev gawk git gettext libssl-dev xsltproc wget unzip qemu-utils device-tree-compiler flex bison
-          git clone --depth 1 https://github.com/immortalwrt/immortalwrt -b openwrt-23.05 openwrt
+          sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          sudo -E apt-get -qq update
+          sudo -E apt-get -qq install $(curl -fsSL https://raw.githubusercontent.com/P3TERX/Actions-OpenWrt/master/files/debian-pkgs)
+          sudo -E apt-get -qq autoremove --purge
+          sudo -E apt-get -qq clean
+          sudo timedatectl set-timezone "$TZ"
 
-      - name: Physical Sync & Feed Reset
+      - name: Clone Source & Sync Feeds
         run: |
-          # 准则一：环境硬化 - 物理替换 Makefile 并清理官方 Patch 干扰
+          git clone $REPO_URL -b $REPO_BRANCH openwrt
+          # 物理同步：将你仓库 888 目录下的 Makefile 覆盖到源码中
           cp -v main-repo/888/atf-Makefile openwrt/package/boot/arm-trusted-firmware-mediatek/Makefile
           cp -v main-repo/888/uboot-Makefile openwrt/package/boot/uboot-mediatek/Makefile
-          
           cd openwrt
           ./scripts/feeds update -a && ./scripts/feeds install -a
-          rm -rf tmp
 
       - name: Execute Hardened Injection
         run: |
-          # 准则二：路径唯一 - 注入 888 核心零件并锁定 1MB 偏移
+          # 运行 diy-part2.sh 进行零件注入
           chmod +x main-repo/diy-part2.sh
           ./main-repo/diy-part2.sh
 
-      - name: Build Toolchain Foundation
+      - name: Build Toolchain & Payloads
         working-directory: ./openwrt
         run: |
-          # 核心修复：先给配置，再编地基。否则会出现 ld-musl 缺失
+          # 物理锁定 SL-3000 配置
           echo "CONFIG_TARGET_mediatek=y" > .config
           echo "CONFIG_TARGET_mediatek_filogic=y" >> .config
           echo "CONFIG_TARGET_mediatek_filogic_DEVICE_mediatek_mt7981-rfb-flash=y" >> .config
           echo "CONFIG_PACKAGE_arm-trusted-firmware-mediatek-mt7981-sl3000-nor=y" >> .config
           make defconfig
           
-          # 物理拉起交叉编译器（解决 cp: cannot stat 报错的关键）
+          # 1. 编地基（工具链）- 解决 ld-musl 报错
           make tools/install -j$(nproc)
           make toolchain/install -j$(nproc)
-
-      - name: Final Payload Compile
-        working-directory: ./openwrt
-        run: |
-          # 准则三：配置锁死 - 此时工具链已就位，物理产出固件
+          
+          # 2. 编零件（ATF 和 U-Boot）
           make package/boot/arm-trusted-firmware-mediatek/compile V=s -j1
           make package/boot/uboot-mediatek/compile V=s -j1
 
-      - name: Upload Artifacts
+      - name: Force Physical Extraction
+        run: |
+          # 核心修复：绕过 bin 目录，直接去源码深处抢出 .img 和 .bin
+          mkdir -p outputs
+          echo "--- 开始物理抓取救砖零件 ---"
+          find openwrt/build_dir/target-aarch64* -name "bl2.img" -exec cp -v {} outputs/ \;
+          find openwrt/build_dir/target-aarch64* -name "fip.bin" -exec cp -v {} outputs/ \;
+          find openwrt/build_dir/target-aarch64* -name "*u-boot*bin" -exec cp -v {} outputs/ \;
+          
+          # 物理校验
+          if [ -z "$(ls -A outputs)" ]; then
+            echo "错误：未能在 build_dir 中找到任何固件文件，请检查编译日志！"
+            exit 1
+          fi
+          ls -lh outputs/
+
+      - name: Upload Firmware
         uses: actions/upload-artifact@v4
         with:
-          name: SL3000-DDR4-1MB-Fixed
-          path: openwrt/bin/targets/mediatek/filogic/
+          name: SL3000-DDR4-NOR-PAYLOADS
+          path: outputs/
