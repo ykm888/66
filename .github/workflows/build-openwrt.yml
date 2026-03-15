@@ -28,45 +28,44 @@ jobs:
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
-      - name: 物理零件预埋 (劫持 23.05 Makefile)
+      - name: 零件物理预埋 (执行 diy-part2.sh)
         run: |
-          # 核心逻辑：在编译开始前，将 888 目录的文件物理投递到 package 层级
           chmod +x diy-part2.sh
           ./diy-part2.sh
 
-      - name: 物理配置对齐
+      - name: 生成 .config 锚点
         run: |
           cd openwrt
-          # 优先使用你 888 目录里的全量 config
+          # 优先使用 888 目录中的全量配置，如果没有则使用 diy-part2 注入的配置
           [ -f ../888/sl3000.config ] && cp -f ../888/sl3000.config .config
           make defconfig
 
-      - name: 编译工具链 (23.05 地基)
+      - name: 磨刀 (编译工具链)
         run: |
           cd openwrt
           make tools/install -j$(nproc)
           make toolchain/install -j$(nproc)
 
-      - name: 物理全链路编译
+      - name: 强灌与炼化 (编译 ATF 和 U-Boot)
         run: |
           cd openwrt
-          # 23.05 环境下强制单线程编译关键包，确保 log 清晰且不丢包
+          # 23.05 环境下强制单线程编译，确保 Makefile 的强灌指令不被跳过
           make package/boot/arm-trusted-firmware-mediatek/compile V=s -j1
           make package/boot/uboot-mediatek/compile V=s -j1
 
-      - name: 物理提取产物
+      - name: 产物物理提取
         run: |
           mkdir -p outputs
-          # 针对 23.05 的产物路径进行像素级扫描
+          # 扫描编译生成的二进制零件
           find openwrt/bin/targets/mediatek/filogic/ -name "*bl2*" -exec cp -v {} outputs/ \;
           find openwrt/bin/targets/mediatek/filogic/ -name "*fip*" -exec cp -v {} outputs/ \;
-          # 双重保险：从构建目录直接抢救原始二进制
+          # 从构建目录抢救原始镜像 (防止 bin 目录未生成)
           find openwrt/build_dir/target-aarch64* -name "bl2.img" -exec cp -v {} outputs/ \;
-          find openwrt/build_dir/target-aarch64* -name "fip.bin" -exec cp -v {} outputs/ \;
+          find openwrt/build_dir/target-aarch64* -name "u-boot.bin" -exec cp -v {} outputs/ \;
           ls -lh outputs/
 
-      - name: 上传 23.05 救砖包
+      - name: 上传 1MB 偏移救砖固件
         uses: actions/upload-artifact@v4
         with:
-          name: SL3000-23.05-Final-Bin
+          name: SL3000-Final-Artifacts
           path: outputs/
