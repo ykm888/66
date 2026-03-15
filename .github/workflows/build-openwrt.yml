@@ -1,73 +1,60 @@
-name: SL-3000-ULTIMATE-FORCE-BUILD
+name: SL-3000-PHYSICAL-RECOVERY
 
 on:
   workflow_dispatch:
-
-env:
-  REPO_URL: https://github.com/ykm888/66.git
-  REPO_BRANCH: sl3000-immortalwrt-bootstrap
 
 jobs:
   build:
     runs-on: ubuntu-22.04
     steps:
-      - name: 检出仓库
+      - name: 检出当前仓库
         uses: actions/checkout@v4
 
-      - name: 环境筑基
+      - name: 筑基环境
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential git gawk libncurses5-dev gettext libssl-dev xsltproc wget zstd curl python3-pyelftools
-          git clone --depth 1 $REPO_URL -b $REPO_BRANCH openwrt
+          git clone --depth 1 https://github.com/ykm888/66.git -b sl3000-immortalwrt-bootstrap openwrt
 
-      - name: 强灌零件与锁定架构
+      - name: 执行自愈脚本
         run: |
           chmod +x diy-part2.sh
           ./diy-part2.sh
 
-      - name: 强制刷新配置
+      - name: 配置审计与架构校验
         run: |
           cd openwrt
           ./scripts/feeds update -a && ./scripts/feeds install -a
-          # 建立索引
           make defconfig
-          # 物理确认：如果 .config 里没这行，直接退出报错，不浪费时间
-          grep -q "CONFIG_TARGET_mediatek=y" .config || (echo "FATAL: Target mismatch!" && exit 1)
-          
-      - name: 暴力编译 (Force Rebuild)
+          echo "--- [验证架构锁定状态] ---"
+          grep "CONFIG_TARGET_mediatek=y" .config || (echo "FATAL: Architecture mismatch!" && exit 1)
+          grep "CONFIG_PACKAGE_arm-trusted-firmware-mediatek-mt7981-nor-ddr4=y" .config || (echo "FATAL: ATF Variant not found!" && exit 1)
+
+      - name: 暴力炼化编译
         run: |
           cd openwrt
-          # 预编译基础工具
           make tools/install -j$(nproc)
           make toolchain/install -j$(nproc)
-          
-          echo "--- [正在执行暴力强制编译] ---"
-          # 使用 clean 确保没有旧缓存，使用 -j1 暴露所有报错细节
+          # 物理强制重新编译
           make package/boot/arm-trusted-firmware-mediatek/clean
           make package/boot/arm-trusted-firmware-mediatek/compile V=s -j1
-          
-          make package/boot/uboot-mediatek/clean
-          make package/boot/uboot-mediatek/compile V=s -j1
 
-      - name: 全盘搜救产物
+      - name: 地毯式全链路打捞
         if: always()
         run: |
           mkdir -p outputs
-          echo "--- [全盘物理扫描] ---"
-          # 直接去 build_dir 扫描。注意：即使没进 bin，这里一定有产物
+          echo "--- [物理第一现场打捞] ---"
           find openwrt/build_dir/ -name "bl2.bin" -exec cp -v {} outputs/bl2.img \; || true
           find openwrt/build_dir/ -name "fip.bin" -exec cp -v {} outputs/fip.bin \; || true
-          find openwrt/build_dir/ -name "u-boot.bin" -exec cp -v {} outputs/u-boot.bin \; || true
           
-          # 补充搜索所有 bin, img 文件
-          find openwrt/bin/ -type f \( -name "*.bin" -o -name "*.img" \) -exec cp -v {} outputs/ \; || true
+          echo "--- [物理第二现场回收] ---"
+          [ -d "openwrt/bin" ] && find openwrt/bin/ -type f \( -name "*bl2*" -o -name "*fip*" \) -exec cp -v {} outputs/ \; || true
           
-          echo "--- [搜救清单展示] ---"
           ls -R outputs/
 
-      - name: 上传救砖镜像
+      - name: 上传黄金救砖产物
         uses: actions/upload-artifact@v4
         with:
-          name: SL3000-Recovery-Package
+          name: SL3000-RECOVERY
           path: outputs/
-          if-no-files-found: error # 如果还没文件，直接让 Action 飘红，我们看报错日志
+          if-no-files-found: error
