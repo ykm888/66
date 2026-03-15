@@ -1,11 +1,11 @@
-name: SL-3000-FINAL-FORCE-BUILD
+name: SL-3000-PHYSICAL-FINAL-BUILD
 
 on:
   workflow_dispatch:
 
 env:
   REPO_URL: https://github.com/ykm888/66.git
-  REPO_BRANCH: sl3000-immortalwrt-bootstrap  # 锁定系统地基分支
+  REPO_BRANCH: sl3000-immortalwrt-bootstrap
   TZ: Asia/Shanghai
 
 jobs:
@@ -15,11 +15,10 @@ jobs:
       - name: 物理检出当前仓库
         uses: actions/checkout@v4
 
-      - name: 环境筑基 (克隆系统源)
+      - name: 环境筑基 (安装依赖与克隆系统)
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential git gawk libncurses5-dev gettext libssl-dev xsltproc wget zstd curl
-          # 物理克隆包含 sl3000 变体定义的系统源
+          sudo apt-get install -y build-essential git gawk libncurses5-dev gettext libssl-dev xsltproc wget zstd curl python3-pyelftools
           git clone --depth 1 $REPO_URL -b $REPO_BRANCH openwrt
 
       - name: Feeds 同步
@@ -28,44 +27,47 @@ jobs:
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
-      - name: 零件全链路死锁强灌
+      - name: 零件全链路物理强灌
         run: |
-          # 必须赋予权限并在根目录运行
           chmod +x diy-part2.sh
           ./diy-part2.sh
-
-      - name: 生成配置锚点
-        run: |
-          cd openwrt
-          make defconfig
-          # 在 defconfig 之后强制补强，防止被清洗
-          echo "CONFIG_PACKAGE_arm-trusted-firmware-mediatek-mt7981-sl3000-nor=y" >> .config
-          echo "CONFIG_PACKAGE_uboot-mediatek-mt7981_sl3000=y" >> .config
 
       - name: 磨刀 (工具链编译)
         run: |
           cd openwrt
+          # 预生成配置并强制补强变体名
+          make defconfig
+          echo "CONFIG_PACKAGE_arm-trusted-firmware-mediatek-mt7981-nor-ddr4=y" >> .config
+          echo "CONFIG_PACKAGE_uboot-mediatek-mt7981_sl3000=y" >> .config
+          
+          # 编译基础工具链 (MT7981 必须)
           make tools/install -j$(nproc)
           make toolchain/install -j$(nproc)
 
-      - name: 强灌与炼化 (物理全路径强制编译)
+      - name: 强灌与炼化 (物理强制路径编译)
         run: |
           cd openwrt
-          # 【指名道姓指令】强制编译指定变体，彻底干掉 Skipping 警告
-          make package/boot/arm-trusted-firmware-mediatek/mt7981-sl3000-nor/compile V=s -j1
+          # [核心对齐]：指名道姓强制编译新变体，无视 Skipping
+          make package/boot/arm-trusted-firmware-mediatek/mt7981-nor-ddr4/compile V=s -j1
           make package/boot/uboot-mediatek/mt7981_sl3000/compile V=s -j1
 
-      - name: 产物暴力提取
+      - name: 产物暴力搜救与提取
         if: always()
         run: |
           mkdir -p outputs
-          echo "--- [物理搜救] ---"
-          # 扫描所有构建缓冲区，打捞 bl2.img, fip.bin 和 u-boot.bin
-          find openwrt/build_dir/ -type f \( -name "bl2.img" -o -name "fip.bin" -o -name "u-boot.bin" \) -exec cp -v {} outputs/ \;
+          # 1. 优先打捞 Makefile 中定义的 recovery 专用目录
+          if [ -d "openwrt/bin/sl3000-recovery" ]; then
+            cp -v openwrt/bin/sl3000-recovery/* outputs/
+          fi
+          
+          # 2. 备选方案：全盘打捞防漏掉
+          find openwrt/build_dir/ -type f \( -name "bl2.img" -o -name "fip.bin" -o -name "u-boot.bin" -o -name "*mt7981-nor-ddr4*" \) -exec cp -v {} outputs/ \;
+          
+          echo "--- [搜救结果展示] ---"
           ls -R outputs/
 
-      - name: 上传救砖镜像
+      - name: 上传 1MB 救砖黄金镜像
         uses: actions/upload-artifact@v4
         with:
-          name: SL3000-Recovery-Binaries
+          name: SL3000-1MB-Recovery-Package
           path: outputs/
