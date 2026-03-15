@@ -1,4 +1,4 @@
-name: SL-3000-PHYSICAL-RECOVERY-BUILD
+name: SL-3000-PHYSICAL-FINAL-BUILD
 
 on:
   workflow_dispatch:
@@ -12,65 +12,68 @@ jobs:
   build:
     runs-on: ubuntu-22.04
     steps:
-      - name: 检出 888 零件仓库
+      - name: 检出当前仓库
         uses: actions/checkout@v4
 
-      - name: 环境筑基 (核心编译依赖)
+      - name: 环境筑基
         run: |
           sudo apt-get update
-          # 必须包含 python3-pyelftools 用于 U-Boot binman 打包
           sudo apt-get install -y build-essential git gawk libncurses5-dev gettext libssl-dev xsltproc wget zstd curl python3-pyelftools
           git clone --depth 1 $REPO_URL -b $REPO_BRANCH openwrt
 
-      - name: Feeds 更新与注入
+      - name: Feeds 同步
         run: |
           cd openwrt
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
-      - name: 执行物理对齐脚本 (diy-part2.sh)
+      - name: 执行物理对齐脚本
         run: |
           chmod +x diy-part2.sh
           ./diy-part2.sh
 
-      - name: 刷新配置索引与工具链
+      - name: 刷新配置与工具链
         run: |
           cd openwrt
-          # 这一步会将脚本注入的配置与系统默认配置合并
           make defconfig
-          
-          # 双保险：再次确保变体被选中 (防止 defconfig 意外剔除)
+          # 再次强制补强，确保变体必中
           echo "CONFIG_PACKAGE_arm-trusted-firmware-mediatek-mt7981-nor-ddr4=y" >> .config
           echo "CONFIG_PACKAGE_uboot-mediatek-mt7981_sl3000=y" >> .config
-          
-          # 预编译基础工具链
           make tools/install -j$(nproc)
           make toolchain/install -j$(nproc)
 
-      - name: 炼化救砖固件 (强制路径编译)
+      - name: 炼化救砖全家桶 (物理编译)
         run: |
           cd openwrt
-          # 使用标准包路径，索引会自动指向 mt7981-nor-ddr4
-          make package/boot/arm-trusted-firmware-mediatek/compile V=s -j1
-          make package/boot/uboot-mediatek/compile V=s -j1
+          # 编译指令对齐
+          make package/boot/arm-trusted-firmware-mediatek/compile V=s -j$(nproc)
+          make package/boot/uboot-mediatek/compile V=s -j$(nproc)
 
       - name: 产物暴力搜救与提取
         if: always()
         run: |
           mkdir -p outputs
-          # 打捞专用 recovery 目录 (在 Makefile 中定义的输出位置)
+          
+          echo "--- [1/3] 编译现场打捞 (Build Directory) ---"
+          # 直接去源码编译位置找，无视 bin 目录是否存在
+          find openwrt/build_dir/ -name "bl2.bin" -exec cp -v {} outputs/bl2.img \; || true
+          find openwrt/build_dir/ -name "fip.bin" -exec cp -v {} outputs/fip.bin \; || true
+          find openwrt/build_dir/ -name "u-boot.bin" -exec cp -v {} outputs/u-boot.bin \; || true
+
+          echo "--- [2/3] 专用 Recovery 目录打捞 ---"
           if [ -d "openwrt/bin/sl3000-recovery" ]; then
-            cp -v openwrt/bin/sl3000-recovery/* outputs/
+            cp -v openwrt/bin/sl3000-recovery/* outputs/ || true
           fi
           
-          # 备份搜寻：从编译输出目录中打捞 bl2/fip/u-boot
-          find openwrt/bin/targets/mediatek/filogic/ -type f \( -name "*bl2*" -o -name "*u-boot*" -o -name "*fip*" \) -exec cp -v {} outputs/ \;
+          echo "--- [3/3] 全路径模糊打捞 ---"
+          # 检查父级目录是否存在，末尾加 || true 防止 find 报错导致 Action 中断
+          [ -d "openwrt/bin" ] && find openwrt/bin/ -type f \( -name "*bl2*" -o -name "*u-boot*" -o -name "*fip*" \) -exec cp -v {} outputs/ \; || true
           
-          echo "--- [搜救结果展示] ---"
+          echo "--- [物理清单展示] ---"
           ls -R outputs/
 
-      - name: 上传救砖镜像产物
+      - name: 上传黄金救砖产物
         uses: actions/upload-artifact@v4
         with:
-          name: SL3000-Recovery-Binaries
+          name: SL3000-Recovery-Files
           path: outputs/
