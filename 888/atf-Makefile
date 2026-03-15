@@ -1,11 +1,12 @@
 # SPDX-License-Identifier: GPL-2.0-only
-# SL-3000 (MT7981) Physical Hardening ATF Makefile (Full Version)
+# SL-3000 (MT7981) Physical Hardening ATF Makefile
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=arm-trusted-firmware-mediatek
-PKG_VERSION:=23.05-sl3000
+PKG_VERSION:=sl3000-v1
 PKG_RELEASE:=1
 
+# 物理死锁：指向底层驱动源码分支
 PKG_SOURCE_PROTO:=git
 PKG_SOURCE_URL:=https://github.com/ykm888/66.git
 PKG_SOURCE_VERSION:=sl3000-clean-source
@@ -34,16 +35,21 @@ TFA_TARGETS:=mt7981-sl3000-nor
 
 define Build/Prepare
 	$(call Build/Prepare/Default)
-	@echo "--- [物理溯源]：执行 ATF 零件物理强灌逻辑 ---"
+	@echo "--- [物理溯源]：执行 ATF 零件物理强灌 ---"
 	mkdir -p $(PKG_BUILD_DIR)/plat/mediatek/mt7981/bl2
 	mkdir -p $(PKG_BUILD_DIR)/plat/mediatek/mt7981/include
-	# 物理锁定：从 package/files 强行覆盖至源码目录
-	$(CP) $(TOPDIR)/package/boot/arm-trusted-firmware-mediatek/files/bl2_dev_spi_nor.c $(PKG_BUILD_DIR)/plat/mediatek/mt7981/bl2/
-	$(CP) $(TOPDIR)/package/boot/arm-trusted-firmware-mediatek/files/platform_def.h $(PKG_BUILD_DIR)/plat/mediatek/mt7981/include/
-	$(CP) $(TOPDIR)/package/boot/arm-trusted-firmware-mediatek/files/platform.mk $(PKG_BUILD_DIR)/plat/mediatek/mt7981/
-	$(CP) $(TOPDIR)/package/boot/arm-trusted-firmware-mediatek/files/bl2.mk $(PKG_BUILD_DIR)/plat/mediatek/mt7981/
-	$(CP) $(TOPDIR)/package/boot/arm-trusted-firmware-mediatek/files/mt7981-spi2.dts $(PKG_BUILD_DIR)/plat/mediatek/mt7981/
-	@echo "--- [物理溯源]：ATF 1MB 偏移补丁灌入完成 ---"
+	
+	# 强制覆盖 1MB 救砖补丁
+	$(CP) -f $(TOPDIR)/package/boot/arm-trusted-firmware-mediatek/files/bl2_dev_spi_nor.c $(PKG_BUILD_DIR)/plat/mediatek/mt7981/bl2/
+	$(CP) -f $(TOPDIR)/package/boot/arm-trusted-firmware-mediatek/files/platform_def.h $(PKG_BUILD_DIR)/plat/mediatek/mt7981/include/
+	$(CP) -f $(TOPDIR)/package/boot/arm-trusted-firmware-mediatek/files/platform.mk $(PKG_BUILD_DIR)/plat/mediatek/mt7981/
+	$(CP) -f $(TOPDIR)/package/boot/arm-trusted-firmware-mediatek/files/bl2.mk $(PKG_BUILD_DIR)/plat/mediatek/mt7981/
+	$(CP) -f $(TOPDIR)/package/boot/arm-trusted-firmware-mediatek/files/mt7981-spi2.dts $(PKG_BUILD_DIR)/plat/mediatek/mt7981/
+	
+	# 物理校验
+	[ -f $(PKG_BUILD_DIR)/plat/mediatek/mt7981/bl2/bl2_dev_spi_nor.c ] || exit 1
+	@echo "--- [物理溯源]：ATF 灌入完成 ---"
 endef
 
+$(foreach ot,$(TFA_TARGETS),$(eval $(call BuildPackage/Trusted-Firmware-A/$(ot))))
 $(eval $(call BuildPackage/Trusted-Firmware-A))
