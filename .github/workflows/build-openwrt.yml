@@ -27,29 +27,29 @@ jobs:
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
-      - name: 零件物理预埋
-        run: |
-          chmod +x diy-part2.sh
-          ./diy-part2.sh
-
-      - name: 生成锚点
+      - name: 零件物理预埋与配置生成
         run: |
           cd openwrt
-          # 强制将你的配置注入
+          # 执行 888 零件投递
+          chmod +x ../diy-part2.sh
+          ../diy-part2.sh
+          # 优先使用 888 目录下的全量配置
           [ -f ../888/sl3000.config ] && cp -f ../888/sl3000.config .config
-          # 23.05 必须执行此步以激活 Makefile 里的变体
+          # 再次执行激活指令，防止被覆盖
+          echo "CONFIG_PACKAGE_arm-trusted-firmware-mediatek-mt7981-sl3000-nor=y" >> .config
+          echo "CONFIG_PACKAGE_uboot-mediatek-mt7981_sl3000=y" >> .config
           make defconfig
 
-      - name: 磨刀 (工具链)
+      - name: 磨刀 (工具链编译)
         run: |
           cd openwrt
           make tools/install -j$(nproc)
           make toolchain/install -j$(nproc)
 
-      - name: 强灌与炼化 (单线程极致编译)
+      - name: 强灌与炼化 (单线程精准编译)
         run: |
           cd openwrt
-          # 清理并强制重新准备
+          # 强制清理旧记录，确保补丁生效
           make package/boot/arm-trusted-firmware-mediatek/clean
           make package/boot/arm-trusted-firmware-mediatek/compile V=s -j1
           
@@ -60,27 +60,20 @@ jobs:
         if: always()
         run: |
           mkdir -p outputs
-          echo "--- [物理溯源]：正在进行全盘地毯式搜索 ---"
+          echo "--- [物理溯源]：全盘搜救二进制产物 ---"
+          # 搜索范围：bin 目录 (正式产物) + build_dir (原始产物)
+          find openwrt/bin/ -type f \( -name "*bl2*" -o -name "*fip*" -o -name "*u-boot.bin*" \) -exec cp -v {} outputs/ \;
+          find openwrt/build_dir/ -type f \( -name "bl2.img" -o -name "fip.bin" -o -name "u-boot.bin" \) -exec cp -v {} outputs/ \;
           
-          # 1. 查找所有可能的目标二进制文件
-          # 在 bin 目录下找 (最终产物)
-          find openwrt/bin/targets/ -type f \( -name "*bl2*" -o -name "*fip*" -o -name "*u-boot.bin*" \) -exec cp -v {} outputs/ \;
+          # 清理不必要的中间文件
+          find outputs/ -type f -name "*.o" -delete
           
-          # 2. 如果 bin 目录没抓到，直接去构建目录硬抢 (原始产物)
-          if [ -z "$(ls -A outputs)" ]; then
-            echo "警告：bin 目录未发现文件，正在从 build_dir 抢救..."
-            find openwrt/build_dir/ -type f -name "bl2.img" -exec cp -v {} outputs/ \;
-            find openwrt/build_dir/ -type f -name "fip.bin" -exec cp -v {} outputs/ \;
-            find openwrt/build_dir/ -type f -name "u-boot.bin" -exec cp -v {} outputs/ \;
-          fi
-          
-          # 3. 打印搜救清单，如果这里还是空的，说明编译根本没运行
-          echo "--- [最终搜救清单] ---"
+          echo "--- [搜救结果清单] ---"
           ls -R outputs/
 
-      - name: 上传救砖固件
+      - name: 上传救砖固件 (Artifacts)
         uses: actions/upload-artifact@v4
         with:
-          name: SL3000-Final-Artifacts
+          name: SL3000-Recovery-Binaries
           path: outputs/
           if-no-files-found: error
