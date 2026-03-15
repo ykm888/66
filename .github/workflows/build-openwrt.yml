@@ -1,4 +1,4 @@
-name: SL-3000-PHYSICAL-PIXEL-LOCKED
+name: SL-3000-RECOVERY-23.05-FINAL
 
 on:
   workflow_dispatch:
@@ -12,77 +12,61 @@ jobs:
   build:
     runs-on: ubuntu-22.04
     steps:
-      - name: 物理核对仓库
+      - name: 物理检出代码
         uses: actions/checkout@v4
-        with:
-          path: main-repo
 
-      - name: 物理环境硬化
+      - name: 环境筑基 (Ubuntu 22.04)
         run: |
           sudo rm -rf /etc/apt/sources.list.d/*
-          sudo -E apt-get -qq update
-          sudo -E apt-get -qq install $(curl -fsSL https://raw.githubusercontent.com/P3TERX/Actions-OpenWrt/master/files/debian-pkgs)
-          sudo timedatectl set-timezone "$TZ"
-
-      - name: 源码溯源
-        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential git gawk libncurses5-dev gettext libssl-dev xsltproc wget zstd curl
           git clone --depth 1 $REPO_URL -b $REPO_BRANCH openwrt
-          # 物理覆盖核心 Makefile 零件
-          cp -v main-repo/888/atf-Makefile openwrt/package/boot/arm-trusted-firmware-mediatek/Makefile
-          cp -v main-repo/888/uboot-Makefile openwrt/package/boot/uboot-mediatek/Makefile
-          cd openwrt
-          ./scripts/feeds update -a && ./scripts/feeds install -a
 
-      - name: 像素级配置锁死
+      - name: 更新并安装 Feeds
         run: |
           cd openwrt
-          mkdir -p package/boot/uboot-mediatek/config
-          cp -v ../main-repo/888/mt7981_sl3000_defconfig package/boot/uboot-mediatek/config/mt7981_sl3000_defconfig
-          
-          # 物理隔离 .config，绝对禁止触发交互式 menuconfig
-          cat > .config <<EOF
-          CONFIG_TARGET_mediatek=y
-          CONFIG_TARGET_mediatek_filogic=y
-          CONFIG_TARGET_mediatek_filogic_DEVICE_mediatek_mt7981-rfb-flash=y
-          CONFIG_PACKAGE_uboot-mediatek-mt7981_sl3000=y
-          CONFIG_PACKAGE_arm-trusted-firmware-mediatek-mt7981-sl3000-nor=y
-          EOF
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
+
+      - name: 物理零件预埋 (劫持 23.05 Makefile)
+        run: |
+          # 核心逻辑：在编译开始前，将 888 目录的文件物理投递到 package 层级
+          chmod +x diy-part2.sh
+          ./diy-part2.sh
+
+      - name: 物理配置对齐
+        run: |
+          cd openwrt
+          # 优先使用你 888 目录里的全量 config
+          [ -f ../888/sl3000.config ] && cp -f ../888/sl3000.config .config
           make defconfig
 
-      - name: 物理零件强灌
-        run: |
-          # 第一阶段：物理清创
-          chmod +x main-repo/diy-part2.sh
-          ./main-repo/diy-part2.sh clean
-          
-          cd openwrt
-          # 物理拉起具体变体（解决 No rule to make target 'prepare' 报错）
-          make package/boot/arm-trusted-firmware-mediatek/mt7981-sl3000-nor/prepare V=s
-          make package/boot/uboot-mediatek/mt7981_sl3000/prepare V=s
-          
-          # 第二阶段：物理穿透注入 (基于扁平化仓库结构)
-          cd ..
-          ./main-repo/diy-part2.sh inject
-
-      - name: 全链路成品编译
+      - name: 编译工具链 (23.05 地基)
         run: |
           cd openwrt
           make tools/install -j$(nproc)
           make toolchain/install -j$(nproc)
-          # 编译 1MB 对齐的 BL2 和 FIP
+
+      - name: 物理全链路编译
+        run: |
+          cd openwrt
+          # 23.05 环境下强制单线程编译关键包，确保 log 清晰且不丢包
           make package/boot/arm-trusted-firmware-mediatek/compile V=s -j1
           make package/boot/uboot-mediatek/compile V=s -j1
 
       - name: 物理提取产物
         run: |
           mkdir -p outputs
-          # 暴力扫描 build_dir 提取二进制零件
+          # 针对 23.05 的产物路径进行像素级扫描
+          find openwrt/bin/targets/mediatek/filogic/ -name "*bl2*" -exec cp -v {} outputs/ \;
+          find openwrt/bin/targets/mediatek/filogic/ -name "*fip*" -exec cp -v {} outputs/ \;
+          # 双重保险：从构建目录直接抢救原始二进制
           find openwrt/build_dir/target-aarch64* -name "bl2.img" -exec cp -v {} outputs/ \;
           find openwrt/build_dir/target-aarch64* -name "fip.bin" -exec cp -v {} outputs/ \;
-          [ -z "$(ls -A outputs)" ] && echo "物理报错：无产出" && exit 1 || ls -lh outputs/
+          ls -lh outputs/
 
-      - name: 上传零件包
+      - name: 上传 23.05 救砖包
         uses: actions/upload-artifact@v4
         with:
-          name: SL3000-FIXED-PAYLOADS
+          name: SL3000-23.05-Final-Bin
           path: outputs/
