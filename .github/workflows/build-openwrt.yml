@@ -1,4 +1,4 @@
-name: SL-3000-RECOVERY-23.05-FINAL
+name: SL-3000-RECOVERY-FINAL-ATTEMPT
 
 on:
   workflow_dispatch:
@@ -15,57 +15,72 @@ jobs:
       - name: 物理检出代码
         uses: actions/checkout@v4
 
-      - name: 环境筑基 (Ubuntu 22.04)
+      - name: 环境筑基
         run: |
-          sudo rm -rf /etc/apt/sources.list.d/*
           sudo apt-get update
           sudo apt-get install -y build-essential git gawk libncurses5-dev gettext libssl-dev xsltproc wget zstd curl
           git clone --depth 1 $REPO_URL -b $REPO_BRANCH openwrt
 
-      - name: 更新并安装 Feeds
+      - name: 更新 Feeds
         run: |
           cd openwrt
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
-      - name: 零件物理预埋 (执行 diy-part2.sh)
+      - name: 零件物理预埋
         run: |
           chmod +x diy-part2.sh
           ./diy-part2.sh
 
-      - name: 生成 .config 锚点
+      - name: 生成锚点
         run: |
           cd openwrt
-          # 优先使用 888 目录中的全量配置，如果没有则使用 diy-part2 注入的配置
+          # 强制将你的配置注入
           [ -f ../888/sl3000.config ] && cp -f ../888/sl3000.config .config
+          # 23.05 必须执行此步以激活 Makefile 里的变体
           make defconfig
 
-      - name: 磨刀 (编译工具链)
+      - name: 磨刀 (工具链)
         run: |
           cd openwrt
           make tools/install -j$(nproc)
           make toolchain/install -j$(nproc)
 
-      - name: 强灌与炼化 (编译 ATF 和 U-Boot)
+      - name: 强灌与炼化 (单线程极致编译)
         run: |
           cd openwrt
-          # 23.05 环境下强制单线程编译，确保 Makefile 的强灌指令不被跳过
+          # 清理并强制重新准备
+          make package/boot/arm-trusted-firmware-mediatek/clean
           make package/boot/arm-trusted-firmware-mediatek/compile V=s -j1
+          
+          make package/boot/uboot-mediatek/clean
           make package/boot/uboot-mediatek/compile V=s -j1
 
-      - name: 产物物理提取
+      - name: 产物暴力搜救
+        if: always()
         run: |
           mkdir -p outputs
-          # 扫描编译生成的二进制零件
-          find openwrt/bin/targets/mediatek/filogic/ -name "*bl2*" -exec cp -v {} outputs/ \;
-          find openwrt/bin/targets/mediatek/filogic/ -name "*fip*" -exec cp -v {} outputs/ \;
-          # 从构建目录抢救原始镜像 (防止 bin 目录未生成)
-          find openwrt/build_dir/target-aarch64* -name "bl2.img" -exec cp -v {} outputs/ \;
-          find openwrt/build_dir/target-aarch64* -name "u-boot.bin" -exec cp -v {} outputs/ \;
-          ls -lh outputs/
+          echo "--- [物理溯源]：正在进行全盘地毯式搜索 ---"
+          
+          # 1. 查找所有可能的目标二进制文件
+          # 在 bin 目录下找 (最终产物)
+          find openwrt/bin/targets/ -type f \( -name "*bl2*" -o -name "*fip*" -o -name "*u-boot.bin*" \) -exec cp -v {} outputs/ \;
+          
+          # 2. 如果 bin 目录没抓到，直接去构建目录硬抢 (原始产物)
+          if [ -z "$(ls -A outputs)" ]; then
+            echo "警告：bin 目录未发现文件，正在从 build_dir 抢救..."
+            find openwrt/build_dir/ -type f -name "bl2.img" -exec cp -v {} outputs/ \;
+            find openwrt/build_dir/ -type f -name "fip.bin" -exec cp -v {} outputs/ \;
+            find openwrt/build_dir/ -type f -name "u-boot.bin" -exec cp -v {} outputs/ \;
+          fi
+          
+          # 3. 打印搜救清单，如果这里还是空的，说明编译根本没运行
+          echo "--- [最终搜救清单] ---"
+          ls -R outputs/
 
-      - name: 上传 1MB 偏移救砖固件
+      - name: 上传救砖固件
         uses: actions/upload-artifact@v4
         with:
           name: SL3000-Final-Artifacts
           path: outputs/
+          if-no-files-found: error
