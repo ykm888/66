@@ -1,7 +1,5 @@
-#
-# Copyright (C) 2021-2026 ykm888 (SL-3000 Physical Hardening)
-#
-
+# SPDX-License-Identifier: GPL-2.0-only
+# SL-3000 (MT7981) Physical Hardening U-Boot Makefile (Full Version)
 include $(TOPDIR)/rules.mk
 include $(INCLUDE_DIR)/kernel.mk
 
@@ -12,7 +10,6 @@ PKG_RELEASE:=1
 PKG_SOURCE_PROTO:=git
 PKG_SOURCE_URL:=https://github.com/ykm888/66.git
 PKG_SOURCE_VERSION:=sl3000-clean-source
-
 PKG_BUILD_DIR:=$(BUILD_DIR)/$(PKG_NAME)-$(BUILD_VARIANT)
 
 include $(INCLUDE_DIR)/u-boot.mk
@@ -25,43 +22,30 @@ define U-Boot/Default
   UBOOT_IMAGE:=u-boot.bin
 endef
 
-# --- 【物理命门：变体定义与依赖对齐】 ---
 define U-Boot/mt7981_sl3000
   NAME:=SL-3000 (DDR4/SPI-NOR-1MB-Offset)
-  # 物理修正 1：对齐 atf-Makefile 中的物理名称
   DEPENDS:=+arm-trusted-firmware-mediatek-mt7981-sl3000-nor
-  # 物理修正 2：强制使用我们预设的 1MB 偏移 defconfig 零件
   UBOOT_CONFIG:=mt7981_sl3000_defconfig
-  # 物理修正 3：锁定设备树名称
-  MAKE_FLAGS += \
-    DRAM_USE_DDR4=1 \
-    DEVICE_TREE=mt7981-sl3000
+  MAKE_FLAGS += DRAM_USE_DDR4=1 DEVICE_TREE=mt7981-sl3000
 endef
 
 UBOOT_TARGETS:= mt7981_sl3000
 
 define Build/Prepare
 	$(call Build/Prepare/Default)
-	@echo "--- [物理溯源]：执行 U-Boot 强灌逻辑 ---"
-	# 物理强灌设备树：从 files 目录精准投递 (由 diy-part2.sh 放入)
+	@echo "--- [物理溯源]：执行 U-Boot 零件物理强灌逻辑 ---"
 	mkdir -p $(PKG_BUILD_DIR)/arch/arm/dts/
-	[ -f $(TOPDIR)/package/boot/uboot-mediatek/files/mt7981-sl3000.dts ] && \
-		$(CP) $(TOPDIR)/package/boot/uboot-mediatek/files/mt7981-sl3000.dts $(PKG_BUILD_DIR)/arch/arm/dts/
-	
-	# 物理强灌 Defconfig：锁定分区表位置
 	mkdir -p $(PKG_BUILD_DIR)/configs/
-	[ -f $(TOPDIR)/package/boot/uboot-mediatek/files/mt7981_sl3000_defconfig ] && \
-		$(CP) $(TOPDIR)/package/boot/uboot-mediatek/files/mt7981_sl3000_defconfig $(PKG_BUILD_DIR)/configs/
-	
-	# 物理修正 Makefile 识别逻辑
+	# 物理锁定：注入 1MB 偏移对应的 defconfig 和设备树
+	$(CP) $(TOPDIR)/package/boot/uboot-mediatek/files/mt7981-sl3000.dts $(PKG_BUILD_DIR)/arch/arm/dts/
+	$(CP) $(TOPDIR)/package/boot/uboot-mediatek/files/mt7981_sl3000_defconfig $(PKG_BUILD_DIR)/configs/
+	# 物理修正设备树编译链
 	echo 'dtb-y += mt7981-sl3000.dtb' >> $(PKG_BUILD_DIR)/arch/arm/dts/Makefile
-	@echo "--- [物理溯源]：U-Boot 零件注入完成 ---"
+	@echo "--- [物理溯源]：U-Boot 零件灌入完成 ---"
 endef
 
 define Package/u-boot-$(1)/install
 	$(Package/u-boot/install/default)
 endef
 
-$(foreach ot,$(UBOOT_TARGETS), \
-  $(eval $(call BuildPackage/U-Boot/$(ot))) \
-)
+$(foreach ot,$(UBOOT_TARGETS),$(eval $(call BuildPackage/U-Boot/$(ot))))
