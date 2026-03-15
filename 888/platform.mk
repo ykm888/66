@@ -1,27 +1,18 @@
-#
-# Copyright (c) 2023, MediaTek Inc. All rights reserved.
-# Copyright (c) 2026, ykm888 (DDR4 Physical Hardening for SL-3000)
-#
 # SPDX-License-Identifier: BSD-3-Clause
-#
+# SL-3000 (MT7981) Physical Hardening Platform Config (Full Version)
 
 MTK_PLAT		:=	plat/mediatek
 MTK_PLAT_SOC		:=	$(MTK_PLAT)/$(PLAT)
 APSOC_COMMON		:=	$(MTK_PLAT)/apsoc_common
 
-# =========================================================
-# --- 【物理加固：救砖核心参数锁定】 ---
-# =========================================================
-# 1MB FIP 偏移量锁定 (0x100000)
+# --- 【物理定标：1MB 偏移与 DDR4 锁定】 ---
 MTK_FIP_BASE		:=	0x100000
-
-# DDR4 硬件规格强制锁定
 DRAM_USE_DDR4		:=	1
 DRAM_DEBUG_LOG		:=	1
 DRAM_SIZE_LIMIT		:=	0
 BOARD_BGA		:=	1
 
-# 启用 Cortex-A53 勘误修复
+# 处理器勘误修复
 ERRATA_A53_826319	:=	1
 ERRATA_A53_836870	:=	1
 ERRATA_A53_855873	:=	1
@@ -30,13 +21,8 @@ PROGRAMMABLE_RESET_ADDRESS	:=	1
 ENABLE_SVE_FOR_NS		:=	0
 MULTI_CONSOLE_API		:=	1
 RESET_TO_BL2			:=	1
+FIP_ARGS			+=	--align 8
 
-# FIP 对齐 (8字节)
-FIP_ARGS		+=	--align 8
-
-# =========================================================
-# --- 【路径与包含定义】 ---
-# =========================================================
 PLAT_INCLUDES		:=	-I$(APSOC_COMMON)				\
 				-I$(APSOC_COMMON)/drivers/uart			\
 				-I$(APSOC_COMMON)/drivers/trng/v2		\
@@ -50,43 +36,26 @@ PLAT_INCLUDES		:=	-I$(APSOC_COMMON)				\
 				-I$(MTK_PLAT_SOC)/include			\
 				-I$(MTK_PLAT_SOC)/drivers/dram
 
-# 包含子模块
 include $(MTK_PLAT_SOC)/bl2pl/bl2pl.mk
 include $(MTK_PLAT_SOC)/bl2/bl2.mk
 include $(MTK_PLAT_SOC)/bl31/bl31.mk
 include $(MTK_PLAT_SOC)/drivers/efuse/efuse.mk
 
-# --- 【物理加固：强行注入驱动源】 ---
-# 无论 boot 模式如何，强制 BL2 包含你的物理偏移逻辑文件
+# 强制加载救砖驱动源
 BL2_SOURCES		+=	$(MTK_PLAT_SOC)/bl2/bl2_dev_spi_nor.c
 
 include $(APSOC_COMMON)/bl2/tbbr_post.mk
 include $(APSOC_COMMON)/bl2/ar_post.mk
 include $(APSOC_COMMON)/bl2/bl2_image_post.mk
 
-# 安全分区大小定义
-OPTEE_TZRAM_SIZE := 0x10000
-ifneq ($(BL32),)
-ifeq ($(TRUSTED_BOARD_BOOT),1)
-DEFINES += -DNEED_BL32
-OPTEE_TZRAM_SIZE := 0x500000
-endif
-endif
-DEFINES += -DOPTEE_TZRAM_SIZE=$(OPTEE_TZRAM_SIZE)
-
-# --- 【物理加固：全局宏定义传递给 C 编译器】 ---
+# 编译器宏传递 (物理死锁)
 DEFINES += -DMTK_FIP_BASE=$(MTK_FIP_BASE)
 DEFINES += -DDRAM_USE_DDR4=$(DRAM_USE_DDR4)
 
-# 依赖规则包含
 include make_helpers/dep.mk
 
-# =========================================================
-# --- 【物理加固：逻辑注册与参数对齐】 ---
-# =========================================================
+# 依赖与参数对齐
 $(call GEN_DEP_RULES,bl2,bl2_dev_spi_nor emicfg dram_log bl2_boot_ram bl2_boot_nand_nmbm bl2_dev_mmc bl2_plat_init bl2_plat_setup mt7981_gpio dtb)
-
-# 物理像素级传递宏定义，确保编译 .o 文件时参数生效
 $(call MAKE_DEP,bl2,bl2_dev_spi_nor,BOOT_DEVICE DRAM_USE_DDR4 MTK_FIP_BASE)
 $(call MAKE_DEP,bl2,emicfg,DRAM_USE_DDR4 DRAM_SIZE_LIMIT BOARD_QFN BOARD_BGA)
 $(call MAKE_DEP,bl2,dram_log,DRAM_DEBUG_LOG)
