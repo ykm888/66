@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-2.0-only
-# SL-3000 (MT7981) Physical Hardening U-Boot Makefile (Full Version)
+# SL-3000 (MT7981) Physical Hardening U-Boot Makefile
 include $(TOPDIR)/rules.mk
 include $(INCLUDE_DIR)/kernel.mk
 
@@ -7,11 +7,10 @@ PKG_NAME:=uboot-mediatek
 PKG_VERSION:=sl3000-v1
 PKG_RELEASE:=1
 
-# 物理死锁：强制使用本地源模式，配合 diy-part2.sh 劫持
+# 物理死锁：指向底层驱动源码分支
 PKG_SOURCE_PROTO:=git
 PKG_SOURCE_URL:=https://github.com/ykm888/66.git
 PKG_SOURCE_VERSION:=sl3000-clean-source
-PKG_BUILD_DIR:=$(BUILD_DIR)/$(PKG_NAME)-$(BUILD_VARIANT)
 
 include $(INCLUDE_DIR)/u-boot.mk
 include $(INCLUDE_DIR)/package.mk
@@ -23,12 +22,11 @@ define U-Boot/Default
   UBOOT_IMAGE:=u-boot.bin
 endef
 
-# --- 【物理对齐：变体定义】 ---
 define U-Boot/mt7981_sl3000
   NAME:=SL-3000 (DDR4/SPI-NOR-1MB-Offset)
   DEPENDS:=+arm-trusted-firmware-mediatek-mt7981-sl3000-nor
   UBOOT_CONFIG:=mt7981_sl3000_defconfig
-  # 注意：DEVICE_TREE 必须与下方的文件名对齐
+  # 物理锁定设备树文件名 (必须带 -emmc)
   MAKE_FLAGS += DRAM_USE_DDR4=1 DEVICE_TREE=mt7981-sl-3000-emmc
 endef
 
@@ -36,18 +34,18 @@ UBOOT_TARGETS:= mt7981_sl3000
 
 define Build/Prepare
 	$(call Build/Prepare/Default)
-	@echo "--- [物理溯源]：执行 U-Boot 零件物理强灌逻辑 ---"
+	@echo "--- [物理溯源]：执行 U-Boot 零件物理强灌 ---"
 	mkdir -p $(PKG_BUILD_DIR)/arch/arm/dts/
 	mkdir -p $(PKG_BUILD_DIR)/configs/
 	
-	# 【对齐修正】：从 files 目录拷贝正确命名的 DTS 文件
-	$(CP) $(TOPDIR)/package/boot/uboot-mediatek/files/mt7981-sl-3000-emmc.dts $(PKG_BUILD_DIR)/arch/arm/dts/
-	$(CP) $(TOPDIR)/package/boot/uboot-mediatek/files/mt7981_sl3000_defconfig $(PKG_BUILD_DIR)/configs/
+	# 对齐拷贝
+	$(CP) -f $(TOPDIR)/package/boot/uboot-mediatek/files/mt7981-sl-3000-emmc.dts $(PKG_BUILD_DIR)/arch/arm/dts/
+	$(CP) -f $(TOPDIR)/package/boot/uboot-mediatek/files/mt7981_sl3000_defconfig $(PKG_BUILD_DIR)/configs/
 	
-	# 【对齐修正】：修正设备树编译规则
+	# 修改编译列表
 	echo 'dtb-y += mt7981-sl-3000-emmc.dtb' >> $(PKG_BUILD_DIR)/arch/arm/dts/Makefile
 	
-	@echo "--- [物理溯源]：U-Boot 零件 (DTS: mt7981-sl-3000-emmc) 灌入完成 ---"
+	@echo "--- [物理溯源]：U-Boot 灌入完成 ---"
 endef
 
 define Package/u-boot-$(1)/install
