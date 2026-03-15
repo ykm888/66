@@ -1,27 +1,19 @@
 # SPDX-License-Identifier: GPL-2.0-only
-# SL-3000 (MT7981) Physical Hardening Makefile
-# Target: 1MB FIP Offset + DDR4 Support + Physical Auto-Injection
-
+# SL-3000 (MT7981) Physical Hardening ATF Makefile (Full Version)
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=arm-trusted-firmware-mediatek
 PKG_VERSION:=23.05-sl3000
 PKG_RELEASE:=1
 
-# 物理溯源：锁定你个人的干净源码仓库与救砖分支
 PKG_SOURCE_PROTO:=git
 PKG_SOURCE_URL:=https://github.com/ykm888/66.git
 PKG_SOURCE_VERSION:=sl3000-clean-source
 PKG_MIRROR_HASH:=skip
 
-PKG_LICENSE:=BSD-3-Clause
-PKG_LICENSE_FILES:=docs/license.rst
-
-# 引用 OpenWrt TFA 构建框架
 include $(INCLUDE_DIR)/trusted-firmware-a.mk
 include $(INCLUDE_DIR)/package.mk
 
-# 默认基础配置
 define Trusted-Firmware-A/Default
   BUILD_TARGET:=mediatek
   BUILD_SUBTARGET:=filogic
@@ -29,7 +21,6 @@ define Trusted-Firmware-A/Default
   TFA_IMAGE:=bl2.img fip.bin
 endef
 
-# 物理定义：SL-3000 专属变体 (NOR 启动 + DDR4 内存)
 define Trusted-Firmware-A/mt7981-sl3000-nor
   NAME:=SL-3000 (NOR-DDR4-1MB-Fix)
   BUILD_DEVICES:=mediatek_mt7981-rfb-flash
@@ -39,34 +30,20 @@ define Trusted-Firmware-A/mt7981-sl3000-nor
     DEBUG=0
 endef
 
-# 物理导出变体列表
 TFA_TARGETS:=mt7981-sl3000-nor
 
-# =========================================================
-# 核心修复点：物理硬化注入逻辑
-# =========================================================
 define Build/Prepare
 	$(call Build/Prepare/Default)
-	@echo "--- [物理溯源]：执行 Build/Prepare 强灌逻辑 ---"
-	# 1. 确保目标目录物理存在
+	@echo "--- [物理溯源]：执行 ATF 零件物理强灌逻辑 ---"
 	mkdir -p $(PKG_BUILD_DIR)/plat/mediatek/mt7981/bl2
 	mkdir -p $(PKG_BUILD_DIR)/plat/mediatek/mt7981/include
-	
-	# 2. 物理劫持：从 files 目录（由 diy-part2.sh 放入）强行覆盖源码
-	# 即使源码解压后层级混乱，这里直接进行像素级精准定位覆盖
-	[ -f $(TOPDIR)/package/boot/arm-trusted-firmware-mediatek/files/bl2_dev_spi_nor.c ] && \
-		$(CP) $(TOPDIR)/package/boot/arm-trusted-firmware-mediatek/files/bl2_dev_spi_nor.c $(PKG_BUILD_DIR)/plat/mediatek/mt7981/bl2/
-	
-	[ -f $(TOPDIR)/package/boot/arm-trusted-firmware-mediatek/files/platform_def.h ] && \
-		$(CP) $(TOPDIR)/package/boot/arm-trusted-firmware-mediatek/files/platform_def.h $(PKG_BUILD_DIR)/plat/mediatek/mt7981/include/
-	
-	[ -f $(TOPDIR)/package/boot/arm-trusted-firmware-mediatek/files/platform.mk ] && \
-		$(CP) $(TOPDIR)/package/boot/arm-trusted-firmware-mediatek/files/platform.mk $(PKG_BUILD_DIR)/plat/mediatek/mt7981/
-	
-	[ -f $(TOPDIR)/package/boot/arm-trusted-firmware-mediatek/files/bl2.mk ] && \
-		$(CP) $(TOPDIR)/package/boot/arm-trusted-firmware-mediatek/files/bl2.mk $(PKG_BUILD_DIR)/plat/mediatek/mt7981/
-		
-	@echo "--- [物理溯源]：救砖零件已成功强灌至源码心脏 ---"
+	# 物理锁定：从 package/files 强行覆盖至源码目录
+	$(CP) $(TOPDIR)/package/boot/arm-trusted-firmware-mediatek/files/bl2_dev_spi_nor.c $(PKG_BUILD_DIR)/plat/mediatek/mt7981/bl2/
+	$(CP) $(TOPDIR)/package/boot/arm-trusted-firmware-mediatek/files/platform_def.h $(PKG_BUILD_DIR)/plat/mediatek/mt7981/include/
+	$(CP) $(TOPDIR)/package/boot/arm-trusted-firmware-mediatek/files/platform.mk $(PKG_BUILD_DIR)/plat/mediatek/mt7981/
+	$(CP) $(TOPDIR)/package/boot/arm-trusted-firmware-mediatek/files/bl2.mk $(PKG_BUILD_DIR)/plat/mediatek/mt7981/
+	$(CP) $(TOPDIR)/package/boot/arm-trusted-firmware-mediatek/files/mt7981-spi2.dts $(PKG_BUILD_DIR)/plat/mediatek/mt7981/
+	@echo "--- [物理溯源]：ATF 1MB 偏移补丁灌入完成 ---"
 endef
 
 $(eval $(call BuildPackage/Trusted-Firmware-A))
