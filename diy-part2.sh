@@ -1,53 +1,44 @@
 #!/bin/bash
-# 物理溯源诊断脚本 - 针对扁平化仓库结构优化
+# =========================================================
+# SL-3000 23.05 救砖预埋脚本 (像素级对齐)
+# =========================================================
 
-MODE=$1
-cd openwrt
+echo "--- [物理溯源]：正在执行 23.05 零件物理预埋 ---"
 
-if [ "$MODE" == "inject" ]; then
-    echo "--- 执行物理穿透注入 (目标：扁平化结构) ---"
-    
-    # 1. 溯源定位 ATF 核心
-    # 逻辑：查找包含 platform.mk 的目录作为 ATF 根路径
-    REAL_ATF=$(find build_dir/target-aarch64* -name "platform.mk" | sed 's/\/plat\/mediatek\/mt7981\/platform.mk//' | head -n 1)
-    
-    if [ -n "$REAL_ATF" ]; then
-        echo "命中 ATF 物理根目录: $REAL_ATF"
-        # 强制修正：1MB 偏移逻辑 + DDR4 硬件支持
-        sed -i 's/MTK_FIP_BASE.*=.*/MTK_FIP_BASE = 0x100000/g' "$REAL_ATF/plat/mediatek/mt7981/platform.mk"
-        echo "DRAM_USE_DDR4 := 1" >> "$REAL_ATF/plat/mediatek/mt7981/platform.mk"
-        
-        # 物理强灌零件 (c/h)
-        cp -v ../main-repo/888/bl2_dev_spi_nor.c "$REAL_ATF/plat/mediatek/mt7981/bl2/"
-        cp -v ../main-repo/888/platform_def.h "$REAL_ATF/plat/mediatek/mt7981/include/"
-        
-        # 针对扁平仓库可能存在的路径变体进行二次覆盖
-        [ -d "$REAL_ATF/include/plat/mediatek/mt7981" ] && cp -v ../main-repo/888/platform_def.h "$REAL_ATF/include/plat/mediatek/mt7981/"
-        
-        touch "$REAL_ATF/.prepared"*
-        echo "ATF 零件注入成功"
-    else
-        echo "物理报错：无法定位 ATF 源码核心，请检查 prepare 步骤日志"
-        exit 1
-    fi
+# 1. 清理并创建 23.05 物理预埋区
+# OpenWrt 在编译包时，会自动将 package/xxx/files/ 下的内容覆盖到源码 src 目录
+rm -rf openwrt/package/boot/arm-trusted-firmware-mediatek/files
+rm -rf openwrt/package/boot/uboot-mediatek/files
+mkdir -p openwrt/package/boot/arm-trusted-firmware-mediatek/files
+mkdir -p openwrt/package/boot/uboot-mediatek/files
 
-    # 2. 溯源定位 U-Boot 核心
-    # 逻辑：根据 configs 目录位置反推 U-Boot 根路径
-    REAL_UBOOT=$(find build_dir/target-aarch64* -name "configs" -type d | grep "u-boot" | head -n 1 | sed 's/\/configs//')
-    
-    if [ -n "$REAL_UBOOT" ]; then
-        echo "命中 U-Boot 物理根目录: $REAL_UBOOT"
-        # 注入 U-Boot 分区配置及设备树
-        cp -v ../main-repo/888/mt7981_sl3000_defconfig "$REAL_UBOOT/configs/"
-        if [ -f "../main-repo/888/mt7981-sl3000.dts" ]; then
-            mkdir -p "$REAL_UBOOT/arch/arm/dts/"
-            cp -v ../main-repo/888/mt7981-sl3000.dts "$REAL_UBOOT/arch/arm/dts/"
-            echo "U-Boot DTS 零件注入成功"
-        fi
-        touch "$REAL_UBOOT/.prepared"*
-    fi
-else
-    echo "--- 执行物理清创 ---"
-    rm -rf package/boot/arm-trusted-firmware-mediatek/patches
-    rm -rf package/boot/uboot-mediatek/patches
+# 2. 劫持 Makefile (23.05 版本专用)
+# 确保你的 888/atf-Makefile 里的 URL 指向了你截图中的 ykm888/66.git
+cp -f 888/atf-Makefile openwrt/package/boot/arm-trusted-firmware-mediatek/Makefile
+cp -f 888/uboot-Makefile openwrt/package/boot/uboot-mediatek/Makefile
+
+# 3. 物理投递零件 (针对 ATF)
+# 这些文件会在 compile 阶段物理覆盖你底层库中的对应文件
+[ -f 888/bl2_dev_spi_nor.c ] && cp -f 888/bl2_dev_spi_nor.c openwrt/package/boot/arm-trusted-firmware-mediatek/files/
+[ -f 888/platform_def.h ] && cp -f 888/platform_def.h openwrt/package/boot/arm-trusted-firmware-mediatek/files/
+[ -f 888/platform.mk ] && cp -f 888/platform.mk openwrt/package/boot/arm-trusted-firmware-mediatek/files/
+[ -f 888/bl2.mk ] && cp -f 888/bl2.mk openwrt/package/boot/arm-trusted-firmware-mediatek/files/
+[ -f 888/mt7981-spi2.dts ] && cp -f 888/mt7981-spi2.dts openwrt/package/boot/arm-trusted-firmware-mediatek/files/
+
+# 4. 物理投递零件 (针对 U-Boot)
+[ -f 888/mt7981_sl3000_defconfig ] && cp -f 888/mt7981_sl3000_defconfig openwrt/package/boot/uboot-mediatek/files/
+[ -f 888/mt7981-sl3000.dts ] && cp -f 888/mt7981-sl3000.dts openwrt/package/boot/uboot-mediatek/files/
+
+# 5. 强制 23.05 配置对齐
+# 如果不存在 sl3000.config，则通过追加方式硬写
+if [ ! -f 888/sl3000.config ]; then
+cat >> openwrt/.config <<EOF
+CONFIG_TARGET_mediatek=y
+CONFIG_TARGET_mediatek_filogic=y
+CONFIG_TARGET_mediatek_filogic_DEVICE_mediatek_mt7981-rfb-flash=y
+CONFIG_PACKAGE_uboot-mediatek-mt7981_sl3000=y
+CONFIG_PACKAGE_arm-trusted-firmware-mediatek-mt7981-sl3000-nor=y
+EOF
 fi
+
+echo "--- [物理溯源]：23.05 预埋完成，地基已就绪 ---"
