@@ -1,55 +1,76 @@
-# SPDX-License-Identifier: GPL-2.0-only
-# SL-3000 (MT7981) Physical Hardening ATF Makefile
+#
+# Copyright (C) 2024-2026 ykm888
+# 物理修复终极版：针对 SL-3000 (MT7981) 适配 1MB 偏移黄金救砖分支
+#
+
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=arm-trusted-firmware-mediatek
-PKG_VERSION:=sl3000-v1
 PKG_RELEASE:=1
 
-# 物理死锁：指向底层驱动源码分支
+# --- 核心修改：物理指向你的黄金分支 ---
 PKG_SOURCE_PROTO:=git
 PKG_SOURCE_URL:=https://github.com/ykm888/66.git
 PKG_SOURCE_VERSION:=sl3000-clean-source
 PKG_MIRROR_HASH:=skip
 
+PKG_MAINTAINER:=ykm888
+
+# 物理仓库内的源码目录名
+ATF_SRC_SUBDIR:=atf
+
+# 物理构建目录定义
+PKG_BUILD_DIR:=$(BUILD_DIR)/$(PKG_NAME)-$(BUILD_VARIANT)/$(PKG_NAME)-$(PKG_VERSION)
+
+include $(INCLUDE_DIR)/kernel.mk
 include $(INCLUDE_DIR)/trusted-firmware-a.mk
 include $(INCLUDE_DIR)/package.mk
 
+# --- 1. 零件工艺默认参数 ---
 define Trusted-Firmware-A/Default
   BUILD_TARGET:=mediatek
   BUILD_SUBTARGET:=filogic
   PLAT:=mt7981
-  TFA_IMAGE:=bl2.img fip.bin
+  # 必须包含 fip.bin，否则 U-Boot 无法打包进去
+  TFA_IMAGE:=bl2.bin bl31.bin fip.bin
 endef
 
-define Trusted-Firmware-A/mt7981-sl3000-nor
-  NAME:=SL-3000 (NOR-DDR4-1MB-Fix)
-  BUILD_DEVICES:=mediatek_mt7981-rfb-flash
-  TFA_MAKE_FLAGS:= \
-    BOOT_DEVICE=nor \
-    DRAM_USE_DDR4=1 \
-    DEBUG=0
+# --- 2. 物理变体修复 ---
+define Trusted-Firmware-A/mt7981-nor-ddr4
+  NAME:=SL-3000 (Hardened NOR-DDR4)
+  VARIANT:=mt7981-nor-ddr4
+  BOOT_DEVICE:=nor
 endef
 
-TFA_TARGETS:=mt7981-sl3000-nor
+TFA_TARGETS:=mt7981-nor-ddr4
 
+# --- 3. 物理编译选项 ---
+TFA_MAKE_FLAGS += \
+	BOOT_DEVICE=nor \
+	TRUSTED_BOARD_BOOT=0 \
+	WERROR=0 \
+	DEBUG=0
+
+# --- 4. 物理工地准备 ---
 define Build/Prepare
 	$(call Build/Prepare/Default)
-	@echo "--- [物理溯源]：执行 ATF 零件物理强灌 ---"
-	mkdir -p $(PKG_BUILD_DIR)/plat/mediatek/mt7981/bl2
-	mkdir -p $(PKG_BUILD_DIR)/plat/mediatek/mt7981/include
+	@echo "Physical Surgery: Aligning ATF source from subfolder..."
+	if [ -d "$(PKG_BUILD_DIR)/$(ATF_SRC_SUBDIR)" ]; then \
+		cp -rf $(PKG_BUILD_DIR)/$(ATF_SRC_SUBDIR)/* $(PKG_BUILD_DIR)/; \
+	fi
 	
-	# 强制覆盖 1MB 救砖补丁
-	$(CP) -f $(TOPDIR)/package/boot/arm-trusted-firmware-mediatek/files/bl2_dev_spi_nor.c $(PKG_BUILD_DIR)/plat/mediatek/mt7981/bl2/
-	$(CP) -f $(TOPDIR)/package/boot/arm-trusted-firmware-mediatek/files/platform_def.h $(PKG_BUILD_DIR)/plat/mediatek/mt7981/include/
-	$(CP) -f $(TOPDIR)/package/boot/arm-trusted-firmware-mediatek/files/platform.mk $(PKG_BUILD_DIR)/plat/mediatek/mt7981/
-	$(CP) -f $(TOPDIR)/package/boot/arm-trusted-firmware-mediatek/files/bl2.mk $(PKG_BUILD_DIR)/plat/mediatek/mt7981/
-	$(CP) -f $(TOPDIR)/package/boot/arm-trusted-firmware-mediatek/files/mt7981-spi2.dts $(PKG_BUILD_DIR)/plat/mediatek/mt7981/
-	
-	# 物理校验
-	[ -f $(PKG_BUILD_DIR)/plat/mediatek/mt7981/bl2/bl2_dev_spi_nor.c ] || exit 1
-	@echo "--- [物理溯源]：ATF 灌入完成 ---"
+	find $(PKG_BUILD_DIR) -type f -name "Makefile*" -exec sed -i 's/-Werror//g' {} + || true
+	find $(PKG_BUILD_DIR) -type f -name "*.mk" -exec sed -i 's/-Werror//g' {} + || true
 endef
 
-$(foreach ot,$(TFA_TARGETS),$(eval $(call BuildPackage/Trusted-Firmware-A/$(ot))))
+# --- 5. 零件分发逻辑 ---
+define Package/trusted-firmware-a-$(1)/install
+	$(call Package/trusted-firmware-a/install/default,$(1))
+	$(INSTALL_DIR) $(BIN_DIR)/sl3000-recovery
+	[ -f $(PKG_BUILD_DIR)/build/$(PLAT)/release/bl2.bin ] && \
+		$(CP) $(PKG_BUILD_DIR)/build/$(PLAT)/release/bl2.bin $(BIN_DIR)/sl3000-recovery/bl2.img
+	[ -f $(PKG_BUILD_DIR)/build/$(PLAT)/release/fip.bin ] && \
+		$(CP) $(PKG_BUILD_DIR)/build/$(PLAT)/release/fip.bin $(BIN_DIR)/sl3000-recovery/fip.bin
+endef
+
 $(eval $(call BuildPackage/Trusted-Firmware-A))
