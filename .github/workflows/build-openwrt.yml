@@ -1,4 +1,4 @@
-name: SL-3000-FULL-TRACE-DIAGNOSTIC
+name: SL3000-Physical-Recovery-Build
 
 on:
   workflow_dispatch:
@@ -10,53 +10,45 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Initialization Environment
+      - name: Initialization
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential git gawk libncurses5-dev gettext libssl-dev xsltproc wget zstd curl python3-pyelftools
-          git clone --depth 1 https://github.com/ykm888/66.git -b sl3000-immortalwrt-bootstrap openwrt
+          sudo apt-get install -y build-essential git gawk libncurses5-dev gettext libssl-dev xsltproc wget zstd python3-pyelftools
+          git clone --depth 1 https://github.com/coolsnowwolf/immortalwrt.git openwrt
 
-      - name: Execute Physical Repair (No-EOF)
+      - name: Execute Physical Repair
         run: |
           cd openwrt
-          chmod +x ../diy-part2.sh
-          ../diy-part2.sh
+          chmod +x ../diy-part1.sh && ../diy-part1.sh
+          chmod +x ../diy-part2.sh && ../diy-part2.sh
 
-      - name: Feed Update & Install
+      - name: Update Feeds
         run: |
           cd openwrt
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
-      - name: Build ATF (BL2/FIP)
+      - name: Build Bootloaders (The Recovery Core)
         run: |
           cd openwrt
           make defconfig
-          # 优先编译 ATF 零件
+          # 物理顺序：ATF -> U-Boot
           make package/boot/arm-trusted-firmware-mediatek/compile V=s -j$(nproc)
-
-      - name: Build U-Boot (Secondary Stage)
-        run: |
-          cd openwrt
-          # 接着编译 U-Boot 零件
           make package/boot/uboot-mediatek/compile V=s -j$(nproc)
 
-      - name: Final Image Construction
+      - name: Build Full Firmware & Combine Image
         run: |
           cd openwrt
-          # 触发 filogic.mk 中的合成逻辑
+          # 触发 filogic.mk 的合成逻辑
           make target/linux/mediatek/image/compile V=s
 
-      - name: Physical Salvage (产物打捞)
-        if: always()
+      - name: Artifact Collection
         run: |
-          mkdir -p outputs
-          find openwrt/bin/targets/mediatek/filogic/ -name "*nor-programmer-dump.bin" -exec cp -v {} outputs/ \;
-          find openwrt/bin/targets/mediatek/filogic/ -name "*bl2.img" -exec cp -v {} outputs/ \;
-          find openwrt/bin/targets/mediatek/filogic/ -name "*u-boot.bin" -exec cp -v {} outputs/ \;
+          mkdir -p bin_out
+          find openwrt/bin/targets/mediatek/filogic/ -name "*nor-programmer-dump.bin" -exec cp -v {} bin_out/ \;
 
-      - name: Upload Artifacts
+      - name: Upload
         uses: actions/upload-artifact@v4
         with:
-          name: SL3000-Recovery-Bundle
-          path: outputs/
+          name: SL3000-Full-Image
+          path: bin_out/
