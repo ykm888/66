@@ -10,50 +10,55 @@ jobs:
       - name: 检出当前仓库
         uses: actions/checkout@v4
 
+      - name: 物理拉取底层救砖仓库源
+        run: |
+          # 物理锁定你提供的 bootstrap 分支，确保 Makefile 路径正确
+          git clone --depth 1 https://github.com/ykm888/66.git -b sl3000-immortalwrt-bootstrap sl3000-repo
+
       - name: 环境初始化
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential git gawk libncurses5-dev gettext libssl-dev xsltproc wget zstd python3-pyelftools
           git clone --depth 1 https://github.com/coolsnowwolf/immortalwrt.git openwrt
 
-      - name: 物理拉取底层救砖仓库源
-        run: |
-          # 物理隔离下载底层仓库，确保分支为 sl3000-clean-source
-          git clone --depth 1 https://github.com/ykm888/66.git -b sl3000-clean-source sl3000-repo
-
-      - name: 执行物理修复与平铺
+      - name: 执行物理修复与合并
         run: |
           cd openwrt
           chmod +x ../diy-part2.sh
           ../diy-part2.sh
           
-          # 物理溯源：文件搬运后必须重新刷新 feeds 才能生成 package/boot 的软链接
+          # 物理刷新：确保 feeds 重新读取新注入的 Makefile
           ./scripts/feeds update -a
           ./scripts/feeds install -a
-          # 强制重新生成 .config
           make defconfig
 
-      - name: 零件级物理编译 (ATF -> UBoot)
+      - name: 物理验证与零件编译
         run: |
           cd openwrt
-          # 增加物理存在验证，防止 Error 2 再次发生
-          [ -f package/boot/arm-trusted-firmware-mediatek/Makefile ] || (echo "FATAL: ATF Makefile missing"; exit 1)
+          # 像素级检查：若此步骤失败，说明底层仓库结构有变
+          if [ -f "package/boot/arm-trusted-firmware-mediatek/Makefile" ]; then
+             echo "✅ 物理验证通过：Makefile 存在于预期路径"
+          else
+             echo "❌ 物理验证失败：路径断链，打印目录树供溯源："
+             ls -R package/boot/
+             exit 1
+          fi
           
-          # 物理顺序编译
+          # 执行编译 (ATF -> UBoot)
           make package/boot/arm-trusted-firmware-mediatek/compile V=s -j1
           make package/boot/uboot-mediatek/compile V=s -j1
 
-      - name: 合成 32MB 编程器全固件
+      - name: 合成 32MB 编程器固件
         run: |
           cd openwrt
           make target/linux/mediatek/image/compile V=s
 
-      - name: 收集救砖产物
+      - name: 产物物理收集
         run: |
           mkdir -p bin_out
           find openwrt/bin/targets/mediatek/filogic/ -name "*nor-programmer-dump.bin" -exec cp -v {} bin_out/ \;
 
-      - name: 发布 SL-3000 救砖包
+      - name: 上传 SL-3000 固件
         uses: actions/upload-artifact@v4
         with:
           name: SL3000-Recovery-Bundle
