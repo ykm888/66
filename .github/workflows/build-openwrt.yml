@@ -18,7 +18,7 @@ jobs:
 
       - name: 物理拉取底层救砖仓库源
         run: |
-          # 物理隔离下载底层仓库，分支设为 sl3000-clean-source
+          # 物理隔离下载底层仓库，确保分支为 sl3000-clean-source
           git clone --depth 1 https://github.com/ykm888/66.git -b sl3000-clean-source sl3000-repo
 
       - name: 执行物理修复与平铺
@@ -26,18 +26,24 @@ jobs:
           cd openwrt
           chmod +x ../diy-part2.sh
           ../diy-part2.sh
-          # 关键：平铺后重新安装 feeds 以建立新的物理链接
+          
+          # 物理溯源：文件搬运后必须重新刷新 feeds 才能生成 package/boot 的软链接
           ./scripts/feeds update -a
           ./scripts/feeds install -a
+          # 强制重新生成 .config
+          make defconfig
 
       - name: 零件级物理编译 (ATF -> UBoot)
         run: |
           cd openwrt
-          make defconfig
-          make package/boot/arm-trusted-firmware-mediatek/compile V=s -j$(nproc)
-          make package/boot/uboot-mediatek/compile V=s -j$(nproc)
+          # 增加物理存在验证，防止 Error 2 再次发生
+          [ -f package/boot/arm-trusted-firmware-mediatek/Makefile ] || (echo "FATAL: ATF Makefile missing"; exit 1)
+          
+          # 物理顺序编译
+          make package/boot/arm-trusted-firmware-mediatek/compile V=s -j1
+          make package/boot/uboot-mediatek/compile V=s -j1
 
-      - name: 合成 32MB 编程器固件
+      - name: 合成 32MB 编程器全固件
         run: |
           cd openwrt
           make target/linux/mediatek/image/compile V=s
