@@ -1,20 +1,19 @@
 name: Sync 2410 Branch from Upstream (Manual only)
 
 on:
-  # 仅允许手动触发，无自动定时
   workflow_dispatch:
 
 jobs:
   sync-branch:
     runs-on: ubuntu-latest
     permissions:
-      contents: write  # 允许向仓库推送代码
+      contents: write
 
     steps:
-      - name: Checkout target repository (with full history)
+      - name: Checkout target repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0          # 获取完整历史，便于强制同步
+          fetch-depth: 0
           token: ${{ github.token }}
 
       - name: Configure git
@@ -24,13 +23,10 @@ jobs:
 
       - name: Add upstream and fetch 2410 branch
         run: |
-          # 添加源仓库为远程仓库，命名为 'upstream'
           git remote add upstream https://github.com/padavanonly/immortalwrt-mt798x-6.6.git
-          # 仅获取 upstream 的 2410 分支（只取最新提交，节省时间和资源）
           git fetch upstream 2410 --depth=1
 
       - name: Force push to your 2410 branch
         run: |
-          # 强制将 upstream/2410 的内容推送到当前仓库的 2410 分支
-          # 如果该分支不存在，会自动创建
-          git push --force origin upstream/2410:2410
+          # 使用完整的 ref 格式指定目标分支
+          git push --force origin refs/remotes/upstream/2410:refs/heads/2410
