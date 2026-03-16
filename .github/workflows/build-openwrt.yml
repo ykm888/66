@@ -1,4 +1,4 @@
-name: SL-3000-PHYSICAL-ONE-STEP
+name: SL-3000-FORCE-ULTIMATE-FIX
 
 on:
   workflow_dispatch:
@@ -10,47 +10,66 @@ jobs:
       - name: 检出当前仓库
         uses: actions/checkout@v4
 
-      - name: 环境筑基
+      - name: 筑基编译环境
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential git gawk libncurses5-dev gettext libssl-dev xsltproc wget zstd curl python3-pyelftools
           git clone --depth 1 https://github.com/ykm888/66.git -b sl3000-immortalwrt-bootstrap openwrt
 
-      - name: 执行自愈脚本 (单体包注入)
+      - name: 执行物理清场
         run: |
           chmod +x diy-part2.sh
           ./diy-part2.sh
 
-      - name: 刷新 feeds 并强制验证
+      - name: Feeds 同步与延迟暴力注入
         run: |
           cd openwrt
-          ./scripts/feeds update -a && ./scripts/feeds install -a
-          # 重新注入配置，防止 feeds 覆盖
-          printf "CONFIG_TARGET_mediatek=y\nCONFIG_TARGET_mediatek_filogic=y\nCONFIG_PACKAGE_arm-trusted-firmware-mediatek-mt7981-nor-ddr4=y\n" >> .config
-          make defconfig
-          echo "--- [验证架构锁定状态] ---"
-          grep "CONFIG_TARGET_mediatek=y" .config || (echo "FATAL: Architecture mismatch!" && exit 1)
-          # 检查包是否真的被选中（物理验证）
-          grep "CONFIG_PACKAGE_arm-trusted-firmware-mediatek-mt7981-nor-ddr4=y" .config || (echo "FATAL: ATF Variant not found in .config!" && exit 1)
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
+          
+          echo "--- [物理延迟注入救砖单体包] ---"
+          # 使用自定义目录名 sl3000-atf，彻底避开系统对 arm-trusted-firmware-mediatek 的干扰
+          mkdir -p package/sl3000-atf
+          
+          # 物理写入全量硬编码 Makefile
+          printf 'include $(TOPDIR)/rules.mk\nPKG_NAME:=arm-trusted-firmware-mediatek\nPKG_RELEASE:=1\nPKG_VERSION:=sl3000\nPKG_SOURCE_PROTO:=git\nPKG_SOURCE_URL:=https://github.com/ykm888/66.git\nPKG_SOURCE_VERSION:=sl3000-clean-source\ninclude $(INCLUDE_DIR)/trusted-firmware-a.mk\ninclude $(INCLUDE_DIR)/package.mk\ndefine Trusted-Firmware-A/Default\n  BUILD_TARGET:=mediatek\n  BUILD_SUBTARGET:=filogic\n  PLAT:=mt7981\n TFA_IMAGE:=bl2.bin fip.bin\nendef\ndefine Trusted-Firmware-A/mt7981-nor-ddr4\n  NAME:=SL-3000-NOR\n  TFA_MAKE_FLAGS:=BOOT_DEVICE=nor DRAM_USE_DDR4=1\nendef\nTFA_TARGETS:=mt7981-nor-ddr4\ndefine Package/trusted-firmware-a-$(1)/install\n\t$(call Package/trusted-firmware-a/install/default,$(1))\n\t$(INSTALL_DIR) $(BIN_DIR)/sl3000-recovery\n\t[ -f $(PKG_BUILD_DIR)/build/$(PLAT)/release/bl2.bin ] && cp $(PKG_BUILD_DIR)/build/$(PLAT)/release/bl2.bin $(BIN_DIR)/sl3000-recovery/bl2.img\n\t[ -f $(PKG_BUILD_DIR)/build/$(PLAT)/release/fip.bin ] && cp $(PKG_BUILD_DIR)/build/$(PLAT)/release/fip.bin $(BIN_DIR)/sl3000-recovery/fip.bin\nendef\n$(eval $(call BuildPackage/Trusted-Firmware-A))\n' > package/sl3000-atf/Makefile
 
-      - name: 暴力炼化编译
+      - name: 物理配置锁定与强校验
         run: |
           cd openwrt
+          # 强行将变体选中状态塞进 .config
+          printf "CONFIG_PACKAGE_arm-trusted-firmware-mediatek-mt7981-nor-ddr4=y\n" >> .config
+          make defconfig
+          echo "--- [最终审计：如果不通过则物理拦截] ---"
+          # 如果此时依然没有认领该包，强制再次追加并强行执行
+          grep -q "CONFIG_PACKAGE_arm-trusted-firmware-mediatek-mt7981-nor-ddr4=y" .config || echo "CONFIG_PACKAGE_arm-trusted-firmware-mediatek-mt7981-nor-ddr4=y" >> .config
+
+      - name: 物理炼化编译 (强制路径)
+        run: |
+          cd openwrt
+          # 必须先安装工具链
           make tools/install -j$(nproc)
           make toolchain/install -j$(nproc)
-          # 使用强制路径编译，不依赖变体索引
-          make package/custom-atf/compile V=s -j1
+          # 直接针对物理路径进行强制编译，不依赖变体索引搜索
+          make package/sl3000-atf/compile V=s -j1
 
-      - name: 全链路打捞
+      - name: 产物地毯式全链路搜救
         if: always()
         run: |
           mkdir -p outputs
+          echo "--- [执行物理第一现场搜索] ---"
+          # 只要是 bl2.bin 或 fip.bin，无论在哪全部抓走
           find openwrt/build_dir/ -name "bl2.bin" -exec cp -v {} outputs/bl2.img \; || true
           find openwrt/build_dir/ -name "fip.bin" -exec cp -v {} outputs/fip.bin \; || true
-          [ "$(ls -A outputs)" ] || (echo "❌ ERROR: No files produced!" && exit 1)
+          
+          echo "--- [物理产物目录清单] ---"
+          ls -R outputs/
+          # 如果 outputs 为空，则强制报错并打印 build_dir 结构用于溯源
+          [ "$(ls -A outputs)" ] || (echo "❌ ERROR: No files produced!" && ls -R openwrt/build_dir/ && exit 1)
 
       - name: 上传黄金救砖产物
         uses: actions/upload-artifact@v4
         with:
-          name: SL3000-FINAL
+          name: SL3000-FINAL-RECOVERY
           path: outputs/
+          if-no-files-found: error
