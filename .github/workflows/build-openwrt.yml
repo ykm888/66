@@ -1,4 +1,4 @@
-name: SL3000-Physical-Recovery-Build
+name: SL3000-Recovery-Build-Full
 
 on:
   workflow_dispatch:
@@ -7,48 +7,48 @@ jobs:
   build:
     runs-on: ubuntu-22.04
     steps:
-      - name: Checkout
+      - name: 检出当前仓库
         uses: actions/checkout@v4
 
-      - name: Initialization
+      - name: 环境初始化
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential git gawk libncurses5-dev gettext libssl-dev xsltproc wget zstd python3-pyelftools
           git clone --depth 1 https://github.com/coolsnowwolf/immortalwrt.git openwrt
 
-      - name: Execute Physical Repair
+      - name: 物理拉取底层救砖仓库源
         run: |
-          cd openwrt
-          chmod +x ../diy-part1.sh && ../diy-part1.sh
-          chmod +x ../diy-part2.sh && ../diy-part2.sh
+          # 物理隔离下载底层仓库，分支设为 sl3000-clean-source
+          git clone --depth 1 https://github.com/ykm888/66.git -b sl3000-clean-source sl3000-repo
 
-      - name: Update Feeds
+      - name: 执行物理修复与平铺
         run: |
           cd openwrt
+          chmod +x ../diy-part2.sh
+          ../diy-part2.sh
+          # 关键：平铺后重新安装 feeds 以建立新的物理链接
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
-      - name: Build Bootloaders (The Recovery Core)
+      - name: 零件级物理编译 (ATF -> UBoot)
         run: |
           cd openwrt
           make defconfig
-          # 物理顺序：ATF -> U-Boot
           make package/boot/arm-trusted-firmware-mediatek/compile V=s -j$(nproc)
           make package/boot/uboot-mediatek/compile V=s -j$(nproc)
 
-      - name: Build Full Firmware & Combine Image
+      - name: 合成 32MB 编程器固件
         run: |
           cd openwrt
-          # 触发 filogic.mk 的合成逻辑
           make target/linux/mediatek/image/compile V=s
 
-      - name: Artifact Collection
+      - name: 收集救砖产物
         run: |
           mkdir -p bin_out
           find openwrt/bin/targets/mediatek/filogic/ -name "*nor-programmer-dump.bin" -exec cp -v {} bin_out/ \;
 
-      - name: Upload
+      - name: 发布 SL-3000 救砖包
         uses: actions/upload-artifact@v4
         with:
-          name: SL3000-Full-Image
+          name: SL3000-Recovery-Bundle
           path: bin_out/
