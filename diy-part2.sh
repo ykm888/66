@@ -1,27 +1,20 @@
 #!/bin/bash
 # =========================================================
-# SL-3000 救砖全链路物理修复 (禁用 EOF 稳定版)
+# SL-3000 救砖全链路物理修复 (无 EOF 稳定版)
 # =========================================================
 
-# --- 1. 修复底层架构 (target/linux/mediatek/Makefile) ---
-printf "include \$(TOPDIR)/rules.mk\n" > target/linux/mediatek/Makefile
-printf "ARCH:=aarch64\n" >> target/linux/mediatek/Makefile
-printf "BOARD:=mediatek\n" >> target/linux/mediatek/Makefile
-printf "BOARDNAME:=MediaTek Filogic (SL-3000)\n" >> target/linux/mediatek/Makefile
-printf "SUBTARGETS:=filogic\n" >> target/linux/mediatek/Makefile
-printf "FEATURES:=dt-overlay emmc fpu gpio nand pci pcie rootfs-part separate_ramdisk squashfs usb\n" >> target/linux/mediatek/Makefile
-printf "KERNEL_PATCHVER:=5.15\n" >> target/linux/mediatek/Makefile
-printf "include \$(INCLUDE_DIR)/target.mk\n" >> target/linux/mediatek/Makefile
-printf "DEFAULT_PACKAGES += kmod-leds-gpio kmod-gpio-button-hotplug autocore-arm\n" >> target/linux/mediatek/Makefile
-printf "\$(eval \$(call BuildTarget))\n" >> target/linux/mediatek/Makefile
+# --- 1. 顶层架构重构 (强制 AArch64) ---
+printf "include \$(TOPDIR)/rules.mk\nARCH:=aarch64\nBOARD:=mediatek\nBOARDNAME:=MediaTek Filogic\nSUBTARGETS:=filogic\nFEATURES:=dt-overlay emmc fpu gpio nand pci pcie rootfs-part separate_ramdisk squashfs usb\nKERNEL_PATCHVER:=5.15\ninclude \$(INCLUDE_DIR)/target.mk\nDEFAULT_PACKAGES += kmod-leds-gpio kmod-gpio-button-hotplug autocore-arm\n\$(eval \$(call BuildTarget))\n" > target/linux/mediatek/Makefile
 
-# --- 2. 物理配置锁定 (写入 .config) ---
-printf "CONFIG_TARGET_mediatek=y\n" >> .config
-printf "CONFIG_TARGET_mediatek_filogic=y\n" >> .config
-printf "CONFIG_TARGET_mediatek_filogic_DEVICE_mediatek_mt7981-rfb-flash=y\n" >> .config
-printf "CONFIG_PACKAGE_arm-trusted-firmware-mediatek-mt7981-nor-ddr4=y\n" >> .config
-printf "CONFIG_PACKAGE_uboot-mediatek-mt7981-nor-ddr4=y\n" >> .config
+# --- 2. 重建 ATF 零件定义 (对齐物理路径) ---
+mkdir -p package/boot/arm-trusted-firmware-mediatek
+T_ATF="package/boot/arm-trusted-firmware-mediatek/Makefile"
+printf "include \$(TOPDIR)/rules.mk\nPKG_NAME:=arm-trusted-firmware-mediatek\nPKG_RELEASE:=1\nPKG_VERSION:=sl3000\nPKG_SOURCE_PROTO:=git\nPKG_SOURCE_URL:=https://github.com/ykm888/66.git\nPKG_SOURCE_VERSION:=sl3000-clean-source\nPKG_BUILD_DIR:=\$(BUILD_DIR)/\$(PKG_NAME)-\$(BUILD_VARIANT)/\$(PKG_NAME)-\$(PKG_VERSION)\ninclude \$(INCLUDE_DIR)/trusted-firmware-a.mk\ninclude \$(INCLUDE_DIR)/package.mk\ndefine Trusted-Firmware-A/Default\n  BUILD_TARGET:=mediatek\n  BUILD_SUBTARGET:=filogic\n  PLAT:=mt7981\n  TFA_IMAGE:=bl2.bin fip.bin\nendef\ndefine Trusted-Firmware-A/mt7981-nor-ddr4\n  NAME:=SL-3000-NOR\n  TFA_MAKE_FLAGS:=BOOT_DEVICE=nor DRAM_USE_DDR4=1\nendef\nTFA_TARGETS:=mt7981-nor-ddr4\ndefine Build/Prepare\n\t\$(call Build/Prepare/Default)\n\tif [ -d \"\$(PKG_BUILD_DIR)/atf\" ]; then cp -rf \$(PKG_BUILD_DIR)/atf/* \$(PKG_BUILD_DIR)/; fi\n\tfind \$(PKG_BUILD_DIR) -type f -name \"Makefile*\" -exec sed -i 's/-Werror//g' {} +\nendef\ndefine Package/trusted-firmware-a-\$(1)/install\n\t\$(call Package/trusted-firmware-a/install/default,\$(1))\n\t\$(INSTALL_DIR) \$(STAGING_DIR_IMAGE)\n\t[ -f \$(PKG_BUILD_DIR)/build/\$(PLAT)/release/bl2.bin ] && \$(CP) \$(PKG_BUILD_DIR)/build/\$(PLAT)/release/bl2.bin \$(STAGING_DIR_IMAGE)/bl2.img\n\t[ -f \$(PKG_BUILD_DIR)/build/\$(PLAT)/release/fip.bin ] && \$(CP) \$(PKG_BUILD_DIR)/build/\$(PLAT)/release/fip.bin \$(STAGING_DIR_IMAGE)/fip.bin\nendef\n\$(eval \$(call BuildPackage/Trusted-Firmware-A))\n" > $T_ATF
 
-# --- 3. 物理清理：防止旧索引干扰 ---
-rm -rf package/boot/arm-trusted-firmware-mediatek
-rm -rf package/boot/uboot-mediatek
+# --- 3. 重建 U-Boot 零件定义 (对齐 1MB 偏移与 IP) ---
+mkdir -p package/boot/uboot-mediatek
+T_UB="package/boot/uboot-mediatek/Makefile"
+printf "include \$(TOPDIR)/rules.mk\ninclude \$(INCLUDE_DIR)/kernel.mk\nPKG_NAME:=uboot-mediatek\nPKG_RELEASE:=1\nPKG_SOURCE_PROTO:=git\nPKG_SOURCE_URL:=https://github.com/ykm888/66.git\nPKG_SOURCE_VERSION:=sl3000-clean-source\nPKG_BUILD_DIR:=\$(BUILD_DIR)/\$(PKG_NAME)-\$(BUILD_VARIANT)/\$(PKG_NAME)-\$(PKG_SOURCE_VERSION)\ninclude \$(INCLUDE_DIR)/u-boot.mk\ninclude \$(INCLUDE_DIR)/package.mk\ndefine U-Boot/Default\n  BUILD_TARGET:=mediatek\n  BUILD_SUBTARGET:=filogic\n  UBOOT_CONFIG:=mt7981_nor_emmc_rfb\n  UBOOT_IMAGE:=u-boot.bin\nendef\ndefine U-Boot/mt7981-nor-ddr4\n  NAME:=SL-3000-NOR-UBoot\n  DEPENDS:=+arm-trusted-firmware-mediatek\nendef\nUBOOT_TARGETS:=mt7981-nor-ddr4\ndefine Build/Prepare\n\t\$(call Build/Prepare/Default)\n\tif [ -d \"\$(PKG_BUILD_DIR)/u-boot\" ]; then cp -rf \$(PKG_BUILD_DIR)/u-boot/* \$(PKG_BUILD_DIR)/; fi\n\tsed -i 's/CONFIG_IPADDR=.*/CONFIG_IPADDR=\"192.168.31.1\"/' \$(PKG_BUILD_DIR)/configs/mt7981_nor_emmc_rfb_defconfig\n\tsed -i 's/CONFIG_MTDPARTS_DEFAULT=.*/CONFIG_MTDPARTS_DEFAULT=\"nor0:1024k(bl2),2048k(fip),-(storage)\"/' \$(PKG_BUILD_DIR)/configs/mt7981_nor_emmc_rfb_defconfig\n\techo \"CONFIG_SYS_UBOOT_BASE=0x40100000\" >> \$(PKG_BUILD_DIR)/configs/mt7981_nor_emmc_rfb_defconfig\n\tfind \$(PKG_BUILD_DIR) -type f -name \"Makefile*\" -exec sed -i 's/-Werror//g' {} +\nendef\ndefine Package/uboot-mediatek-\$(1)/install\n\t\$(INSTALL_DIR) \$(STAGING_DIR_IMAGE)\n\tif [ -f \$(PKG_BUILD_DIR)/u-boot.bin ]; then \$(CP) \$(PKG_BUILD_DIR)/u-boot.bin \$(STAGING_DIR_IMAGE)/u-boot.bin; fi\nendef\n\$(eval \$(call BuildPackage/U-Boot))\n" > $T_UB
+
+# --- 4. 强制 .config 物理锁死 ---
+printf "CONFIG_TARGET_mediatek=y\nCONFIG_TARGET_mediatek_filogic=y\nCONFIG_TARGET_mediatek_filogic_DEVICE_mediatek_mt7981-rfb-flash=y\nCONFIG_PACKAGE_arm-trusted-firmware-mediatek-mt7981-nor-ddr4=y\nCONFIG_PACKAGE_uboot-mediatek-mt7981-nor-ddr4=y\n" >> .config
