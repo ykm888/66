@@ -3,28 +3,16 @@
 # SL-3000 救砖全链路物理修复脚本 (自愈版)
 # =========================================================
 
-# 1. 物理创建零件工厂路径
-mkdir -p package/boot/arm-trusted-firmware-mediatek
-mkdir -p package/boot/uboot-mediatek
-
-# 2. 物理平铺：使用绝对路径确保搬运成功
-# 溯源诊断：GitHub Actions 默认 WORKSPACE 路径对齐
+# 1. 物理定义绝对路径 (对齐 GitHub Actions 执行环境)
 GITHUB_WORKSPACE="/home/runner/work/66/66"
 REPO_PATH="${GITHUB_WORKSPACE}/sl3000-repo"
 
-if [ -d "$REPO_PATH/atf" ]; then
-    cp -rf "$REPO_PATH/atf"/* package/boot/arm-trusted-firmware-mediatek/
-    echo "✅ ATF 源码已平铺到标准路径"
+# 2. 物理平铺：直接对齐 package 目录，消除嵌套
+if [ -d "$REPO_PATH/package" ]; then
+    cp -rf "$REPO_PATH/package"/* ./package/
+    echo "✅ 底层仓库 package 目录物理对齐完成"
 else
-    echo "❌ 物理错误：找不到 ATF 源码路径 $REPO_PATH/atf"
-    exit 1
-fi
-
-if [ -d "$REPO_PATH/u-boot" ]; then
-    cp -rf "$REPO_PATH/u-boot"/* package/boot/uboot-mediatek/
-    echo "✅ U-Boot 源码已平铺到标准路径"
-else
-    echo "❌ 物理错误：找不到 U-Boot 源码路径 $REPO_PATH/u-boot"
+    echo "❌ 物理错误：找不到底层仓库 package 目录"
     exit 1
 fi
 
