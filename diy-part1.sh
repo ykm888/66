@@ -2,7 +2,8 @@
 set -e
 
 WORKSPACE="$GITHUB_WORKSPACE"
-SOURCE_DIR="$WORKSPACE/source-repo"
+SOURCE_DIR="$WORKSPACE/source-repo"      # 指向 ykm99999 (ATF/UBoot)
+FIRMWARE_DIR="$WORKSPACE/firmware-repo"  # 指向 ykm888 (ImmortalWrt)
 CONFIG_DIR="$WORKSPACE/main-repo/888"
 OUTPUT_DIR="$WORKSPACE/output"
 
@@ -45,10 +46,11 @@ make CROSS_COMPILE=aarch64-linux-gnu- -j$(nproc)
 [ -f fip.bin ] && cp fip.bin $OUTPUT_DIR/uboot/fip-emmc.bin
 [ -f u-boot.bin ] && cp u-boot.bin $OUTPUT_DIR/uboot/u-boot-emmc.bin
 
-# ========== 3. 编译 ImmortalWrt (磁盘优化点) ==========
+# ========== 3. 编译 ImmortalWrt (核心修补：指向 ykm888 源) ==========
 cd $WORKSPACE
-# 优化：复制后物理删除不再需要的 ATF 和 U-Boot 源码以释放空间
-cp -r $SOURCE_DIR/immortalwrt immortalwrt-build
+# 物理搬运：从 firmware-repo (ykm888/2410) 复制源码
+cp -r $FIRMWARE_DIR/immortalwrt immortalwrt-build
+# 磁盘优化：物理清理不再需要的引导源码
 rm -rf $SOURCE_DIR/arm-trusted-firmware $SOURCE_DIR/u-boot
 cd immortalwrt-build
 
@@ -64,12 +66,11 @@ make -j$(nproc) V=s 2>&1 | tee build.log
 find bin/targets/ -type f \( -name "*.bin" -o -name "*.img.gz" -o -name "*sysupgrade*" \) -exec cp {} $OUTPUT_DIR/firmware/ \;
 cp build.log $OUTPUT_DIR/firmware/
 
-# 优化：最后清理编译产生的 build_dir
+# 优化：物理清理构建目录
 rm -rf build_dir
 
 # ========== 4. 打包 mtk_uartboot ==========
-# 物理溯源：如果前面删了 source-repo，需确保此工具还在
-cd $SOURCE_DIR/mtk_uartboot 2>/dev/null || echo "UART tools skipped or already moved"
+cd $SOURCE_DIR/mtk_uartboot 2>/dev/null || echo "UART tools skipped"
 [ -d "." ] && tar -czf $OUTPUT_DIR/mtk_uartboot.tar.gz .
 
 echo "✅ 构建完成，产物位于: $OUTPUT_DIR"
