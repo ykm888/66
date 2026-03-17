@@ -15,12 +15,19 @@ jobs:
           ref: main
           path: main-repo
 
-      - name: Checkout source branch
+      - name: Checkout Bootloader Source (ykm99999)
         uses: actions/checkout@v4
         with:
           repository: ykm99999/66
           ref: sl3000-full-sync
           path: source-repo
+
+      - name: Checkout Firmware Source (ykm888)
+        uses: actions/checkout@v4
+        with:
+          repository: ykm888/66
+          ref: 2410
+          path: firmware-repo
 
       - name: Free Disk Space
         run: |
