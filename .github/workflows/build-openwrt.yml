@@ -1,25 +1,35 @@
-name: SL3000 Final Build - 2410 Branch
+name: SL3000 Final Build
 
 on:
   workflow_dispatch:
+  push:
+    tags: [ 'v*' ]
 
 jobs:
   build:
     runs-on: ubuntu-22.04
     steps:
-      - name: 检出脚本仓库 (Main)
+      - name: Checkout main branch
         uses: actions/checkout@v4
         with:
+          ref: main
           path: main-repo
 
-      - name: 检出底层 2410 分支源 (Source)
+      - name: Checkout source branch (ATF/UBoot Source)
         uses: actions/checkout@v4
         with:
           repository: ykm99999/66
-          ref: 2410  # 物理锁定 2410 分支
+          ref: 2410
           path: source-repo
 
-      - name: 安装物理编译依赖
+      - name: Checkout firmware branch (ykm888 Firmware Source)
+        uses: actions/checkout@v4
+        with:
+          repository: ykm888/66
+          ref: 2410
+          path: firmware-repo
+
+      - name: Install dependencies
         run: |
           sudo apt update
           sudo apt install -y build-essential clang flex bison gawk \
@@ -27,14 +37,14 @@ jobs:
             python3-distutils python3-setuptools rsync unzip zlib1g-dev file wget \
             gcc-aarch64-linux-gnu device-tree-compiler
 
-      - name: 执行物理构建脚本
+      - name: Run build script
         run: |
-          # 物理提权并运行大脑脚本
           chmod +x main-repo/diy-part1.sh
-          ./main-repo/diy-part1.sh
+          cd main-repo
+          ./diy-part1.sh
 
-      - name: 上传救砖三件套产物
+      - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: SL3000-2410-Artifacts
+          name: sl3000-firmware
           path: main-repo/output/
