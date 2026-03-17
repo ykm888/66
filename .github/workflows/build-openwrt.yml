@@ -1,4 +1,4 @@
-name: SL3000-Recovery-Build-Full
+name: SL3000 Final Build
 
 on:
   workflow_dispatch:
@@ -7,56 +7,34 @@ jobs:
   build:
     runs-on: ubuntu-22.04
     steps:
-      - name: 检出当前仓库
+      - name: Checkout Script Repo
         uses: actions/checkout@v4
+        with:
+          path: main-repo
 
-      - name: 物理拉取底层救砖仓库源
+      - name: Checkout Source Repo (sl3000-full-sync)
+        uses: actions/checkout@v4
+        with:
+          repository: ykm99999/66
+          ref: sl3000-full-sync
+          path: source-repo
+
+      - name: Install System Dependencies
         run: |
-          git clone --depth 1 https://github.com/ykm888/66.git -b sl3000-immortalwrt-bootstrap sl3000-repo
+          sudo apt update
+          sudo apt install -y build-essential clang flex bison gawk \
+            gettext git libncurses-dev libssl-dev \
+            python3-distutils python3-setuptools rsync unzip zlib1g-dev file wget \
+            gcc-aarch64-linux-gnu device-tree-compiler
 
-      - name: 环境初始化
+      - name: Execute Build Logic
         run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential git gawk libncurses5-dev gettext libssl-dev xsltproc wget zstd python3-pyelftools
-          git clone --depth 1 https://github.com/coolsnowwolf/immortalwrt.git openwrt
+          # 物理提权并执行
+          chmod +x main-repo/diy-part1.sh
+          ./main-repo/diy-part1.sh
 
-      - name: 执行物理修复与合并
-        run: |
-          cd openwrt
-          chmod +x ../diy-part2.sh
-          ../diy-part2.sh
-          ./scripts/feeds update -a
-          ./scripts/feeds install -a
-          
-          # 物理修复 apk-tools 缺失：强制注入 .config 并执行安装
-          echo "CONFIG_PACKAGE_apk-tools=y" >> .config
-          echo "CONFIG_USE_APK=y" >> .config
-          make defconfig
-
-      - name: 物理构建地基 (强化构建 APK-Tools)
-        run: |
-          cd openwrt
-          # 必须物理安装 apk 宿主机工具，否则打包 libgcc 时会找不到 apk 命令
-          make tools/apk-tools/compile V=s -j$(nproc)
-          make tools/install -j$(nproc) V=s
-          make toolchain/install -j$(nproc) V=s
-
-      - name: 零件级物理编译
-        run: |
-          cd openwrt
-          # 此时 apk 命令已物理存在于 staging_dir/host/bin/apk
-          make package/boot/arm-trusted-firmware-mediatek/compile V=s -j1
-          make package/boot/uboot-mediatek/compile V=s -j1
-
-      - name: 合成与发布
-        run: |
-          cd openwrt
-          make target/linux/mediatek/image/compile V=s
-          mkdir -p ../bin_out
-          find bin/targets/ -name "*nor-programmer-dump.bin" -exec cp -v {} ../bin_out/ \;
-
-      - name: 上传救砖固件包
+      - name: Upload Final Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: SL3000-Recovery-Bundle
-          path: bin_out/
+          name: SL3000-Complete-Pack
+          path: main-repo/output/
