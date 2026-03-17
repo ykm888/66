@@ -25,23 +25,23 @@ jobs:
           cd openwrt
           chmod +x ../diy-part2.sh
           ../diy-part2.sh
-          
-          # 物理刷新：关键步，强制重新扫描所有新注入的物理 Makefile
           ./scripts/feeds update -a
           ./scripts/feeds install -a
-          # 建立物理软链接后再生成 .config
           make defconfig
 
-      - name: 物理编译启动项
+      - name: 物理构建地基 (Tools & Toolchain)
         run: |
           cd openwrt
-          # 像素级确认依赖项在系统中的注册状态
-          ./scripts/feeds list | grep arm-trusted-firmware-mediatek || echo "警告：包未在 feed 中注册"
-          
-          # 强制按物理依赖顺序编译
-          # 1. 编译 ATF
+          # 这是彻底解决 cp: cannot stat ld-musl 的物理唯一解
+          echo "开始构建交叉编译器，请耐心等待..."
+          make tools/install -j$(nproc) V=s
+          make toolchain/install -j$(nproc) V=s
+
+      - name: 零件级物理编译
+        run: |
+          cd openwrt
+          # 此时工具链已物理存在于 staging_dir，可以开始编译零件
           make package/boot/arm-trusted-firmware-mediatek/compile V=s -j1
-          # 2. 编译 U-Boot (此时它能物理识别到上一步的产物)
           make package/boot/uboot-mediatek/compile V=s -j1
 
       - name: 合成 32MB 编程器固件
@@ -52,7 +52,7 @@ jobs:
       - name: 收集救砖产物
         run: |
           mkdir -p bin_out
-          find openwrt/bin/targets/mediatek/filogic/ -name "*nor-programmer-dump.bin" -exec cp -v {} bin_out/ \;
+          find openwrt/bin/targets/ -name "*nor-programmer-dump.bin" -exec cp -v {} bin_out/ \;
 
       - name: 上传固件
         uses: actions/upload-artifact@v4
