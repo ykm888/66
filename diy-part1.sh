@@ -1,71 +1,40 @@
-#!/bin/bash
-set -e
+name: SL3000 Final Build - 2410 Branch
 
-# 物理路径定义
-WORKSPACE="/home/runner/work/66/66"
-SOURCE_DIR="$WORKSPACE/source-repo"
-MAIN_REPO="$WORKSPACE/main-repo"
-CONFIG_DIR="$MAIN_REPO/888"
-OUTPUT_DIR="$MAIN_REPO/output"
+on:
+  workflow_dispatch:
 
-mkdir -p $OUTPUT_DIR/atf $OUTPUT_DIR/uboot $OUTPUT_DIR/firmware
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: 检出脚本仓库 (Main)
+        uses: actions/checkout@v4
+        with:
+          path: main-repo
 
-# 物理对齐：确保工具链在路径中
-export CROSS_COMPILE=aarch64-linux-gnu-
-export ARCH=arm64
+      - name: 检出底层 2410 分支源 (Source)
+        uses: actions/checkout@v4
+        with:
+          repository: ykm99999/66
+          ref: 2410  # 物理锁定 2410 分支
+          path: source-repo
 
-# ========== 1. 编译 ATF (MT7981 专用 BL2) ==========
-echo "🚀 开始构建 ATF..."
-cd $SOURCE_DIR/arm-trusted-firmware
+      - name: 安装物理编译依赖
+        run: |
+          sudo apt update
+          sudo apt install -y build-essential clang flex bison gawk \
+            gettext git libncurses-dev libssl-dev \
+            python3-distutils python3-setuptools rsync unzip zlib1g-dev file wget \
+            gcc-aarch64-linux-gnu device-tree-compiler
 
-# 编译 512M EMMC 版
-make clean
-make CROSS_COMPILE=aarch64-linux-gnu- PLAT=mt7981 DEBUG=0 DDR3_FLY=0 USE_NMBM=0 BOOT_DEVICE=emmc LOG_LEVEL=20 DRAM_SIZE=512
-cp build/mt7981/release/bl2.img $OUTPUT_DIR/atf/bl2-512m-emmc.img 2>/dev/null || cp build/mt7981/release/bl2.bin $OUTPUT_DIR/atf/bl2-512m-emmc.bin
+      - name: 执行物理构建脚本
+        run: |
+          # 物理提权并运行大脑脚本
+          chmod +x main-repo/diy-part1.sh
+          ./main-repo/diy-part1.sh
 
-# 编译 1G EMMC 版
-make clean
-make CROSS_COMPILE=aarch64-linux-gnu- PLAT=mt7981 DEBUG=0 DDR3_FLY=0 USE_NMBM=0 BOOT_DEVICE=emmc LOG_LEVEL=20 DRAM_SIZE=1024
-cp build/mt7981/release/bl2.img $OUTPUT_DIR/atf/bl2-1g-emmc.img 2>/dev/null || cp build/mt7981/release/bl2.bin $OUTPUT_DIR/atf/bl2-1g-emmc.bin
-
-# 编译 1G NOR 版 (救砖专用)
-make clean
-make CROSS_COMPILE=aarch64-linux-gnu- PLAT=mt7981 DEBUG=0 DDR3_FLY=0 USE_NMBM=0 BOOT_DEVICE=nor LOG_LEVEL=20 DRAM_SIZE=1024
-cp build/mt7981/release/bl2.img $OUTPUT_DIR/atf/bl2-1g-nor.img 2>/dev/null || cp build/mt7981/release/bl2.bin $OUTPUT_DIR/atf/bl2-1g-nor.bin
-
-# ========== 2. 编译 U-Boot (FIP 封装) ==========
-echo "🚀 开始构建 U-Boot..."
-cd $SOURCE_DIR/u-boot
-make clean
-# 物理对齐：使用 mt7981_emmc_rfb_defconfig
-if [ -f configs/mt7981_emmc_rfb_defconfig ]; then
-    make CROSS_COMPILE=aarch64-linux-gnu- mt7981_emmc_rfb_defconfig
-    make CROSS_COMPILE=aarch64-linux-gnu- -j$(nproc)
-    cp fip.bin $OUTPUT_DIR/uboot/fip-emmc.bin 2>/dev/null || echo "fip.bin not found"
-    cp u-boot.bin $OUTPUT_DIR/uboot/u-boot-emmc.bin
-else
-    echo "❌ 配置文件缺失，跳过 U-Boot 编译"
-fi
-
-# ========== 3. 编译 ImmortalWrt (核心固件) ==========
-echo "🚀 开始构建 ImmortalWrt..."
-cd $WORKSPACE
-# 使用 rsync 物理同步避免文件夹嵌套
-rsync -a $SOURCE_DIR/immortalwrt/ ./immortalwrt-build/
-cd immortalwrt-build
-
-# 注入 SL3000 特有的物理配置
-[ -f $CONFIG_DIR/mt7981-sl-3000-emmc.dts ] && cp $CONFIG_DIR/mt7981-sl-3000-emmc.dts target/linux/mediatek/dts/
-[ -f $CONFIG_DIR/mt7981.mk ] && cp $CONFIG_DIR/mt7981.mk target/linux/mediatek/image/
-[ -f $CONFIG_DIR/sl3000.config ] && cp $CONFIG_DIR/sl3000.config .config
-
-./scripts/feeds update -a
-./scripts/feeds install -a
-make defconfig
-# 开始物理极限编译
-make -j$(nproc) || make -j1 V=s
-
-# 收集产物
-find bin/targets/ -type f \( -name "*.bin" -o -name "*.img.gz" -o -name "*sysupgrade*" \) -exec cp {} $OUTPUT_DIR/firmware/ \;
-
-echo "✅ 所有物理产物已就绪"
+      - name: 上传救砖三件套产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: SL3000-2410-Artifacts
+          path: main-repo/output/
