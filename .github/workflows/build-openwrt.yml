@@ -55,4 +55,3 @@ jobs:
         with:
           name: sl3000-v1-firmware
           path: output/
-concurrency:
