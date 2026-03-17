@@ -15,19 +15,20 @@ jobs:
           ref: main
           path: main-repo
 
-      - name: Checkout source branch (ATF/UBoot Source)
+      - name: Checkout source branch
         uses: actions/checkout@v4
         with:
           repository: ykm99999/66
-          ref: 2410
+          ref: sl3000-full-sync
           path: source-repo
 
-      - name: Checkout firmware branch (ykm888 Firmware Source)
-        uses: actions/checkout@v4
-        with:
-          repository: ykm888/66
-          ref: 2410
-          path: firmware-repo
+      - name: Free Disk Space
+        run: |
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          sudo rm -rf "/usr/local/share/boost"
+          sudo rm -rf "$AGENT_TOOLSDIRECTORY"
 
       - name: Install dependencies
         run: |
