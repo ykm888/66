@@ -9,10 +9,11 @@ jobs:
   build:
     runs-on: ubuntu-22.04
     steps:
-      - name: Checkout main branch
+      - name: Checkout Main Source (ykm888 2410)
         uses: actions/checkout@v4
         with:
-          ref: main
+          repository: ykm888/66
+          ref: 2410
           path: main-repo
 
       - name: Checkout Bootloader Source (ykm99999)
@@ -22,7 +23,7 @@ jobs:
           ref: sl3000-full-sync
           path: source-repo
 
-      - name: Checkout Firmware Source (ykm888)
+      - name: Checkout Firmware Source (ykm888 2410)
         uses: actions/checkout@v4
         with:
           repository: ykm888/66
@@ -47,11 +48,11 @@ jobs:
       - name: Run V1 Build Script
         run: |
           chmod +x main-repo/diy-part1.sh
-          cd main-repo
-          ./diy-part1.sh
+          ./main-repo/diy-part1.sh
 
-      - name: Upload Artifacts
+      - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: sl3000-v1-firmware
-          path: main-repo/output/
+          path: output/
+concurrency:
