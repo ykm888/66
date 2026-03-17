@@ -3,7 +3,7 @@ set -e
 
 WORKSPACE="$GITHUB_WORKSPACE"
 SOURCE_DIR="$WORKSPACE/source-repo"      # 指向 ykm99999 (ATF/UBoot)
-FIRMWARE_DIR="$WORKSPACE/firmware-repo"  # 指向 ykm888 (ImmortalWrt)
+FIRMWARE_DIR="$WORKSPACE/firmware-repo"  # 指向 ykm888 (ImmortalWrt 扁平源码)
 CONFIG_DIR="$WORKSPACE/main-repo/888"
 OUTPUT_DIR="$WORKSPACE/output"
 
@@ -46,17 +46,18 @@ make CROSS_COMPILE=aarch64-linux-gnu- -j$(nproc)
 [ -f fip.bin ] && cp fip.bin $OUTPUT_DIR/uboot/fip-emmc.bin
 [ -f u-boot.bin ] && cp u-boot.bin $OUTPUT_DIR/uboot/u-boot-emmc.bin
 
-# ========== 3. 编译 ImmortalWrt (核心修补：指向 ykm888 源) ==========
+# ========== 3. 编译 ImmortalWrt (核心物理修正) ==========
 cd $WORKSPACE
-# 物理搬运：从 firmware-repo (ykm888/2410) 复制源码
-cp -r $FIRMWARE_DIR/immortalwrt immortalwrt-build
-# 磁盘优化：物理清理不再需要的引导源码
+# 物理修补：源仓库 ykm888/2410 根目录即源码，直接复制 $FIRMWARE_DIR 到构建目录
+cp -r $FIRMWARE_DIR/. immortalwrt-build/
+# 磁盘优化：物理清理引导源码
 rm -rf $SOURCE_DIR/arm-trusted-firmware $SOURCE_DIR/u-boot
 cd immortalwrt-build
 
-cp $CONFIG_DIR/mt7981-sl-3000-emmc.dts target/linux/mediatek/dts/ 2>/dev/null || echo "Warning: mt7981-sl-3000-emmc.dts not found"
+# 注入主仓库物理配置
+cp $CONFIG_DIR/mt7981-sl-3000-emmc.dts target/linux/mediatek/dts/ 2>/dev/null || echo "Warning: DTS missing"
 cp $CONFIG_DIR/mt7981.mk target/linux/mediatek/image/
-cp $CONFIG_DIR/sl3000.config .config || { echo "Error: sl3000.config not found in $CONFIG_DIR"; exit 1; }
+cp $CONFIG_DIR/sl3000.config .config || { echo "Error: sl3000.config not found"; exit 1; }
 
 ./scripts/feeds update -a
 ./scripts/feeds install -a
@@ -66,12 +67,12 @@ make -j$(nproc) V=s 2>&1 | tee build.log
 find bin/targets/ -type f \( -name "*.bin" -o -name "*.img.gz" -o -name "*sysupgrade*" \) -exec cp {} $OUTPUT_DIR/firmware/ \;
 cp build.log $OUTPUT_DIR/firmware/
 
-# 优化：物理清理构建目录
+# 优化：清理构建目录
 rm -rf build_dir
 
 # ========== 4. 打包 mtk_uartboot ==========
 cd $SOURCE_DIR/mtk_uartboot 2>/dev/null || echo "UART tools skipped"
 [ -d "." ] && tar -czf $OUTPUT_DIR/mtk_uartboot.tar.gz .
 
-echo "✅ 构建完成，产物位于: $OUTPUT_DIR"
+echo "✅ V1 结构修正版完成"
 ls -la $OUTPUT_DIR/atf $OUTPUT_DIR/uboot $OUTPUT_DIR/firmware
