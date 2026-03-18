@@ -1,26 +1,22 @@
-name: SL3000 Final Build V1
+name: SL3000-512M-Rescue-AutoRelease
 
 on:
-  workflow_dispatch:
+  workflow_dispatch: # 手动触发
   push:
-    tags: [ 'v*' ]
+    paths:
+      - '888/**' # 当配置目录变动时触发
 
 jobs:
   build:
     runs-on: ubuntu-22.04
+    permissions:
+      contents: write # 必须赋予写入权限才能发布 Release
+    
     steps:
-      - name: Checkout Configs (main branch)
+      - name: Checkout Configs
         uses: actions/checkout@v4
         with:
-          ref: main
           path: main-repo
-
-      - name: Checkout Bootloader Source (ykm99999)
-        uses: actions/checkout@v4
-        with:
-          repository: ykm99999/66
-          ref: sl3000-full-sync
-          path: source-repo
 
       - name: Checkout Firmware Source (ykm888 2410)
         uses: actions/checkout@v4
@@ -29,22 +25,37 @@ jobs:
           ref: 2410
           path: firmware-repo
 
-      - name: Free Disk Space
-        run: |
-          sudo rm -rf /usr/share/dotnet
-          sudo rm -rf /usr/local/lib/android
-          sudo rm -rf /opt/ghc
-          sudo rm -rf "/usr/local/share/boost"
-
-      - name: Install dependencies
+      - name: Initialization Environment
         run: |
           sudo apt update
-          sudo apt install -y build-essential clang flex bison gawk \
-            gettext git libncurses-dev libssl-dev \
-            python3-distutils python3-setuptools rsync unzip zlib1g-dev file wget \
-            gcc-aarch64-linux-gnu device-tree-compiler
+          sudo apt install -y build-essential clang flex bison gawk gettext git \
+            libncurses-dev libssl-dev python3-distutils rsync unzip zlib1g-dev \
+            file wget device-tree-compiler
+          mkdir -p output/firmware
 
       - name: Run V1 Build Script
         run: |
           chmod +x ./main-repo/diy-part1.sh
           ./main-repo/diy-part1.sh
+
+      - name: Generate Release Tag
+        id: tag
+        run: |
+          echo "release_tag=$(date +"%Y.%m.%d-%H%M")" >> $GITHUB_OUTPUT
+          echo "status=success" >> $GITHUB_OUTPUT
+
+      - name: Upload Firmware to Release
+        uses: softprops/action-gh-release@v1
+        if: steps.tag.outputs.status == 'success' && !cancelled()
+        with:
+          tag_name: ${{ steps.tag.outputs.release_tag }}
+          name: SL3000-512M 救砖固件 - ${{ steps.tag.outputs.release_tag }}
+          body: |
+            ## 🚀 SL3000 (512M RAM) 专项固件
+            - 源码来自: ykm888/66 (2410 分支)
+            - 内核版本: Linux 5.4
+            - 包含组件: f2fs, ksmbd, usb-storage, ttyd
+            - 内存限制: 物理锁定 512MB
+          files: output/firmware/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
