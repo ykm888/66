@@ -14,7 +14,7 @@ jobs:
         with:
           repository: ykm888/66
           ref: 2410
-          path: main-repo
+          # 不再设置 path: main-repo，脚本直接就在根目录
 
       - name: Checkout Bootloader Source (ykm99999)
         uses: actions/checkout@v4
@@ -47,8 +47,9 @@ jobs:
 
       - name: Run V1 Build Script
         run: |
-          chmod +x main-repo/diy-part1.sh
-          ./main-repo/diy-part1.sh
+          # 脚本就在根目录，直接赋予权限并执行
+          chmod +x diy-part1.sh
+          ./diy-part1.sh
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
