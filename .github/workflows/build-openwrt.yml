@@ -9,33 +9,26 @@ jobs:
   build:
     runs-on: ubuntu-22.04
     steps:
-      - name: Checkout Main Source (ykm888 2410)
+      - name: Checkout Main Branch (Configs)
         uses: actions/checkout@v4
         with:
-          repository: ykm888/66
-          ref: 2410
-          # 不再设置 path: main-repo，脚本直接就在根目录
+          # 脚本和 888 文件夹都在这个分支的根目录
+          ref: main
+          path: main-repo
 
-      - name: Checkout Bootloader Source (ykm99999)
+      - name: Checkout Bootloader Source
         uses: actions/checkout@v4
         with:
           repository: ykm99999/66
           ref: sl3000-full-sync
           path: source-repo
 
-      - name: Checkout Firmware Source (ykm888 2410)
+      - name: Checkout Firmware Source (Flat Structure)
         uses: actions/checkout@v4
         with:
           repository: ykm888/66
           ref: 2410
           path: firmware-repo
-
-      - name: Free Disk Space
-        run: |
-          sudo rm -rf /usr/share/dotnet
-          sudo rm -rf /usr/local/lib/android
-          sudo rm -rf /opt/ghc
-          sudo rm -rf "/usr/local/share/boost"
 
       - name: Install dependencies
         run: |
@@ -47,12 +40,9 @@ jobs:
 
       - name: Run V1 Build Script
         run: |
-          # 脚本就在根目录，直接赋予权限并执行
-          chmod +x diy-part1.sh
-          ./diy-part1.sh
-
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: sl3000-v1-firmware
-          path: output/
+          # 物理检查：列出 main-repo 内容，确保脚本在这里
+          ls -F main-repo/
+          
+          # 赋予权限并执行
+          chmod +x ./main-repo/diy-part1.sh
+          ./main-repo/diy-part1.sh
