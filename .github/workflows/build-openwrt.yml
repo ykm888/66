@@ -1,19 +1,19 @@
-name: SL3000-512M-Rescue-AutoRelease
+name: SL3000-512M-Rescue-AutoRelease-V2
 
 on:
-  workflow_dispatch: # 手动触发
+  workflow_dispatch:
   push:
     paths:
-      - '888/**' # 当配置目录变动时触发
+      - '888/**'
 
 jobs:
   build:
     runs-on: ubuntu-22.04
     permissions:
-      contents: write # 必须赋予写入权限才能发布 Release
+      contents: write # 必须开启权限以创建 Release
     
     steps:
-      - name: Checkout Configs
+      - name: Checkout Configs (main)
         uses: actions/checkout@v4
         with:
           path: main-repo
@@ -33,7 +33,7 @@ jobs:
             file wget device-tree-compiler
           mkdir -p output/firmware
 
-      - name: Run V1 Build Script
+      - name: Run V2 Build Script
         run: |
           chmod +x ./main-repo/diy-part1.sh
           ./main-repo/diy-part1.sh
@@ -41,21 +41,21 @@ jobs:
       - name: Generate Release Tag
         id: tag
         run: |
-          echo "release_tag=$(date +"%Y.%m.%d-%H%M")" >> $GITHUB_OUTPUT
+          echo "release_tag=SL3000-512M-$(date +"%Y.%m.%d-%H%M")" >> $GITHUB_OUTPUT
           echo "status=success" >> $GITHUB_OUTPUT
 
-      - name: Upload Firmware to Release
+      - name: Upload to Release
         uses: softprops/action-gh-release@v1
         if: steps.tag.outputs.status == 'success' && !cancelled()
         with:
           tag_name: ${{ steps.tag.outputs.release_tag }}
-          name: SL3000-512M 救砖固件 - ${{ steps.tag.outputs.release_tag }}
+          name: SL3000 (512M) 救砖固件 - ${{ steps.tag.outputs.release_tag }}
           body: |
-            ## 🚀 SL3000 (512M RAM) 专项固件
-            - 源码来自: ykm888/66 (2410 分支)
-            - 内核版本: Linux 5.4
-            - 包含组件: f2fs, ksmbd, usb-storage, ttyd
-            - 内存限制: 物理锁定 512MB
+            ### 🛠️ 固件构建信息
+            - **底层仓库**: ykm888/66 (2410 分支 / 5.4内核)
+            - **设备注册**: 独立 .mk 注入 (mt7981_sl3000.mk)
+            - **内存规格**: 物理锁定 512MB RAM
+            - **集成驱动**: MMC/eMMC, F2FS, USB3.0, KSMBD, TTYD
           files: output/firmware/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
