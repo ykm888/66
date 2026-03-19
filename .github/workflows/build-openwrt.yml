@@ -1,27 +1,30 @@
-name: SL3000-512M-Final-Build
+name: SL3000-512M-Rescue-Build
 
 on:
-  workflow_dispatch: # 手动点击 Actions 运行
+  workflow_dispatch: # 允许手动点击按钮触发编译
   push:
-    tags: [ 'v*' ] # 推送 v 开头的标签自动运行
+    paths:
+      - '888/**'      # 当你的配置目录 888 变动时自动触发
+    tags: 
+      - 'v*'          # 推送 v 开头的标签时触发
 
 jobs:
   build:
     runs-on: ubuntu-22.04
     permissions:
-      contents: write # 物理授权：必须开启才能自动创建 Release 发布固件
+      contents: write # 必须开启，否则无法上传 Release
     
     steps:
-      - name: Checkout main branch
+      - name: Checkout main repo
         uses: actions/checkout@v4
         with:
           path: main-repo
 
-      - name: Checkout source branch
+      - name: Checkout source repo
         uses: actions/checkout@v4
         with:
-          # 建议根据你实际的底层仓库修改这里
-          repository: ykm888/66
+          # 物理确认：此处应为你实际使用的源码仓库
+          repository: ykm888/66 
           ref: 2410
           path: source-repo
 
@@ -29,7 +32,6 @@ jobs:
         run: |
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc
           sudo apt clean
-          # 释放 Ubuntu 虚拟机的物理空间，确保编译顺利
 
       - name: Install dependencies
         run: |
@@ -39,15 +41,15 @@ jobs:
             python3-distutils python3-setuptools rsync unzip zlib1g-dev file wget \
             gcc-aarch64-linux-gnu device-tree-compiler
 
-      - name: Run diy-part1.sh (Environment & Base Setup)
+      - name: Run diy-part1.sh (Purge & Config)
         run: |
+          # 确保在项目根目录执行脚本
           chmod +x main-repo/diy-part1.sh
-          # 物理隔离：在根目录运行脚本，内部处理目录跳转
           ./main-repo/diy-part1.sh
         env:
           GITHUB_WORKSPACE: ${{ github.workspace }}
 
-      - name: Run diy-part2.sh (Full Compilation)
+      - name: Run diy-part2.sh (Build & Collect)
         run: |
           chmod +x main-repo/diy-part2.sh
           ./main-repo/diy-part2.sh
@@ -57,27 +59,24 @@ jobs:
       - name: Generate Release Tag
         id: tag
         run: |
+          # 生成带日期的唯一标签
           echo "release_tag=SL3000-512M-$(date +"%Y.%m.%d-%H%M")" >> $GITHUB_OUTPUT
 
-      - name: Upload Firmware to Release
+      - name: Upload to Release
         uses: softprops/action-gh-release@v1
         if: success()
         with:
           tag_name: ${{ steps.tag.outputs.release_tag }}
           name: SL3000 512M 救砖专用固件 [${{ steps.tag.outputs.release_tag }}]
           body: |
-            ### 🛠️ 构建说明
-            - **底层仓库**: ykm888/66 (Linux 5.4)
-            - **内存限制**: 物理锁定 512MB RAM
-            - **核心组件**: MMC, F2FS, USB3.0, KSMBD, TTYD
-            - **校验信息**: 每个固件均附带 .md5 校验文件
-          files: output/firmware/*
+            ### 🛠️ 固件构建成功
+            - **物理切除**: 已移除 package/5g-modem 解决递归依赖冲突。
+            - **内存锁定**: 512MB RAM (Rescue Mode)。
+            - **构建底座**: ykm888/66 (Linux 5.4)。
+            - **MD5**: 请见附件中的 .md5 校验文件。
+          files: |
+            output/firmware/*.bin
+            output/firmware/*.img.gz
+            output/firmware/*.md5
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Upload Artifacts (Backup)
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: sl3000-firmware-backup
-          path: output/firmware/
