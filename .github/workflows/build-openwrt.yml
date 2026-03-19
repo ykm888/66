@@ -1,18 +1,18 @@
-name: SL3000-512M-Rescue-Build
+name: SL3000-512M-Final-Build
 
 on:
-  workflow_dispatch: # 允许手动点击按钮触发编译
+  workflow_dispatch:
   push:
     paths:
-      - '888/**'      # 当你的配置目录 888 变动时自动触发
+      - '888/**'
     tags: 
-      - 'v*'          # 推送 v 开头的标签时触发
+      - 'v*'
 
 jobs:
   build:
     runs-on: ubuntu-22.04
     permissions:
-      contents: write # 必须开启，否则无法上传 Release
+      contents: write
     
     steps:
       - name: Checkout main repo
@@ -23,7 +23,6 @@ jobs:
       - name: Checkout source repo
         uses: actions/checkout@v4
         with:
-          # 物理确认：此处应为你实际使用的源码仓库
           repository: ykm888/66 
           ref: 2410
           path: source-repo
@@ -41,15 +40,14 @@ jobs:
             python3-distutils python3-setuptools rsync unzip zlib1g-dev file wget \
             gcc-aarch64-linux-gnu device-tree-compiler
 
-      - name: Run diy-part1.sh (Purge & Config)
+      - name: Run diy-part1.sh (Purge & Core Prep)
         run: |
-          # 确保在项目根目录执行脚本
           chmod +x main-repo/diy-part1.sh
           ./main-repo/diy-part1.sh
         env:
           GITHUB_WORKSPACE: ${{ github.workspace }}
 
-      - name: Run diy-part2.sh (Build & Collect)
+      - name: Run diy-part2.sh (Build & Release)
         run: |
           chmod +x main-repo/diy-part2.sh
           ./main-repo/diy-part2.sh
@@ -58,22 +56,19 @@ jobs:
 
       - name: Generate Release Tag
         id: tag
-        run: |
-          # 生成带日期的唯一标签
-          echo "release_tag=SL3000-512M-$(date +"%Y.%m.%d-%H%M")" >> $GITHUB_OUTPUT
+        run: echo "release_tag=SL3000-512M-$(date +"%Y.%m.%d-%H%M")" >> $GITHUB_OUTPUT
 
       - name: Upload to Release
         uses: softprops/action-gh-release@v1
         if: success()
         with:
           tag_name: ${{ steps.tag.outputs.release_tag }}
-          name: SL3000 512M 救砖专用固件 [${{ steps.tag.outputs.release_tag }}]
+          name: SL3000 512M 救砖固件 [${{ steps.tag.outputs.release_tag }}]
           body: |
-            ### 🛠️ 固件构建成功
-            - **物理切除**: 已移除 package/5g-modem 解决递归依赖冲突。
-            - **内存锁定**: 512MB RAM (Rescue Mode)。
-            - **构建底座**: ykm888/66 (Linux 5.4)。
-            - **MD5**: 请见附件中的 .md5 校验文件。
+            ### 🛠️ 编译说明
+            - **物理切除**: 已移除 package/5g-modem 解决死循环依赖。
+            - **依赖修复**: 预编译 mbedtls/ustream-ssl 解决 CMake 报错。
+            - **内核**: Linux 5.4 (ykm888/66)。
           files: |
             output/firmware/*.bin
             output/firmware/*.img.gz
