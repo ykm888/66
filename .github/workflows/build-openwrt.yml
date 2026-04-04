@@ -1,87 +1,57 @@
-name: SL3000救砖最终版(零报错)
+name: SL3000 救砖全家桶构建
+
 on:
-  workflow_dispatch
+  workflow_dispatch:
+  push:
+    tags: [ 'brick-v*' ]
 
 jobs:
-  build:
+  build-brick:
     runs-on: ubuntu-22.04
-    permissions:
-      contents: write
     steps:
-      # ==============================================
-      # 1. 拉你的配置仓库（三件套在 main/888）
-      # ==============================================
-      - name: 拉 main 分支（三件套）
+      - name: Checkout 配置仓库(main)
         uses: actions/checkout@v4
         with:
-          repository: ykm888/66
           ref: main
-          path: config
+          path: main-repo
 
-      # ==============================================
-      # 2. 拉你指定的正确源码仓库（固定不动）
-      # ==============================================
-      - name: 拉救砖源码仓库
+      - name: Checkout 源码仓库(uboot/atf)
         uses: actions/checkout@v4
         with:
           repository: ykm99999/66
           ref: sl3000-full-sync
-          path: src
+          path: source-repo
 
-      # ==============================================
-      # 3. 安装工具（一次装好）
-      # ==============================================
-      - name: 安装编译环境
+      - name: 安装依赖
+        run: sudo apt update && sudo apt install -y gcc-aarch64-linux-gnu make libssl-dev
+
+      - name: 运行 part1（环境）
         run: |
-          sudo apt update
-          sudo apt install -y gcc-aarch64-linux-gnu make git libssl-dev bison flex
+          chmod +x main-repo/diy-part1.sh
+          cd main-repo
+          ./diy-part1.sh
 
-      # ==============================================
-      # 4. 复制三件套（找不到也不炸流程）
-      # ==============================================
-      - name: 注入DTS/mk/config
+      - name: 运行 part2（仅编译救砖包）
         run: |
-          mkdir -p src/target/linux/mediatek/dts || true
-          cp -n config/888/*.dts src/target/linux/mediatek/dts/ 2>/dev/null || true
-          cp -n config/888/*.mk  src/target/linux/mediatek/       2>/dev/null || true
-          cp -n config/888/*.config src/                           2>/dev/null || true
+          chmod +x main-repo/diy-part2.sh
+          cd main-repo
+          ./diy-part2.sh
 
-      # ==============================================
-      # 5. 编译 ATF（用仓库自带配置，绝不自己乱改）
-      # ==============================================
-      - name: 编译 ATF
-        run: |
-          cd src/arm-trusted-firmware
-          make CROSS_COMPILE=aarch64-linux-gnu- PLAT=mt7981 -j$(nproc) || true
+      - name: 展示文件
+        run: ls -lh $GITHUB_WORKSPACE/output/{atf,uboot}
 
-      # ==============================================
-      # 6. 编译 U-Boot（用仓库自带默认配置，绝对存在）
-      # ==============================================
-      - name: 编译 U-Boot
-        run: |
-          cd src/u-boot
-          make CROSS_COMPILE=aarch64-linux-gnu- mediatek_mt7981_defconfig
-          make CROSS_COMPILE=aarch64-linux-gnu- -j$(nproc)
-
-      # ==============================================
-      # 7. 打包救砖文件（有啥打包啥）
-      # ==============================================
-      - name: 整理输出
-        run: |
-          mkdir -p output
-          cp -n src/arm-trusted-firmware/build/mt7981/release/bl2.bin output/ 2>/dev/null
-          cp -n src/arm-trusted-firmware/build/mt7981/release/fip.bin output/ 2>/dev/null
-          cp -n src/u-boot/u-boot.bin output/ 2>/dev/null
-          cp -n src/u-boot/u-boot.itb output/ 2>/dev/null
-          cp -n config/888/* output/ 2>/dev/null
-
-      # ==============================================
-      # 8. 发布
-      # ==============================================
-      - name: 上传救砖包
+      - name: 发布救砖包
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: sl3000-final-$(date +%Y%m%d-%H%M%S)
-          files: output/*
+          tag_name: brick-${{ github.run_number }}
+          name: SL3000 救砖全家桶
+          body: |
+            - ATF (bl2 + fip)
+            - U-Boot
+            - mtk_uartboot 串口救砖工具
+          files: |
+            output/atf/*.bin
+            output/uboot/*.bin
+            output/mtk_uartboot.tar.gz
         env:
-          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
