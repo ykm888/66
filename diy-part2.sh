@@ -1,21 +1,44 @@
 #!/bin/bash
 set -euo pipefail
 
-cd "${GITHUB_WORKSPACE}/openwrt" || exit 2
+WORKSPACE="$GITHUB_WORKSPACE"
+SOURCE_DIR="$WORKSPACE/source-repo"
+OUTPUT_DIR="$WORKSPACE/output"
 
-REPO="${GITHUB_WORKSPACE}"
+# 交叉编译工具
+export CROSS_COMPILE=aarch64-linux-gnu-
+export ARCH=arm64
 
-# 你的真实文件
-DTS="${REPO}/mt7981-sl-3000-emmc.dts"
-MK="${REPO}/mt7981_sl3000.mk"
-CONF="${REPO}/sl3000.config"
+cd $SOURCE_DIR
 
-# 复制DTS
-[ -f "$DTS" ] && cp -vf "$DTS" target/linux/mediatek/dts/
-# 复制mk
-[ -f "$MK" ] && cp -vf "$MK" target/linux/mediatek/
-# 复制config
-[ -f "$CONF" ] && cp -vf "$CONF" .config
+# ==============================
+# 1. 编译 ATF (BL2 + FIP)
+# ==============================
+echo "=== 编译 ATF ==="
+cd atf
+make realclean
+make PLAT=mt7981 BL33=../uboot/u-boot.bin all
+cp build/mt7981/release/bl2.bin      $OUTPUT_DIR/atf/
+cp build/mt7981/release/fip.bin      $OUTPUT_DIR/atf/
 
-make defconfig
-echo "✅ 配置已写入，无文件找不到错误"
+# ==============================
+# 2. 编译 U-Boot
+# ==============================
+echo "=== 编译 U-Boot ==="
+cd ../uboot
+make distclean
+make mt7981_sl3000_defconfig        # 换成你实际defconfig
+make -j$(nproc)
+cp u-boot.bin $OUTPUT_DIR/uboot/
+
+# ==============================
+# 3. 打包串口救砖工具
+# ==============================
+echo "=== 打包 mtk_uartboot ==="
+cd ../mtk_uartboot
+make clean
+make -j$(nproc)
+tar -zcf $OUTPUT_DIR/mtk_uartboot.tar.gz mtk_uartboot
+
+echo "=== 救砖全家桶编译完成 ==="
+ls -lh $OUTPUT_DIR/{atf,uboot,mtk_uartboot*}
