@@ -20,6 +20,7 @@
 		bootargs = "console=ttyS0,115200n8 root=/dev/mmcblk0p2 rootwait rw";
 	};
 
+	// 这里用 512MB 救砖稳定版
 	memory@40000000 {
 		device_type = "memory";
 		reg = <0 0x40000000 0 0x20000000>;
@@ -46,13 +47,8 @@
 	};
 };
 
-&uart0 {
-	status = "okay";
-};
-
-&watchdog {
-	status = "okay";
-};
+&uart0 { status = "okay"; };
+&watchdog { status = "okay"; };
 
 &eth {
 	status = "okay";
@@ -69,7 +65,7 @@
 &mmc0 {
 	status = "okay";
 	bus-width = <8>;
-	max-frequency = <52000000>;
+	max-frequency = <20000000>;       // 已修正为稳定频率
 	non-removable;
 	cap-mmc-highspeed;
 	vmmc-supply = <&reg_3p3v>;
