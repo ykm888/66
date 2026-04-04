@@ -43,13 +43,52 @@ if ! grep -q "mt7981_sl3000.mk" "$TARGET_MK"; then
     echo "include mt7981_sl3000.mk" >> "$TARGET_MK"
 fi
 
-# ========== 5. 配置净化与锁定 ==========
+# ========== 5. 配置净化 + 救砖全家桶 + 禁用升级包 ==========
 cp -f "$CONFIG_DIR/sl3000.config" .config
+
 # 物理剔除 .config 中所有 5G/Modem 残留以防递归依赖
 sed -i '/5g-modem/d; /quectel/d; /simcom/d; /rooter/d; /rd05a1/d; /pcat-manager/d' .config
+
+# 基础设备目标
 echo "CONFIG_TARGET_mediatek=y" >> .config
 echo "CONFIG_TARGET_mediatek_filogic=y" >> .config
 echo "CONFIG_TARGET_mediatek_filogic_DEVICE_sl_3000-emmc=y" >> .config
+
+# ===================== 新增：救砖固件配置 =====================
+# 1. 启用完整 SPI NOR 32MB 固件（救砖用完整固件）
+echo "CONFIG_TARGET_ROOTFS_CPIOGZ=n" >> .config
+echo "CONFIG_TARGET_ROOTFS_SQUASHFS=y" >> .config
+echo "CONFIG_TARGET_IMAGES_GZIP=n" >> .config
+# 启用完整 bin 固件（含 u-boot + firmware，用于编程器/救砖）
+echo "CONFIG_TARGET_IMAGES_BIN=y" >> .config
+
+# 2. 强制禁用 sysupgrade 升级包（只出救砖完整固件，不出升级包）
+echo "CONFIG_SYSUPGRADE_INFO=n" >> .config
+echo "CONFIG_TARGET_ROOTFS_INITRAMFS=n" >> .config
+echo "CONFIG_TARGET_UBIFS=n" >> .config
+
+# 3. 救砖必备工具全家桶
+cat >> .config <<EOF
+CONFIG_PACKAGE_uboot-envtools=y
+CONFIG_PACKAGE_blockdev=y
+CONFIG_PACKAGE_mdadm=y
+CONFIG_PACKAGE_lsblk=y
+CONFIG_PACKAGE_parted=y
+CONFIG_PACKAGE_gdisk=y
+CONFIG_PACKAGE_fdisk=y
+CONFIG_PACKAGE_e2fsprogs=y
+CONFIG_PACKAGE_resize2fs=y
+CONFIG_PACKAGE_mmc-utils=y
+CONFIG_PACKAGE_spi-utils=y
+CONFIG_PACKAGE_dd=y
+CONFIG_PACKAGE_hexdump=y
+CONFIG_PACKAGE_strace=y
+CONFIG_PACKAGE_kmod-mtd-rw=y
+CONFIG_PACKAGE_mtd-utils=y
+CONFIG_PACKAGE_mtd-utils-mkfsjffs2=y
+CONFIG_PACKAGE_mtd-utils-jffs2reader=y
+CONFIG_PACKAGE_mtd-utils-nandwrite=y
+EOF
 
 # ========== 6. 【关键修复】手动预编译核心地基 ==========
 echo "=== 正在执行稳健配置预检 ==="
