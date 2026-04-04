@@ -1,44 +1,19 @@
 #!/bin/bash
 set -euo pipefail
 
-cd "${GITHUB_WORKSPACE}/openwrt" || exit 2
+WORKSPACE="$GITHUB_WORKSPACE"
+SOURCE_DIR="$WORKSPACE/source-repo"
+OUTPUT_DIR="$WORKSPACE/output"
 
-echo "============================================="
-echo "司络 SL3000 MT7981B eMMC 仅编译filogic平台"
-echo "============================================="
+mkdir -p $OUTPUT_DIR/atf
+mkdir -p $OUTPUT_DIR/uboot
+mkdir -p $OUTPUT_DIR/mtk_uartboot
 
-# 清理并更新feeds
-./scripts/feeds clean
-./scripts/feeds update -a
-./scripts/feeds install -a
+# 只安装编译ATF/U-Boot需要的工具（极轻量）
+sudo apt update
+sudo apt install -y build-essential gcc-aarch64-linux-gnu \
+  git make flex bison libssl-dev device-tree-compiler bc
 
-# ==========================
-# 核心：只启用filogic(MT7981)，禁用x86/x64
-# ==========================
-cat >> .config << EOF
-# 目标平台：MT7981
-CONFIG_TARGET_mediatek=y
-CONFIG_TARGET_mediatek_filogic=y
-CONFIG_TARGET_mediatek_filogic_DEVICE_mt7981-ax3000-router-emmc=y
-
-# 彻底关闭 x86/x64（这就是你patch失败的根源）
-CONFIG_TARGET_x86=n
-CONFIG_TARGET_MULTI_ARCH=n
-
-# 禁用所有报错/警告包
-CONFIG_PACKAGE_dae=n
-CONFIG_PACKAGE_daed=n
-CONFIG_PACKAGE_libreswan=n
-CONFIG_PACKAGE_strongswan=n
-CONFIG_PACKAGE_netatalk=n
-CONFIG_PACKAGE_luci-app-homeproxy=n
-CONFIG_PACKAGE_usbgadget=n
-CONFIG_PACKAGE_prism54-firmware=n
-CONFIG_PACKAGE_rtl8192su-firmware=n
-EOF
-
-# 删除x86报错补丁（彻底解决patch failed）
-rm -vf target/linux/x86/patches-5.4/120-hwrng-geode-fix-accessing-registers.patch
-
-make defconfig
-echo "✅ 平台已锁定MT7981，x86已禁用，patch报错已修复"
+# 记录路径给part2用
+echo "$WORKSPACE" > $WORKSPACE/build-dir.txt
+echo "✅ part1 环境准备完成（仅救砖工具链）"
