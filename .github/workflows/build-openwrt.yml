@@ -1,10 +1,12 @@
-name: SL3000-512M-Final-Build
+name: SL3000-eMMC-Final-Build
 
 on:
   workflow_dispatch:
   push:
     paths:
-      - '888/**'
+      - 'custom-config/**'
+      - 'scripts/**'
+      - 'diy-*.sh'
     tags: 
       - 'v*'
 
@@ -15,17 +17,17 @@ jobs:
       contents: write
     
     steps:
-      - name: Checkout main repo
+      - name: Checkout main repo (scripts)
         uses: actions/checkout@v4
         with:
           path: main-repo
 
-      - name: Checkout source repo
+      - name: Checkout OpenWrt source
         uses: actions/checkout@v4
         with:
-          repository: ykm888/66 
+          repository: ykm888/66
           ref: 2410
-          path: source-repo
+          path: openwrt  # 👈 固定为 openwrt，和脚本匹配
 
       - name: Cleanup Disk Space
         run: |
@@ -40,41 +42,45 @@ jobs:
             python3-distutils python3-setuptools rsync unzip zlib1g-dev file wget \
             gcc-aarch64-linux-gnu device-tree-compiler
 
-      - name: Run diy-part1.sh (Purge & Core Prep)
+      - name: Run diy-part1.sh
         run: |
           chmod +x main-repo/diy-part1.sh
           ./main-repo/diy-part1.sh
         env:
           GITHUB_WORKSPACE: ${{ github.workspace }}
 
-      - name: Run diy-part2.sh (Build & Release)
+      - name: Run diy-part2.sh
         run: |
           chmod +x main-repo/diy-part2.sh
           ./main-repo/diy-part2.sh
         env:
           GITHUB_WORKSPACE: ${{ github.workspace }}
 
+      # 👈 补上真正编译步骤
+      - name: Build firmware
+        run: |
+          cd "$GITHUB_WORKSPACE/openwrt"
+          make -j$(nproc) V=s
+
       - name: Generate Release Tag
         id: tag
-        run: echo "release_tag=SL3000-512M-$(date +"%Y.%m.%d-%H%M")" >> $GITHUB_OUTPUT
+        run: echo "release_tag=SL3000-eMMC-$(date +"%Y.%m.%d-%H%M")" >> $GITHUB_OUTPUT
 
       - name: Upload to Release
         uses: softprops/action-gh-release@v1
         if: success()
         with:
           tag_name: ${{ steps.tag.outputs.release_tag }}
-          name: SL3000 512M 救砖固件 [${{ steps.tag.outputs.release_tag }}]
+          name: SL3000 eMMC 救砖固件 [${{ steps.tag.outputs.release_tag }}]
           body: |
             ### 🛠️ 编译说明
-            - 设备：SL3000 MT7981B eMMC / 512M RAM
-            - 固件类型：**仅完整救砖固件（含SPI NOR 32MB），无sysupgrade升级包**
-            - 物理切除：5G-modem / rd05a1 / 移远/芯讯通模块依赖
-            - 依赖修复：预编译 toolchain / mbedtls / ustream-ssl
-            - 内核：Linux 5.4
-            - 用途：编程器救砖、eMMC 全盘烧录
+            - 设备：司络 SL3000 | MT7981B + MT7976CN
+            - 存储：32MB SPI + 128GB eMMC
+            - 启动：eMMC 启动 (root=/dev/mmcblk0p2)
+            - 内存：原生 1GB（不强制512M）
+            - 用途：eMMC 救砖、全盘烧录
           files: |
-            output/firmware/*spi_nor*.bin
-            output/firmware/*emmc*.bin
-            output/firmware/*.md5
+            openwrt/bin/targets/mediatek/filogic/*emmc*.bin
+            openwrt/bin/targets/mediatek/filogic/*.md5
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
