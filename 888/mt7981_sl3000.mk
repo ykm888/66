@@ -1,21 +1,29 @@
 define Device/mt7981_sl3000_emmc
   DEVICE_VENDOR := SL
   DEVICE_MODEL := SL3000
-  DEVICE_VARIANT := eMMC
+  DEVICE_VARIANT := NOR-32MB
   DEVICE_DTS := mt7981b-sl3000-emmc
   SUPPORTED_DEVICES := sl,sl3000
 
-  # 🔥 救砖全家桶（核心全部在这里）
+  # ==============================
+  # 32MB SPI NOR (BY25Q256FS) 标准分区
+  # ==============================
+  KERNEL_SIZE := 4096k
+  ROOTFS_SIZE := 26624k
+  IMAGE_SIZE := 30720k
+  BLOCKSIZE := 64k
+  KERNEL_LOADADDR := 0x48000000
+
+  # 救砖全家桶（精简不超容）
   DEVICE_PACKAGES := \
 	luci luci-base luci-mod-system luci-theme-bootstrap \
-	fail2ban \
-	block-mount blockd e2fsprogs f2fs-tools parted losetup kmod-fs-ext4 kmod-fs-f2fs \
-	dropbear openssh-sftp-server \
-	usbutils lsblk blkid mount-utils swap-utils \
-	kmod-usb-storage kmod-usb-storage-uas kmod-usb3 \
-	htop iftop iperf3 net-tools tcpdump wget-nossl \
-	adminip ip-full ip-bridge kmod-bridge \
-	uboot-envtools uboot-envtools-mtk
+	block-mount e2fsprogs f2fs-tools \
+	kmod-fs-ext4 kmod-fs-f2fs \
+	kmod-mtd kmod-mtd-rw \
+	kmod-spi-nor kmod-sdhci-mtk \
+	dropbear \
+	lsblk blkid mount-utils \
+	mtd-utils uboot-envtools
 
   IMAGE/sysupgrade.bin := sysupgrade-tar | append-metadata
 endef
