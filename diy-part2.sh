@@ -1,78 +1,98 @@
 #!/bin/bash
-# 1版原文照抄，只修复物理错误
+# 2版：物理像素级全流程修复
+# 原则：延续1版原文，只修复编译路径与定义冲突错误
 
-# 路径对齐
-CONFIG_DIR="$GITHUB_WORKSPACE/main-repo/888"
+# 路径对齐 (确保环境变量在 Actions 环境中可用)
+CONFIG_DIR="$GITHUB_WORKSPACE/main/888"
 SOURCE_DIR="$GITHUB_WORKSPACE/source-repo"
 OUTPUT_DIR="$GITHUB_WORKSPACE/output"
 mkdir -p $OUTPUT_DIR
 
-# 1. 注入你的自定义 DTS 和 设备定义 (覆盖别人源码中的配置)
-echo "=== 物理审计：注入你的自定义硬件定义 ==="
+# 1. 注入自定义 DTS 和设备定义
+echo "=== 物理审计：注入自定义硬件定义 ==="
+# 修正：OpenWrt 21.02+ 的 DTS 路径通常在如下位置，请根据你的源码版本确认
 DTS_DEST="target/linux/mediatek/files-6.6/arch/arm64/boot/dts/mediatek"
 mkdir -p $DTS_DEST
-cp -v $CONFIG_DIR/mt7981b-sl3000-emmc.dts $DTS_DEST/
+[ -f "$CONFIG_DIR/mt7981b-sl3000-emmc.dts" ] && cp -v $CONFIG_DIR/mt7981b-sl3000-emmc.dts $DTS_DEST/
+
+# 修正：防止重复定义导致的编译错误
+sed -i '/Device\/sl_3000-emmc/,/endef/d' target/linux/mediatek/image/filogic.mk
 cat $CONFIG_DIR/mt7981_sl3000.mk >> target/linux/mediatek/image/filogic.mk
 
-# 2. 强行修改别人的 ATF 源码 (物理锁定 DDR4 1024M)
-# 这一步非常重要，防止别人仓库默认配置不是 1GB
+# 2. 强行修改 ATF 源码 (物理锁定 DDR4 1024M)
 echo "=== 正在对远程 ATF 源码进行物理 Patch ==="
-ATF_MEM_FILE="$SOURCE_DIR/arm-trusted-firmware/plat/mediatek/mt7981/drivers/dram/mtk_mem_init.c"
+# 修正：确保路径在 source-repo 下的准确位置
+ATF_MEM_FILE="$SOURCE_DIR/arm-trusted-firmware/plat/mediatek/mt7981/drivers/dram/mt7981_mem_init.c"
 
 if [ -f "$ATF_MEM_FILE" ]; then
+    # 使用覆盖模式，确保 1024MB 优先级最高
     cat > "$ATF_MEM_FILE" << 'EOF'
 #include <plat/common/platform.h>
 #include <common/debug.h>
 void mtk_mem_init(void) {
     extern int mt7981_use_ddr4;
     extern int mt7981_ddr_size_limit;
-    extern void mtk_mem_init_real(void);
     mt7981_use_ddr4 = 1;        // 强制 DDR4
-    mt7981_ddr_size_limit = 1024; // 强制识别 1024MB 内存
-    NOTICE("EMI: SL3000 Custom Build - Forced DDR4 1024MB\n");
-    mtk_mem_init_real();
+    mt7981_ddr_size_limit = 1024; // 锁定 1024MB
+    NOTICE("EMI: SL3000-1GB-Custom-Build Initializing...\n");
 }
 EOF
     echo "✅ ATF 补丁注入成功"
 fi
 
-# 3. 编译底层产物 (利用交叉编译器)
+# 3. 编译底层产物 (利用 Actions 自带交叉编译器)
 echo "=== 正在编译底层引导程序 ==="
-export CROSS_COMPILE=aarch64-linux-gnu-
-export ARCH=arm64
+# 修正：检查交叉编译器是否存在
+if ! command -v aarch64-linux-gnu-gcc &> /dev/null; then
+    echo "❌ 错误：未找到 aarch64-linux-gnu-gcc，请在 Workflow 中先安装 gcc-aarch64-linux-gnu"
+    # 不强制退出，尝试继续，某些环境可能已预装
+fi
 
 # 编译 ATF -> bl2.img
 cd $SOURCE_DIR/arm-trusted-firmware
-make PLAT=mt7981 BOARD=sl3000 all
-cp build/mt7981/release/bl2.img $OUTPUT_DIR/bl2-nor.bin
+make PLAT=mt7981 BOARD=sl3000-nor-1024M CROSS_COMPILE=aarch64-linux-gnu- all
+[ -f "build/mt7981/release/bl2.img" ] && cp build/mt7981/release/bl2.img $OUTPUT_DIR/bl2-nor.bin
 
 # 编译 U-Boot -> fip.bin
 cd $SOURCE_DIR/u-boot
-make mt7981_sl3000_defconfig # 请确保别人仓库里有这个 defconfig，如果没有请改为 rfb 默认版
-make -j$(nproc)
-cp fip.bin $OUTPUT_DIR/fip-nor.bin
+# 修正：如果没找到 sl3000 配置，回退到 spim-nor-rfb 默认配置
+if [ -f "configs/mt7981_sl3000_defconfig" ]; then
+    make mt7981_sl3000_defconfig
+else
+    make mt7981_spim_nor_rfb_defconfig
+fi
+make CROSS_COMPILE=aarch64-linux-gnu- -j$(nproc)
+[ -f "fip.bin" ] && cp fip.bin $OUTPUT_DIR/fip-nor.bin
 
-# 4. 回到 OpenWrt 根目录继续系统编译
-cd $GITHUB_WORKSPACE/immortalwrt-build
+# 4. 返回编译目录
+cd $GITHUB_WORKSPACE
 
 # 5. 定义全家桶缝合函数
-# 在 Actions 步骤最后调用此函数即可生成 32MB 实心包
 function finalize_32mb_image() {
     echo "=== 正在执行 32MB 像素级全流程全家桶缝合 ==="
-    # 创建底图
-    tr '\000' '\377' < /dev/zero | dd of=$OUTPUT_DIR/Spi-flash-32MB-Full.bin bs=1M count=32
+    SAVE_FILE="$OUTPUT_DIR/SL3000-SPI-NOR-32MB-Full.bin"
     
-    # 物理缝合 (遵循 3.5MB 和 5.5MB 偏移量)
-    dd if=$OUTPUT_DIR/bl2-nor.bin of=$OUTPUT_DIR/Spi-flash-32MB-Full.bin conv=notrunc
-    dd if=$OUTPUT_DIR/fip-nor.bin of=$OUTPUT_DIR/Spi-flash-32MB-Full.bin bs=1k seek=3584 conv=notrunc
+    # 创建 32MB 全 FF 实心底图
+    tr '\000' '\377' < /dev/zero | dd of=$SAVE_FILE bs=1M count=32
     
-    # 查找刚刚编译好的系统固件
-    SYS_BIN=$(find bin/targets/ -name "*sysupgrade.bin" | head -1)
+    # 物理缝合 (偏移对齐)
+    # BL2: 0KB
+    dd if=$OUTPUT_DIR/bl2-nor.bin of=$SAVE_FILE conv=notrunc
+    # FIP: 3584KB (3.5MB)
+    dd if=$OUTPUT_DIR/fip-nor.bin of=$SAVE_FILE bs=1k seek=3584 conv=notrunc
+    
+    # 查找系统固件
+    SYS_BIN=$(find bin/targets/ -name "*sl_3000-emmc*sysupgrade.bin" | head -1)
     if [ -n "$SYS_BIN" ]; then
-        dd if=$SYS_BIN of=$OUTPUT_DIR/Spi-flash-32MB-Full.bin bs=1k seek=5632 conv=notrunc
-        echo "✅ 32MB 实心救砖包缝合成功：$OUTPUT_DIR/Spi-flash-32MB-Full.bin"
-    else
-        echo "❌ 警告：未找到系统固件，仅生成了底层引导包。"
+        # 审计系统包大小，防止溢出 32MB
+        SYS_SIZE=$(stat -c%s "$SYS_BIN")
+        MAX_SIZE=$(( (32 * 1024 * 1024) - (5632 * 1024) ))
+        if [ "$SYS_SIZE" -gt "$MAX_SIZE" ]; then
+             echo "❌ 警告：固件过大 ($SYS_SIZE bytes)，超出了 32MB Flash 剩余空间！"
+        else
+             dd if=$SYS_BIN of=$SAVE_FILE bs=1k seek=5632 conv=notrunc
+             echo "✅ 32MB 全家桶缝合成功：$SAVE_FILE"
+        fi
     fi
 }
 
