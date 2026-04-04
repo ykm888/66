@@ -1,107 +1,24 @@
 #!/bin/bash
 set -e
 
-# ========== 1. 物理路径初始化 ==========
-[ -z "$GITHUB_WORKSPACE" ] && GITHUB_WORKSPACE=$(pwd)
-WORKSPACE="$GITHUB_WORKSPACE"
-SOURCE_DIR="$WORKSPACE/source-repo"
-CONFIG_DIR="$WORKSPACE/main-repo/888"
-BUILD_DIR="$WORKSPACE/immortalwrt-build"
+# 进入源码根目录
+cd "$GITHUB_WORKSPACE"/immortalwrt-build || exit 1
 
-# ========== 2. 源码物理同步 (路径自适应) ==========
-echo "=== 正在建立物理编译基座 ==="
-rm -rf "$BUILD_DIR" && mkdir -p "$BUILD_DIR"
-[ -f "$SOURCE_DIR/Makefile" ] && REAL_SOURCE="$SOURCE_DIR" || REAL_SOURCE="$SOURCE_DIR/immortalwrt"
-rsync -a "$REAL_SOURCE/" "$BUILD_DIR/"
-cd "$BUILD_DIR"
+echo "========== diy-part1: 清理冲突依赖 =========="
 
-# ========== 3. 5G 模块切除与 Feeds 净化 ==========
-echo "=== 正在清理 5G 冲突与递归依赖 ==="
-rm -rf package/5g-modem
-find . -type d -name "rd05a1" -exec rm -rf {} \; 2>/dev/null || true
+# 关闭所有报错插件（修复 mbedtls / 依赖不存在）
+sed -i 's/CONFIG_PACKAGE_libreswan=.*/CONFIG_PACKAGE_libreswan=n/' .config
+sed -i 's/CONFIG_PACKAGE_strongswan=.*/CONFIG_PACKAGE_strongswan=n/' .config
+sed -i 's/CONFIG_PACKAGE_homeproxy=.*/CONFIG_PACKAGE_homeproxy=n/' .config
+sed -i 's/CONFIG_PACKAGE_netatalk=.*/CONFIG_PACKAGE_netatalk=n/' .config
+sed -i 's/CONFIG_PACKAGE_usbgadget=.*/CONFIG_PACKAGE_usbgadget=n/' .config
+sed -i 's/CONFIG_PACKAGE_qrtr=.*/CONFIG_PACKAGE_qrtr=n/' .config
+sed -i 's/CONFIG_PACKAGE_kmod-qrtr-smd=.*/CONFIG_PACKAGE_kmod-qrtr-smd=n/' .config
+sed -i 's/CONFIG_PACKAGE_kmod-qrtr-mhi=.*/CONFIG_PACKAGE_kmod-qrtr-mhi=n/' .config
 
-sed -i 's/^src-git telephony/#src-git telephony/g' feeds.conf.default
+# 更新 feeds 避免依赖错乱
+./scripts/feeds clean
 ./scripts/feeds update -a
 ./scripts/feeds install -a
 
-# ========== 4. SL3000 设备定义注入 (含 .mk 关联) ==========
-echo "=== 正在注入设备定义与 DTS ==="
-DTS_PATH="target/linux/mediatek/files-5.4/arch/arm64/boot/dts/mediatek"
-IMAGE_PATH="target/linux/mediatek/image"
-mkdir -p "$DTS_PATH"
-
-# (A) 注入 DTS 并锁定 512M 内存 (0x20000000)
-cp -f "$CONFIG_DIR/mt7981-sl-3000-emmc.dts" "$DTS_PATH/"
-sed -i 's/<0x40000000 0x[0-9a-fA-F]*>/<0x40000000 0x20000000>/g' "$DTS_PATH/mt7981-sl-3000-emmc.dts"
-
-# (B) 注入并注册 mt7981_sl3000.mk
-cp -f "$CONFIG_DIR/mt7981_sl3000.mk" "$IMAGE_PATH/"
-TARGET_MK="$IMAGE_PATH/mt7981.mk"
-[ ! -f "$TARGET_MK" ] && TARGET_MK="$IMAGE_PATH/filogic.mk"
-if ! grep -q "mt7981_sl3000.mk" "$TARGET_MK"; then
-    echo "" >> "$TARGET_MK"
-    echo "include mt7981_sl3000.mk" >> "$TARGET_MK"
-fi
-
-# ========== 5. 配置净化 + 救砖全家桶 + 禁用升级包 ==========
-cp -f "$CONFIG_DIR/sl3000.config" .config
-
-# 物理剔除 .config 中所有 5G/Modem 残留以防递归依赖
-sed -i '/5g-modem/d; /quectel/d; /simcom/d; /rooter/d; /rd05a1/d; /pcat-manager/d' .config
-
-# 基础设备目标
-echo "CONFIG_TARGET_mediatek=y" >> .config
-echo "CONFIG_TARGET_mediatek_filogic=y" >> .config
-echo "CONFIG_TARGET_mediatek_filogic_DEVICE_sl_3000-emmc=y" >> .config
-
-# ===================== 新增：救砖固件配置 =====================
-# 1. 启用完整 SPI NOR 32MB 固件（救砖用完整固件）
-echo "CONFIG_TARGET_ROOTFS_CPIOGZ=n" >> .config
-echo "CONFIG_TARGET_ROOTFS_SQUASHFS=y" >> .config
-echo "CONFIG_TARGET_IMAGES_GZIP=n" >> .config
-# 启用完整 bin 固件（含 u-boot + firmware，用于编程器/救砖）
-echo "CONFIG_TARGET_IMAGES_BIN=y" >> .config
-
-# 2. 强制禁用 sysupgrade 升级包（只出救砖完整固件，不出升级包）
-echo "CONFIG_SYSUPGRADE_INFO=n" >> .config
-echo "CONFIG_TARGET_ROOTFS_INITRAMFS=n" >> .config
-echo "CONFIG_TARGET_UBIFS=n" >> .config
-
-# 3. 救砖必备工具全家桶
-cat >> .config <<EOF
-CONFIG_PACKAGE_uboot-envtools=y
-CONFIG_PACKAGE_blockdev=y
-CONFIG_PACKAGE_mdadm=y
-CONFIG_PACKAGE_lsblk=y
-CONFIG_PACKAGE_parted=y
-CONFIG_PACKAGE_gdisk=y
-CONFIG_PACKAGE_fdisk=y
-CONFIG_PACKAGE_e2fsprogs=y
-CONFIG_PACKAGE_resize2fs=y
-CONFIG_PACKAGE_mmc-utils=y
-CONFIG_PACKAGE_spi-utils=y
-CONFIG_PACKAGE_dd=y
-CONFIG_PACKAGE_hexdump=y
-CONFIG_PACKAGE_strace=y
-CONFIG_PACKAGE_kmod-mtd-rw=y
-CONFIG_PACKAGE_mtd-utils=y
-CONFIG_PACKAGE_mtd-utils-mkfsjffs2=y
-CONFIG_PACKAGE_mtd-utils-jffs2reader=y
-CONFIG_PACKAGE_mtd-utils-nandwrite=y
-EOF
-
-# ========== 6. 【关键修复】手动预编译核心地基 ==========
-echo "=== 正在执行稳健配置预检 ==="
-yes "" | make oldconfig
 make defconfig
-
-echo "=== 正在优先预编译核心依赖 (解决 ld-musl 与 ustream-ssl 报错) ==="
-make prepare -j$(nproc)
-# 顺序不可乱：工具链 -> 加密库 -> 基础流库 -> 基础文件
-make package/libs/toolchain/compile -j1 V=s
-make package/libs/mbedtls/compile -j$(nproc) V=s
-make package/libs/ustream-ssl/compile -j$(nproc) V=s
-make package/base-files/compile -j1 V=s
-
-# 保存路径供 Part2 使用
-echo $PWD > "$WORKSPACE/build_path.txt"
