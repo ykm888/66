@@ -2,19 +2,15 @@
 set -euo pipefail
 
 WORKSPACE="$GITHUB_WORKSPACE"
-SOURCE="$WORKSPACE/source-repo"
-OUTPUT="$WORKSPACE/output"
+SOURCE_DIR="$WORKSPACE/source-repo"
+OUTPUT_DIR="$WORKSPACE/output"
 
-# ==============================
-# 直接从你源码里拷贝现成救砖文件
-# ==============================
-echo "=== 复制预编译救砖文件 ==="
+echo "=== 复制救砖文件 ==="
 
-# 复制 bl2 fip u-boot
-find "$SOURCE" -name "bl2.bin"  | head -1 | xargs -I {} cp {} "$OUT"/atf/
-find "$SOURCE" -name "bl2.img"  | head -1 | xargs -I {} cp {} "$OUT"/atf/
-find "$SOURCE" -name "fip.bin"  | head -1 | xargs -I {} cp {} "$OUT"/atf/
-find "$SOURCE" -name "u-boot.bin" | head -1 | xargs -I {} cp {} "$OUT"/uboot/
+find "$SOURCE_DIR" -name "bl2.bin"  2>/dev/null | head -1 | xargs -I {} cp {} "$OUTPUT_DIR"/atf/
+find "$SOURCE_DIR" -name "bl2.img" 2>/dev/null | head -1 | xargs -I {} cp {} "$OUTPUT_DIR"/atf/
+find "$SOURCE_DIR" -name "fip.bin"  2>/dev/null | head -1 | xargs -I {} cp {} "$OUTPUT_DIR"/atf/
+find "$SOURCE_DIR" -name "u-boot.bin" 2>/dev/null | head -1 | xargs -I {} cp {} "$OUTPUT_DIR"/uboot/
 
-echo "=== 救砖全家桶已打包 ==="
-ls -lh "$OUT"/atf/ "$OUT"/uboot/
+echo "=== 完成 ==="
+ls -lh "$OUTPUT_DIR"/atf/ "$OUTPUT_DIR"/uboot/
