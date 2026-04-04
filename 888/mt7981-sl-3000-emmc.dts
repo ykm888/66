@@ -5,8 +5,8 @@
 #include <dt-bindings/leds/common.h>
 
 / {
-	model = "SL-3000 (1GB DDR4)";
-	compatible = "sl,3000-emmc", "mediatek,mt7981";
+	model = "SL-3000 SPI-NOR 32MB / 512MB DDR4";
+	compatible = "sl,3000-spi-nor", "sl,3000-emmc", "mediatek,mt7981";
 
 	aliases {
 		serial0 = &uart0;
@@ -22,13 +22,11 @@
 		bootargs = "console=ttyS0,115200n1 loglevel=8 earlycon=uart8250,mmio32,0x11002000 root=PARTLABEL=production rootwait rw rootfstype=f2fs,squashfs,ext4";
 	};
 
-	/* 1GB DDR4 内存 */
 	memory@40000000 {
 		device_type = "memory";
-		reg = <0 0x40000000 0 0x40000000>;
+		reg = <0 0x40000000 0 0x20000000>;  /* 512MB 对应你固件 */
 	};
 
-	/* 1.8V 稳压器，用于 eMMC vqmmc-supply */
 	reg_1p8v: regulator-1p8v {
 		compatible = "regulator-fixed";
 		regulator-name = "fixed-1.8V";
@@ -70,7 +68,6 @@
 	};
 };
 
-/* SPI-NOR 闪存分区布局（与 U-Boot 实际分区对齐） */
 &spi0 {
 	pinctrl-names = "default";
 	pinctrl-0 = <&spi0_flash_pins>;
@@ -112,13 +109,12 @@
 
 			partition@580000 {
 				label = "firmware";
-				reg = <0x580000 0x1900000>;  /* 25MB, 实际使用 0x580000-0x1e80000 */
+				reg = <0x580000 0x1A80000>;  /* 对齐32MB Flash */
 			};
 		};
 	};
 };
 
-/* eMMC 链路 */
 &mmc0 {
 	status = "okay";
 	pinctrl-names = "default", "state_uhs";
@@ -135,7 +131,6 @@
 	no-sdio;
 };
 
-/* 网络：MT7531 交换机 + 2.5G 上联 */
 &eth {
 	status = "okay";
 
@@ -219,6 +214,5 @@
 &uart0 { status = "okay"; };
 &watchdog { status = "okay"; };
 
-/* 启用稳压器节点 */
 &reg_3p3v { status = "okay"; };
 &reg_1p8v { status = "okay"; };
