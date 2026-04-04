@@ -4,13 +4,15 @@ set -euo pipefail
 cd "${GITHUB_WORKSPACE}" || exit 1
 
 echo "============================================="
-echo " 司络 SL3000 | MT7981B + 1GB DDR + 32MB SPI + 128GB eMMC"
+echo " 司络 SL3000 | MT7981B + 1GB DDR + 128GB eMMC"
 echo "============================================="
 
-# 进入源码（和yml里path: openwrt严格对应）
-cd "${GITHUB_WORKSPACE}/openwrt" || { echo "ERROR: openwrt 不存在" >&2; exit 2; }
+# 进入OpenWrt源码目录
+cd "${GITHUB_WORKSPACE}/openwrt" || {
+    echo "ERROR: 找不到 openwrt 目录" >&2
+    exit 2
+}
 
-# 清理并更新feeds
 ./scripts/feeds clean
 ./scripts/feeds update -a
 ./scripts/feeds install -a
@@ -27,4 +29,4 @@ EOF
 
 make defconfig
 
-echo "✅ diy-part1.sh 完成"
+echo "✅ diy-part1.sh 执行完成"
