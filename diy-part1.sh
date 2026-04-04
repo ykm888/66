@@ -1,27 +1,30 @@
 #!/bin/bash
-set -e
+set -euo pipefail
 
-cd "$GITHUB_WORKSPACE/openwrt" || exit 1
+cd "${GITHUB_WORKSPACE}" || exit 1
 
 echo "============================================="
 echo " 司络 SL3000 | MT7981B + 1GB DDR + 32MB SPI + 128GB eMMC"
 echo "============================================="
 
-# 清理冲突依赖，避免编译报错
-sed -i 's/CONFIG_PACKAGE_libreswan=.*/CONFIG_PACKAGE_libreswan=n/' .config 2>/dev/null
-sed -i 's/CONFIG_PACKAGE_strongswan=.*/CONFIG_PACKAGE_strongswan=n/' .config 2>/dev/null
-sed -i 's/CONFIG_PACKAGE_homeproxy=.*/CONFIG_PACKAGE_homeproxy=n/' .config 2>/dev/null
-sed -i 's/CONFIG_PACKAGE_netatalk=.*/CONFIG_PACKAGE_netatalk=n/' .config 2>/dev/null
-sed -i 's/CONFIG_PACKAGE_usbgadget=.*/CONFIG_PACKAGE_usbgadget=n/' .config 2>/dev/null
-sed -i 's/CONFIG_PACKAGE_qrtr=.*/CONFIG_PACKAGE_qrtr=n/' .config 2>/dev/null
-sed -i 's/CONFIG_PACKAGE_kmod-qrtr-smd=.*/CONFIG_PACKAGE_kmod-qrtr-smd=n/' .config 2>/dev/null
-sed -i 's/CONFIG_PACKAGE_kmod-qrtr-mtd=.*/CONFIG_PACKAGE_kmod-qrtr-mtd=n/' .config 2>/dev/null
+# 进入源码（和yml里path: openwrt严格对应）
+cd "${GITHUB_WORKSPACE}/openwrt" || { echo "ERROR: openwrt 不存在" >&2; exit 2; }
 
-# 标准 feeds 更新
+# 清理并更新feeds
 ./scripts/feeds clean
 ./scripts/feeds update -a
 ./scripts/feeds install -a
 
+# 禁用冲突包
+cat >> .config << EOF
+CONFIG_PACKAGE_libreswan=n
+CONFIG_PACKAGE_strongswan=n
+CONFIG_PACKAGE_homeproxy=n
+CONFIG_PACKAGE_netatalk=n
+CONFIG_PACKAGE_usbgadget=n
+CONFIG_PACKAGE_qrtr=n
+EOF
+
 make defconfig
 
-echo "✅ diy-part1 执行完成：无内存强制，原生1GB配置"
+echo "✅ diy-part1.sh 完成"
