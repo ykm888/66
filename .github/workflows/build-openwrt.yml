@@ -1,14 +1,6 @@
-name: SL3000-eMMC-Build
-
+name: SL3000-Manual-Build
 on:
-  workflow_dispatch:
-  push:
-    paths:
-      - '**.sh'
-      - '**.config'
-      - '**.dts'
-      - '**.mk'
-      - '.github/workflows/**'
+  workflow_dispatch:  # 仅手动触发
 
 jobs:
   build:
@@ -16,10 +8,10 @@ jobs:
     permissions:
       contents: write
     steps:
-      - name: Checkout 配置仓库
+      - name: Checkout 你的配置仓库（根目录）
         uses: actions/checkout@v4
 
-      - name: Checkout OpenWrt 源码
+      - name: Checkout OpenWrt 源码到 openwrt 文件夹
         uses: actions/checkout@v4
         with:
           repository: ykm888/66
@@ -34,10 +26,7 @@ jobs:
       - name: 安装依赖
         run: |
           sudo apt update
-          sudo apt install -y build-essential clang flex bison gawk gettext \
-            git libncurses-dev libssl-dev python3-distutils \
-            python3-setuptools rsync unzip zlib1g-dev wget \
-            gcc-aarch64-linux-gnu device-tree-compiler
+          sudo apt install -y build-essential clang flex bison gawk gettext git libncurses-dev libssl-dev python3-distutils python3-setuptools rsync unzip zlib1g-dev wget gcc-aarch64-linux-gnu device-tree-compiler
 
       - name: 运行 diy-part1.sh
         run: |
@@ -49,16 +38,16 @@ jobs:
           chmod +x diy-part2.sh
           ./diy-part2.sh
 
-      - name: 编译固件
+      - name: 开始编译
         run: |
           cd openwrt
           make -j$(nproc) V=s
 
-      - name: 生成版本标签
+      - name: 生成版本号
         id: tag
         run: echo "release_tag=SL3000-$(date +%Y%m%d-%H%M)" >> "$GITHUB_OUTPUT"
 
-      - name: 上传固件到 Release
+      - name: 上传固件
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.tag.outputs.release_tag }}
