@@ -1,6 +1,6 @@
-name: SL3000-Boot-Build
+name: SL3000 救砖+固件底层一体打包
 on:
-  workflow_dispatch:    # 仅手动点Run，绝不自动编译
+  workflow_dispatch:
 
 jobs:
   build:
@@ -8,47 +8,67 @@ jobs:
     permissions:
       contents: write
     steps:
-      - name: Checkout 配置仓库
+      - name: 拉取当前配置仓库（三件套在这里）
         uses: actions/checkout@v4
 
-      - name: 安装编译工具
+      - name: 安装工具链
         run: |
           sudo apt update
-          sudo apt install -y build-essential gcc-aarch64-linux-gnu make git libssl-dev flex bison
+          sudo apt install -y gcc-aarch64-linux-gnu make git libssl-dev bison flex
 
-      # 关键：拉你救砖底层源码分支
-      - name: 拉取 sl3000-clean-source 底层源码
+      # ========== 拉底层源码：atf + u-boot ==========
+      - name: 拉取 sl3000-clean-source 底层
         uses: actions/checkout@v4
         with:
           repository: ykm888/66
-          ref: sl3000-clean-source   # 你真正的底层分支
-          path: source
+          ref: sl3000-clean-source
+          path: src
 
-      # 只编译 ATF + U-Boot，不碰Linux内核，彻底告别patch失败
+      # ========== 自动覆盖三件套：DTS / mk / config ==========
+      - name: 覆盖设备树 DTS
+        run: |
+          mkdir -p src/target/linux/mediatek/dts/
+          cp -f mt7981-sl3000-emmc.dts src/target/linux/mediatek/dts/
+
+      - name: 覆盖 Makefile(mk)
+        run: |
+          cp -f mt7981_sl3000.mk src/target/linux/mediatek/filogic.mk
+
+      - name: 覆盖.config
+        run: |
+          cp -f sl3000.config src/.config
+
+      # ========== 编译 ATF ==========
       - name: 编译 ATF
         run: |
-          cd source/atf
+          cd src/atf
           make CROSS_COMPILE=aarch64-linux-gnu- PLAT=mt7981
 
+      # ========== 编译 U-Boot ==========
       - name: 编译 U-Boot
         run: |
-          cd source/u-boot
+          cd src/u-boot
           make CROSS_COMPILE=aarch64-linux-gnu- mt7981_sl3000_defconfig
           make CROSS_COMPILE=aarch64-linux-gnu- -j$(nproc)
 
-      # 打包救砖文件
-      - name: 打包救砖全家桶
+      # ========== 打包输出 ==========
+      - name: 整理救砖+配置全家桶
         run: |
           mkdir -p output
-          cp source/atf/build/mt7981/release/bl2.bin output/
-          cp source/atf/build/mt7981/release/fip.bin output/
-          cp source/u-boot/u-boot.bin output/
-          cp source/u-boot/u-boot.itb output/
+          # 底层
+          cp src/atf/build/mt7981/release/bl2.bin output/
+          cp src/atf/build/mt7981/release/fip.bin output/
+          cp src/u-boot/u-boot.bin output/
+          cp src/u-boot/u-boot.itb output/
+          # 三件套也一起打包，方便救砖直接用
+          cp mt7981-sl3000-emmc.dts output/
+          cp mt7981_sl3000.mk output/
+          cp sl3000.config output/
 
-      - name: 发布救砖包
+      - name: 发布
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: sl3000-boot-$(date +%Y%m%d-%H%M)
+          tag_name: sl3000-full-$(date +%Y%m%d%H%M)
           files: output/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
