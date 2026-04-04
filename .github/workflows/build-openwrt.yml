@@ -1,6 +1,6 @@
-name: SL3000-Manual-Build
+name: SL3000-MT7981-Manual
 on:
-  workflow_dispatch:  # 仅手动触发
+  workflow_dispatch:    # 仅手动点Run
 
 jobs:
   build:
@@ -8,32 +8,26 @@ jobs:
     permissions:
       contents: write
     steps:
-      - name: Checkout 你的配置仓库（根目录）
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Checkout OpenWrt 源码到 openwrt 文件夹
+      - name: 安装编译环境
+        run: |
+          sudo apt update
+          sudo apt install -y build-essential clang flex bison gawk gettext git libncurses-dev libssl-dev python3-distutils rsync unzip zlib1g-dev
+
+      - name: 拉OpenWrt源码
         uses: actions/checkout@v4
         with:
           repository: ykm888/66
-          ref: 2410
+          ref: 2410-6.6
           path: openwrt
 
-      - name: 清理空间
-        run: |
-          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc
-          sudo apt clean
-
-      - name: 安装依赖
-        run: |
-          sudo apt update
-          sudo apt install -y build-essential clang flex bison gawk gettext git libncurses-dev libssl-dev python3-distutils python3-setuptools rsync unzip zlib1g-dev wget gcc-aarch64-linux-gnu device-tree-compiler
-
-      - name: 运行 diy-part1.sh
+      - name: 执行diy-part1
         run: |
           chmod +x diy-part1.sh
           ./diy-part1.sh
 
-      - name: 运行 diy-part2.sh
+      - name: 执行diy-part2
         run: |
           chmod +x diy-part2.sh
           ./diy-part2.sh
@@ -43,14 +37,10 @@ jobs:
           cd openwrt
           make -j$(nproc) V=s
 
-      - name: 生成版本号
-        id: tag
-        run: echo "release_tag=SL3000-$(date +%Y%m%d-%H%M)" >> "$GITHUB_OUTPUT"
-
       - name: 上传固件
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ steps.tag.outputs.release_tag }}
+          tag_name: SL3000-$(date +%Y%m%d%H%M)
           files: openwrt/bin/targets/mediatek/filogic/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
