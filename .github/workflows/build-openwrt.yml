@@ -8,6 +8,8 @@ on:
 jobs:
   build:
     runs-on: ubuntu-22.04
+    permissions:
+      contents: write
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     steps:
@@ -19,8 +21,8 @@ jobs:
       - name: 2. Checkout Source (Remote Base & ImmortalWrt)
         run: |
           mkdir -p source-repo
-          # 拉取别人的底层三件套
-          git clone --depth 1 --branch sl3000-full-sync https://github.com/ykm99999/66 source-repo/base
+          # 拉取底层三件套
+          git clone --depth 1 --branch sl3000-full-sync https://github.com/ykm99999/66 source-repo
           # 拉取 ImmortalWrt 系统源码
           git clone --depth 1 https://github.com/immortalwrt/immortalwrt immortalwrt-build
 
@@ -36,13 +38,16 @@ jobs:
       - name: 4. Execution diy-part1.sh (Feeds)
         run: |
           chmod +x main-repo/diy-part1.sh
+          # 将底层源码搬运到指定位置供 diy-part2 使用
+          mv source-repo immortalwrt-build/source-repo
           cd immortalwrt-build
-          $GITHUB_WORKSPACE/main-repo/diy-part1.sh
           ./scripts/feeds update -a
           ./scripts/feeds install -a
+          $GITHUB_WORKSPACE/main-repo/diy-part1.sh
 
-      - name: 5. Execution diy-part2.sh (Patch & Config)
+      - name: 5. Execution diy-part2.sh (Patch & Bottom-Build)
         run: |
+          # 这一步会执行 1024MB 内存补丁并编译 ATF/U-Boot
           chmod +x main-repo/diy-part2.sh
           cd immortalwrt-build
           $GITHUB_WORKSPACE/main-repo/diy-part2.sh
@@ -50,53 +55,57 @@ jobs:
       - name: 6. Build OpenWrt System
         run: |
           cd immortalwrt-build
-          make defconfig
-          # 救砖模式下建议用 -j$(nproc) 快速编译内核
+          # 物理锁定 SL3000 配置
+          [ -f ".config" ] || make defconfig
           make -j$(nproc) || make -j1 V=s
 
       - name: 7. Final Physical Merge (32MB Full Image)
         run: |
-          # 物理缝合逻辑：将 ATF, U-Boot 和编译好的 Kernel 拼成一个 32MB 文件
-          mkdir -p output/firmware output/atf output/uboot
+          # 物理缝合逻辑：将 ATF, U-Boot 和编译好的 Kernel 拼成一个 32MB 实心包
+          mkdir -p release_output
           
-          # 创建空白底图
-          tr '\000' '\377' < /dev/zero | dd of=output/Spi-flash-32MB.bin bs=1M count=32
+          # 定义物理路径 (对接 diy-part2.sh 的输出)
+          BL2_BIN="$GITHUB_WORKSPACE/output/bl2-nor.bin"
+          FIP_BIN="$GITHUB_WORKSPACE/output/fip-nor.bin"
+          FULL_IMAGE="release_output/SL3000-1GB-DDR4-32MB-Full.bin"
           
-          # 写入 BL2 (0偏移) - 假设你在 diy-part2 中已编译好 bl2.img
-          dd if=source-repo/base/arm-trusted-firmware/build/mt7981/release/bl2.img of=output/Spi-flash-32MB.bin conv=notrunc
+          # 创建底图
+          tr '\000' '\377' < /dev/zero | dd of=$FULL_IMAGE bs=1M count=32
           
-          # 写入 FIP (3.5MB偏移 -> seek=3584)
-          dd if=source-repo/base/u-boot/fip.bin of=output/Spi-flash-32MB.bin bs=1k seek=3584 conv=notrunc
+          # 物理缝合：BL2(0M), FIP(3.5M/3584K), Kernel(5.5M/5632K)
+          [ -f "$BL2_BIN" ] && dd if=$BL2_BIN of=$FULL_IMAGE conv=notrunc
+          [ -f "$FIP_BIN" ] && dd if=$FIP_BIN of=$FULL_IMAGE bs=1k seek=3584 conv=notrunc
           
-          # 写入编译出的 OpenWrt 系统固件 (5.5MB偏移 -> seek=5632)
+          # 查找生成的系统固件
           SYS_BIN=$(find immortalwrt-build/bin/targets/ -name "*sysupgrade.bin" | head -1)
-          dd if=$SYS_BIN of=output/Spi-flash-32MB.bin bs=1k seek=5632 conv=notrunc
+          if [ -n "$SYS_BIN" ]; then
+              dd if=$SYS_BIN of=$FULL_IMAGE bs=1k seek=5632 conv=notrunc
+              cp $SYS_BIN release_output/
+          fi
           
-          # 复制其他产物用于发布
-          cp source-repo/base/arm-trusted-firmware/build/mt7981/release/bl2.img output/atf/
-          cp source-repo/base/u-boot/fip.bin output/uboot/
-          tar -czf output/mtk_uartboot.tar.gz -C source-repo/base/mtk_uartboot .
+          # 备份底层产物
+          cp $BL2_BIN release_output/ 2>/dev/null || true
+          cp $FIP_BIN release_output/ 2>/dev/null || true
 
       - name: 8. Generate Release Tag
         id: release_tag
+        if: success()
         run: |
-          TAG_NAME="v$(date +'%Y%m%d-%H%M%S')"
+          TAG_NAME="SL3000-$(date +'%Y.%m.%d-%H%M')"
           echo "tag_name=$TAG_NAME" >> $GITHUB_OUTPUT
 
       - name: 9. Create GitHub Release
         uses: softprops/action-gh-release@v2
+        if: success()
         with:
           tag_name: ${{ steps.release_tag.outputs.tag_name }}
-          name: "SL3000 Rescue Firmware ${{ steps.release_tag.outputs.tag_name }}"
+          name: "SL3000 (1024M DDR4) Rescue Pack"
           body: |
-            ### SL3000 (1GB DDR4) 救砖全家桶
-            - **物理镜像**: `Spi-flash-32MB.bin` (直接用烧录器刷入)
-            - **偏移对齐**: BL2(0M), FIP(3.5M), Kernel(5.5M)
-            - **源码补丁**: 已锁定 DDR4 1024MB 内存初始化
+            ### 🛠️ SL3000 救砖物理全家桶
+            - **全量镜像**: `SL3000-1GB-DDR4-32MB-Full.bin` (用烧录器直接刷入全片)
+            - **底层引导**: 包含 1024MB 内存补丁的 BL2 与 FIP
+            - **物理偏移**: BL2(0M), FIP(3.5M), Firmware(5.5M)
           files: |
-            output/atf/*.img
-            output/uboot/*.bin
-            output/firmware/*.bin
-            output/mtk_uartboot.tar.gz
+            release_output/*.bin
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
