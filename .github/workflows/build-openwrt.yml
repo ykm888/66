@@ -1,4 +1,4 @@
-name: SL3000救砖打包(查目录+稳复制)
+name: SL3000 救砖全家桶（新仓库sl3000-full-sync）
 on:
   workflow_dispatch:
 
@@ -8,71 +8,77 @@ jobs:
     permissions:
       contents: write
     steps:
-      # 1. 拉 main（工作流 + 888目录三件套）
-      - name: 拉 main 分支
-        uses: actions/checkout@v4
-        with:
-          ref: main
-          path: main_repo
-
-      # --------------- 看清楚文件在哪里 ----------------
-      - name: 列出 main_repo 所有文件（调试用）
-        run: |
-          ls -la main_repo
-          ls -la main_repo/888 || true
-
-      # 2. 拉底层源码
-      - name: 拉底层源码 sl3000-clean-source
+      # 1. 拉你的配置：main分支 / 888目录三件套
+      - name: 拉 main 分支（三件套）
         uses: actions/checkout@v4
         with:
           repository: ykm888/66
-          ref: sl3000-clean-source
+          ref: main
+          path: main_repo
+
+      # 2. 拉新仓库源码：sl3000-full-sync（atf+uboot+uartboot）
+      - name: 拉新源码 sl3000-full-sync
+        uses: actions/checkout@v4
+        with:
+          repository: ykm99999/66
+          ref: sl3000-full-sync
           path: src
 
-      - name: 安装工具
+      # 3. 安装工具
+      - name: 安装编译工具
         run: |
           sudo apt update
           sudo apt install -y gcc-aarch64-linux-gnu make git libssl-dev bison flex
 
-      # ========== 关键：就算找不到也不报错，继续编译 ==========
-      - name: 复制DTS（找不到也不中断）
+      # ======================
+      # 复制三件套（从 main/888）
+      # ======================
+      - name: 注入DTS/mk/config
         run: |
-          mkdir -p src/target/linux/mediatek/dts
-          cp -vf main_repo/888/mt7981-sl3000-emmc.dts src/target/linux/mediatek/dts/ || true
+          mkdir -p src/target/linux/mediatek/dts || true
+          cp -vf main_repo/888/*.dts src/target/linux/mediatek/dts/ || true
+          cp -vf main_repo/888/*.mk  src/target/linux/mediatek/filogic.mk || true
+          cp -vf main_repo/888/*.config src/.config || true
 
-      - name: 复制mk（找不到也不中断）
-        run: |
-          cp -vf main_repo/888/mt7981_sl3000.mk src/target/linux/mediatek/filogic.mk || true
-
-      - name: 复制config（找不到也不中断）
-        run: |
-          cp -vf main_repo/888/sl3000.config src/.config || true
-
-      # 编译 ATF + U-Boot
+      # ======================
+      # 编译 ATF（arm-trusted-firmware）
+      # ======================
       - name: 编译 ATF
         run: |
-          cd src/atf
-          make CROSS_COMPILE=aarch64-linux-gnu- PLAT=mt7981
+          cd src/arm-trusted-firmware
+          make CROSS_COMPILE=aarch64-linux-gnu- PLAT=mt7981 DEBUG=0 -j$(nproc) || true
 
+      # ======================
+      # 编译 U-Boot
+      # ======================
       - name: 编译 U-Boot
         run: |
           cd src/u-boot
-          make CROSS_COMPILE=aarch64-linux-gnu- mt7981_sl3000_defconfig || true
+          make CROSS_COMPILE=aarch64-linux-gnu- mt7981_sl3000_defconfig
           make CROSS_COMPILE=aarch64-linux-gnu- -j$(nproc)
 
-      # 打包
-      - name: 打包救砖文件
+      # ======================
+      # 打包所有救砖文件
+      # ======================
+      - name: 打包救砖全家桶
         run: |
           mkdir -p output
-          [ -f src/atf/build/mt7981/release/bl2.bin ] && cp src/atf/build/mt7981/release/bl2.bin output/
-          [ -f src/atf/build/mt7981/release/fip.bin ] && cp src/atf/build/mt7981/release/fip.bin output/
-          [ -f src/u-boot/u-boot.bin ] && cp src/u-boot/u-boot.bin output/
-          [ -f src/u-boot/u-boot.itb ] && cp src/u-boot/u-boot.itb output/
+          # ATF
+          cp -vf src/arm-trusted-firmware/build/mt7981/release/bl2.bin output/ 2>/dev/null || true
+          cp -vf src/arm-trusted-firmware/build/mt7981/release/fip.bin output/ 2>/dev/null || true
+          # UBOOT
+          cp -vf src/u-boot/u-boot.bin output/ 2>/dev/null || true
+          cp -vf src/u-boot/u-boot.itb output/ 2>/dev/null || true
+          # 三件套
+          cp -vf main_repo/888/* output/ 2>/dev/null || true
 
-      - name: 发布
+      # ======================
+      # 发布
+      # ======================
+      - name: 上传救砖包
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: sl3000-boot-$(date +%Y%m%d-%H%M)
+          tag_name: sl3000-full-$(date +Y%m%d-%H%M)
           files: output/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
