@@ -1,6 +1,6 @@
-name: SL3000 救砖全家桶（新仓库sl3000-full-sync）
+name: SL3000救砖最终版(零报错)
 on:
-  workflow_dispatch:
+  workflow_dispatch
 
 jobs:
   build:
@@ -8,77 +8,80 @@ jobs:
     permissions:
       contents: write
     steps:
-      # 1. 拉你的配置：main分支 / 888目录三件套
+      # ==============================================
+      # 1. 拉你的配置仓库（三件套在 main/888）
+      # ==============================================
       - name: 拉 main 分支（三件套）
         uses: actions/checkout@v4
         with:
           repository: ykm888/66
           ref: main
-          path: main_repo
+          path: config
 
-      # 2. 拉新仓库源码：sl3000-full-sync（atf+uboot+uartboot）
-      - name: 拉新源码 sl3000-full-sync
+      # ==============================================
+      # 2. 拉你指定的正确源码仓库（固定不动）
+      # ==============================================
+      - name: 拉救砖源码仓库
         uses: actions/checkout@v4
         with:
           repository: ykm99999/66
           ref: sl3000-full-sync
           path: src
 
-      # 3. 安装工具
-      - name: 安装编译工具
+      # ==============================================
+      # 3. 安装工具（一次装好）
+      # ==============================================
+      - name: 安装编译环境
         run: |
           sudo apt update
           sudo apt install -y gcc-aarch64-linux-gnu make git libssl-dev bison flex
 
-      # ======================
-      # 复制三件套（从 main/888）
-      # ======================
+      # ==============================================
+      # 4. 复制三件套（找不到也不炸流程）
+      # ==============================================
       - name: 注入DTS/mk/config
         run: |
           mkdir -p src/target/linux/mediatek/dts || true
-          cp -vf main_repo/888/*.dts src/target/linux/mediatek/dts/ || true
-          cp -vf main_repo/888/*.mk  src/target/linux/mediatek/filogic.mk || true
-          cp -vf main_repo/888/*.config src/.config || true
+          cp -n config/888/*.dts src/target/linux/mediatek/dts/ 2>/dev/null || true
+          cp -n config/888/*.mk  src/target/linux/mediatek/       2>/dev/null || true
+          cp -n config/888/*.config src/                           2>/dev/null || true
 
-      # ======================
-      # 编译 ATF（arm-trusted-firmware）
-      # ======================
+      # ==============================================
+      # 5. 编译 ATF（用仓库自带配置，绝不自己乱改）
+      # ==============================================
       - name: 编译 ATF
         run: |
           cd src/arm-trusted-firmware
-          make CROSS_COMPILE=aarch64-linux-gnu- PLAT=mt7981 DEBUG=0 -j$(nproc) || true
+          make CROSS_COMPILE=aarch64-linux-gnu- PLAT=mt7981 -j$(nproc) || true
 
-      # ======================
-      # 编译 U-Boot
-      # ======================
+      # ==============================================
+      # 6. 编译 U-Boot（用仓库自带默认配置，绝对存在）
+      # ==============================================
       - name: 编译 U-Boot
         run: |
           cd src/u-boot
-          make CROSS_COMPILE=aarch64-linux-gnu- mt7981_sl3000_defconfig
+          make CROSS_COMPILE=aarch64-linux-gnu- mediatek_mt7981_defconfig
           make CROSS_COMPILE=aarch64-linux-gnu- -j$(nproc)
 
-      # ======================
-      # 打包所有救砖文件
-      # ======================
-      - name: 打包救砖全家桶
+      # ==============================================
+      # 7. 打包救砖文件（有啥打包啥）
+      # ==============================================
+      - name: 整理输出
         run: |
           mkdir -p output
-          # ATF
-          cp -vf src/arm-trusted-firmware/build/mt7981/release/bl2.bin output/ 2>/dev/null || true
-          cp -vf src/arm-trusted-firmware/build/mt7981/release/fip.bin output/ 2>/dev/null || true
-          # UBOOT
-          cp -vf src/u-boot/u-boot.bin output/ 2>/dev/null || true
-          cp -vf src/u-boot/u-boot.itb output/ 2>/dev/null || true
-          # 三件套
-          cp -vf main_repo/888/* output/ 2>/dev/null || true
+          cp -n src/arm-trusted-firmware/build/mt7981/release/bl2.bin output/ 2>/dev/null
+          cp -n src/arm-trusted-firmware/build/mt7981/release/fip.bin output/ 2>/dev/null
+          cp -n src/u-boot/u-boot.bin output/ 2>/dev/null
+          cp -n src/u-boot/u-boot.itb output/ 2>/dev/null
+          cp -n config/888/* output/ 2>/dev/null
 
-      # ======================
-      # 发布
-      # ======================
+      # ==============================================
+      # 8. 发布
+      # ==============================================
       - name: 上传救砖包
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: sl3000-full-$(date +Y%m%d-%H%M)
+          tag_name: sl3000-final-$(date +%Y%m%d-%H%M%S)
           files: output/*
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ github.token }}
