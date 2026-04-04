@@ -1,6 +1,6 @@
-name: SL3000-MT7981-Manual
+name: SL3000-Boot-Build
 on:
-  workflow_dispatch:    # 仅手动点Run
+  workflow_dispatch:    # 仅手动点Run，绝不自动编译
 
 jobs:
   build:
@@ -8,39 +8,47 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout 配置仓库
+        uses: actions/checkout@v4
 
-      - name: 安装编译环境
+      - name: 安装编译工具
         run: |
           sudo apt update
-          sudo apt install -y build-essential clang flex bison gawk gettext git libncurses-dev libssl-dev python3-distutils rsync unzip zlib1g-dev
+          sudo apt install -y build-essential gcc-aarch64-linux-gnu make git libssl-dev flex bison
 
-      - name: 拉OpenWrt源码
+      # 关键：拉你救砖底层源码分支
+      - name: 拉取 sl3000-clean-source 底层源码
         uses: actions/checkout@v4
         with:
           repository: ykm888/66
-          ref: 2410-6.6
-          path: openwrt
+          ref: sl3000-clean-source   # 你真正的底层分支
+          path: source
 
-      - name: 执行diy-part1
+      # 只编译 ATF + U-Boot，不碰Linux内核，彻底告别patch失败
+      - name: 编译 ATF
         run: |
-          chmod +x diy-part1.sh
-          ./diy-part1.sh
+          cd source/atf
+          make CROSS_COMPILE=aarch64-linux-gnu- PLAT=mt7981
 
-      - name: 执行diy-part2
+      - name: 编译 U-Boot
         run: |
-          chmod +x diy-part2.sh
-          ./diy-part2.sh
+          cd source/u-boot
+          make CROSS_COMPILE=aarch64-linux-gnu- mt7981_sl3000_defconfig
+          make CROSS_COMPILE=aarch64-linux-gnu- -j$(nproc)
 
-      - name: 开始编译
+      # 打包救砖文件
+      - name: 打包救砖全家桶
         run: |
-          cd openwrt
-          make -j$(nproc) V=s
+          mkdir -p output
+          cp source/atf/build/mt7981/release/bl2.bin output/
+          cp source/atf/build/mt7981/release/fip.bin output/
+          cp source/u-boot/u-boot.bin output/
+          cp source/u-boot/u-boot.itb output/
 
-      - name: 上传固件
+      - name: 发布救砖包
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: SL3000-$(date +%Y%m%d%H%M)
-          files: openwrt/bin/targets/mediatek/filogic/*
+          tag_name: sl3000-boot-$(date +%Y%m%d-%H%M)
+          files: output/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
