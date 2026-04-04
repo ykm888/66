@@ -2,14 +2,10 @@
 set -euo pipefail
 
 WORKSPACE="$GITHUB_WORKSPACE"
-export WORKSPACE
+OUTPUT="$WORKSPACE/output"
 
-OUTPUT_DIR="$WORKSPACE/output"
-mkdir -p $OUTPUT_DIR/atf
-mkdir -p $OUTPUT_DIR/uboot
+mkdir -p "$OUTPUT"/atf
+mkdir -p "$OUTPUT"/uboot
 
-# 只装救砖编译依赖
-sudo apt update
-sudo apt install -y \
-  build-essential gcc-aarch64-linux-gnu \
-  make libssl-dev device-tree-compiler bc
+# 只装最基础工具，不搞多余
+sudo apt update && sudo apt install -y gcc-aarch64-linux-gnu make libssl-dev
