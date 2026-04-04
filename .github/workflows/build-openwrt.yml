@@ -66,12 +66,15 @@ jobs:
           name: SL3000 512M 救砖固件 [${{ steps.tag.outputs.release_tag }}]
           body: |
             ### 🛠️ 编译说明
-            - **物理切除**: 已移除 package/5g-modem 解决死循环依赖。
-            - **依赖修复**: 预编译 mbedtls/ustream-ssl 解决 CMake 报错。
-            - **内核**: Linux 5.4 (ykm888/66)。
+            - 设备：SL3000 MT7981B eMMC / 512M RAM
+            - 固件类型：**仅完整救砖固件（含SPI NOR 32MB），无sysupgrade升级包**
+            - 物理切除：5G-modem / rd05a1 / 移远/芯讯通模块依赖
+            - 依赖修复：预编译 toolchain / mbedtls / ustream-ssl
+            - 内核：Linux 5.4
+            - 用途：编程器救砖、eMMC 全盘烧录
           files: |
-            output/firmware/*.bin
-            output/firmware/*.img.gz
+            output/firmware/*spi_nor*.bin
+            output/firmware/*emmc*.bin
             output/firmware/*.md5
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
