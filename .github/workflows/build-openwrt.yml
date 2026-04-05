@@ -8,6 +8,9 @@ on:
 jobs:
   build:
     runs-on: ubuntu-22.04
+    # 允许写入权限以创建 Release
+    permissions:
+      contents: write
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     steps:
@@ -32,10 +35,11 @@ jobs:
       - name: Install Build Dependencies
         run: |
           sudo apt update
+          # 补充了一些 OpenWrt 编译必备的库
           sudo apt install -y build-essential clang flex bison gawk \
-            gettext git libncurses-dev libssl-dev \
+            gettext git libncurses-dev libncurses5-dev libssl-dev \
             python3-distutils python3-setuptools rsync unzip zlib1g-dev file wget \
-            gcc-aarch64-linux-gnu device-tree-compiler
+            gcc-aarch64-linux-gnu device-tree-compiler qemu-utils
           sudo timedatectl set-timezone "Asia/Shanghai"
 
       - name: Optimize Disk Space (Extreme Mode)
@@ -47,22 +51,25 @@ jobs:
 
       - name: Run diy-part1.sh (DTS & Feed Injection)
         run: |
+          # 确保脚本有执行权限，并进入 main-repo 运行
           chmod +x main-repo/diy-part1.sh
-          # 脚本内部需指向 source-repo/immortalwrt
           ./main-repo/diy-part1.sh
 
       - name: Run diy-part2.sh (ATF Patch & 32MB Stitching)
         run: |
+          # 赋予源码目录全量权限防止编译报错
+          sudo chown -R runner:runner source-repo
           chmod +x main-repo/diy-part2.sh
-          # 脚本内部处理 ATF 编译并生成 output/ 目录
           ./main-repo/diy-part2.sh
 
       - name: Audit Output Directory
         run: |
           echo "=== 🔍 产物物理审计 ==="
+          # 打印产物结构，方便排查
           ls -R output/ || echo "⚠️ 警告：output 目录为空"
           echo "=== 📦 最终发布文件清单 ==="
-          find output/ -type f \( -name "*.bin" -o -name "*.tar.gz" -o -name "*.gz" \) | sort
+          # 搜索 .bin, .tar.gz, .itb 等所有关键产物
+          find output/ -type f \( -name "*.bin" -o -name "*.tar.gz" -o -name "*.itb" -o -name "*.img" \) | sort
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
@@ -73,19 +80,21 @@ jobs:
           body: |
             ## 🚀 SL3000 硬件定制版 (1GB DDR4 / 32MB SPI-NOR)
             
-            ### 🛠️ 构建说明
-            - **物理对齐**: FIP 偏移锁定为 **3.5MB (0x380000)**。
-            - **内存锁定**: 强制训练 **1024MB DDR4**。
-            - **源码同步**: 基于 `ykm99999/66` (sl3000-full-sync)。
+            ### 🛠️ 物理审计信息
+            - **内存对齐**: 1024MB DDR4 物理训练锁定。
+            - **分区对齐**: FIP (U-Boot) 偏移锁定在 **3.5MB**。
+            - **硬件适配**: 无 USB 接口优化版本。
 
-            ### 📦 包含产物
-            1. `SL3000_1G_RESCUE_32M.bin`: **32MB 全量救砖实心包** (BL2+FIP)。
-            2. `mtk_uartboot.tar.gz`: 串口救砖工具包。
-            3. `sysupgrade.bin`: 系统在线升级包。
+            ### 📦 包含产物说明
+            1. `SL3000_1GB_RESCUE_32M.bin`: **编程器直刷全量包**。
+            2. `...sysupgrade.itb`: **系统在线升级包** (FIT 格式)。
+            3. `bl2/fip-nor.bin`: 独立的底层引导组件。
+          # 🔴 关键修改：增加 .itb 匹配，确保升级包能被发布
           files: |
             output/rescue/*.bin
             output/*.bin
             output/*.tar.gz
+            output/*.itb
             output/*.img
           draft: false
           prerelease: false
