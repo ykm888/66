@@ -1,24 +1,22 @@
-define Device/mt7981_sl3000_emmc
+# Device Definition for SL3000 (1GB RAM / 32MB SPI-NOR)
+define Device/sl_3000-spi-nor
   DEVICE_VENDOR := SL
-  DEVICE_MODEL := SL3000
-  DEVICE_VARIANT := eMMC (1GB-RAM)
+  DEVICE_MODEL := 3000
+  DEVICE_VARIANT := 1GB-RAM-Recovery
   DEVICE_DTS := mt7981b-sl3000-emmc
-  SUPPORTED_DEVICES := sl,sl3000
-  # 🔴 关键：明确 1024M 内存支持
+  DEVICE_DTS_DIR := $(DTS_DIR)/mediatek
+  SUPPORTED_DEVICES := sl,3000-spi-nor
   DEVICE_DRAM_SIZE := 1024M
-  # 🔴 关键：对齐底层 U-Boot 加载地址
   KERNEL_LOADADDR := 0x44000000
+  IMAGE_SIZE := 28672k
   DEVICE_PACKAGES := \
-    luci luci-base luci-mod-system luci-theme-bootstrap \
-    block-mount e2fsprogs f2fs-tools \
-    kmod-fs-ext4 kmod-fs-f2fs \
-    kmod-mtd kmod-mtd-rw \
+    kmod-mt7981-firmware kmod-mt798x-phy-mt7976 kmod-mt7915e \
     kmod-mmc kmod-sdhci-mtk \
-    dropbear \
-    lsblk blkid mount-utils fdisk \
-    mtd-utils uboot-envtools
-  IMAGES := sysupgrade.bin
-  IMAGE/sysupgrade.bin := sysupgrade-tar | append-metadata
+    kmod-fs-ext4 kmod-fs-f2fs f2fs-tools \
+    block-mount mtd-utils uboot-envtools fdisk lsblk blkid \
+    luci-app-ttyd
+  IMAGES := sysupgrade.itb
+  IMAGE/sysupgrade.itb := append-kernel | pad-to 64k | append-rootfs | pad-to 64k | append-metadata
 endef
 
-TARGET_DEVICES += mt7981_sl3000_emmc
+TARGET_DEVICES += sl_3000-spi-nor
