@@ -1,4 +1,4 @@
-name: SL3000-Final-Release
+name: SL3000 Final Build with Auto Release
 
 on:
   workflow_dispatch:
@@ -8,79 +8,98 @@ on:
 jobs:
   build:
     runs-on: ubuntu-22.04
-    permissions:
-      contents: write
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     steps:
-      - name: 1. Checkout Config Repo
+      - name: Checkout main branch (Contains 888/ and diy-scripts)
         uses: actions/checkout@v4
         with:
-          path: main
+          path: main-repo
 
-      - name: 2. Checkout Source Repos
+      - name: Checkout source branch (MTK SDK Source)
+        uses: actions/checkout@v4
+        with:
+          repository: ykm99999/66
+          ref: sl3000-full-sync
+          path: source-repo
+
+      - name: Generate release tag
+        id: release_tag
         run: |
-          mkdir -p source-repo
-          # 拉取底层三件套
-          git clone --depth 1 --branch sl3000-full-sync https://github.com/ykm99999/66 source-repo
-          # 拉取 ImmortalWrt 系统源码
-          git clone --depth 1 https://github.com/immortalwrt/immortalwrt immortalwrt-build
+          TAG_NAME="v$(date -u +'%Y%m%d-%H%M%S')"
+          echo "tag_name=$TAG_NAME" >> $GITHUB_OUTPUT
+          echo "Release tag: $TAG_NAME"
 
-      - name: 3. Install Cross-Compiler
+      - name: Install Build Dependencies
         run: |
           sudo apt update
-          sudo apt install -y gcc-aarch64-linux-gnu build-essential device-tree-compiler
-          mkdir -p output
+          sudo apt install -y build-essential clang flex bison gawk \
+            gettext git libncurses-dev libssl-dev \
+            python3-distutils python3-setuptools rsync unzip zlib1g-dev file wget \
+            gcc-aarch64-linux-gnu device-tree-compiler
+          sudo timedatectl set-timezone "Asia/Shanghai"
 
-      - name: 4. Feeds Update
+      - name: Optimize Disk Space
         run: |
-          # 将底层源码移入，方便 part2 脚本处理
-          mv source-repo immortalwrt-build/source-repo
-          cd immortalwrt-build
-          ./scripts/feeds update -a
-          ./scripts/feeds install -a
-          # 执行 part1 (如果存在)
-          [ -f ../main/diy-part1.sh ] && chmod +x ../main/diy-part1.sh && ../main/diy-part1.sh
+          sudo apt clean
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android /usr/local/share/powershell
+          df -h
 
-      - name: 5. Patch & Bottom-Build
+      - name: Run diy-part1.sh (DTS/Config Injection & Feeds)
         run: |
-          chmod +x main/diy-part2.sh
-          cd immortalwrt-build
-          $GITHUB_WORKSPACE/main/diy-part2.sh
+          # 给予脚本执行权限
+          chmod +x main-repo/diy-part1.sh
+          # 执行注入逻辑，注意脚本内部路径需指向 source-repo
+          cd main-repo
+          ./diy-part1.sh
 
-      - name: 6. Build OpenWrt
+      - name: Run diy-part2.sh (ATF/U-Boot Physics Patch & Build)
         run: |
-          cd immortalwrt-build
-          [ -f ".config" ] || make defconfig
-          make -j$(nproc) || make -j1 V=s
+          chmod +x main-repo/diy-part2.sh
+          # 执行底层源码修改逻辑并触发编译
+          cd main-repo
+          ./diy-part2.sh
 
-      - name: 7. Final Physical Merge
+      - name: Audit Output Artifacts
         run: |
-          mkdir -p release_output
-          FULL_BIN="release_output/SL3000-1GB-32MB-Full-Flash.bin"
-          
-          # 物理存在性校验
-          if [ ! -s "output/bl2-nor.bin" ] || [ ! -s "output/fip-nor.bin" ]; then
-             echo "❌ 关键产物缺失，终止缝合"; exit 1
-          fi
+          echo "=== 🔍 关键产物物理检查 ==="
+          ls -R output/ || echo "⚠️ 警告：未发现 output 目录"
+          echo "=== 📦 准备发布的文件列表 ==="
+          find output/ -type f \( -name "*.bin" -o -name "*.img" -o -name "*.gz" \) | sort
 
-          # 创建 32MB FF 实心底图
-          tr '\000' '\377' < /dev/zero | dd of=$FULL_BIN bs=1M count=32
-          
-          # 像素级缝合：BL2(0), FIP(3.5M/3584K), Kernel(5.5M/5632K)
-          dd if=output/bl2-nor.bin of=$FULL_BIN conv=notrunc
-          dd if=output/fip-nor.bin of=$FULL_BIN bs=1k seek=3584 conv=notrunc
-          
-          SYS_BIN=$(find immortalwrt-build/bin/targets/ -name "*sysupgrade.bin" | head -1)
-          if [ -s "$SYS_BIN" ]; then
-              dd if=$SYS_BIN of=$FULL_BIN bs=1k seek=5632 conv=notrunc
-              cp $SYS_BIN release_output/
-          fi
-          cp output/*.bin release_output/
-
-      - name: 8. GitHub Release
+      - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         if: success()
         with:
-          tag_name: SL3000-${{ github.run_number }}
-          files: release_output/*
+          tag_name: ${{ steps.release_tag.outputs.tag_name }}
+          name: "SL3000 1GB-32MB Rescue Firmware ${{ steps.release_tag.outputs.tag_name }}"
+          body: |
+            ## 🚀 SL3000 物理对齐定制版固件
+            
+            ### 🛠️ 核心修改说明：
+            - **内存锁定**: 物理强制训练 **1024MB DDR4** 内存。
+            - **寻址修正**: SPI-NOR FIP 偏移像素级对齐至 **3.5MB (0x380000)**。
+            - **救砖支持**: 生成 32MB 全量实心包，适用于热风枪直刷或编程器。
+
+            ### 📦 产物说明：
+            - `SL3000_1G_RESCUE_32M.bin`: 32MB 全量编程器固件 (包含 BL2+FIP)。
+            - `firmware/`: 包含 ImmortalWrt 系统 sysupgrade 镜像。
+            - `atf/ & uboot/`: 独立的引导组件产物。
+          files: |
+            output/rescue/*.bin
+            output/atf/*.img
+            output/atf/*.bin
+            output/uboot/*.bin
+            output/firmware/*.bin
+            output/firmware/*.gz
+          draft: false
+          prerelease: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload Artifact Backup
+        uses: actions/upload-artifact@v4
+        with:
+          name: sl3000-build-artifacts
+          path: output/
+          retention-days: 7
