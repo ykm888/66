@@ -1,4 +1,4 @@
-name: SL3000 Final Build with Auto Release
+name: SL3000 1G-32M Full Build
 
 on:
   workflow_dispatch:
@@ -11,12 +11,12 @@ jobs:
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     steps:
-      - name: Checkout main branch (Contains 888/ and diy-scripts)
+      - name: Checkout main branch (Scripts & Configs)
         uses: actions/checkout@v4
         with:
           path: main-repo
 
-      - name: Checkout source branch (MTK SDK Source)
+      - name: Checkout source branch (MTK SDK Full Sync)
         uses: actions/checkout@v4
         with:
           repository: ykm99999/66
@@ -28,7 +28,6 @@ jobs:
         run: |
           TAG_NAME="v$(date -u +'%Y%m%d-%H%M%S')"
           echo "tag_name=$TAG_NAME" >> $GITHUB_OUTPUT
-          echo "Release tag: $TAG_NAME"
 
       - name: Install Build Dependencies
         run: |
@@ -39,33 +38,31 @@ jobs:
             gcc-aarch64-linux-gnu device-tree-compiler
           sudo timedatectl set-timezone "Asia/Shanghai"
 
-      - name: Optimize Disk Space
+      - name: Optimize Disk Space (Extreme Mode)
         run: |
           sudo apt clean
-          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android /usr/local/share/powershell
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android /usr/local/share/powershell /usr/lib/jvm
+          sudo docker image prune -a -f
           df -h
 
-      - name: Run diy-part1.sh (DTS/Config Injection & Feeds)
+      - name: Run diy-part1.sh (DTS & Feed Injection)
         run: |
-          # 给予脚本执行权限
           chmod +x main-repo/diy-part1.sh
-          # 执行注入逻辑，注意脚本内部路径需指向 source-repo
-          cd main-repo
-          ./diy-part1.sh
+          # 脚本内部需指向 source-repo/immortalwrt
+          ./main-repo/diy-part1.sh
 
-      - name: Run diy-part2.sh (ATF/U-Boot Physics Patch & Build)
+      - name: Run diy-part2.sh (ATF Patch & 32MB Stitching)
         run: |
           chmod +x main-repo/diy-part2.sh
-          # 执行底层源码修改逻辑并触发编译
-          cd main-repo
-          ./diy-part2.sh
+          # 脚本内部处理 ATF 编译并生成 output/ 目录
+          ./main-repo/diy-part2.sh
 
-      - name: Audit Output Artifacts
+      - name: Audit Output Directory
         run: |
-          echo "=== 🔍 关键产物物理检查 ==="
-          ls -R output/ || echo "⚠️ 警告：未发现 output 目录"
-          echo "=== 📦 准备发布的文件列表 ==="
-          find output/ -type f \( -name "*.bin" -o -name "*.img" -o -name "*.gz" \) | sort
+          echo "=== 🔍 产物物理审计 ==="
+          ls -R output/ || echo "⚠️ 警告：output 目录为空"
+          echo "=== 📦 最终发布文件清单 ==="
+          find output/ -type f \( -name "*.bin" -o -name "*.tar.gz" -o -name "*.gz" \) | sort
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
@@ -74,32 +71,30 @@ jobs:
           tag_name: ${{ steps.release_tag.outputs.tag_name }}
           name: "SL3000 1GB-32MB Rescue Firmware ${{ steps.release_tag.outputs.tag_name }}"
           body: |
-            ## 🚀 SL3000 物理对齐定制版固件
+            ## 🚀 SL3000 硬件定制版 (1GB DDR4 / 32MB SPI-NOR)
             
-            ### 🛠️ 核心修改说明：
-            - **内存锁定**: 物理强制训练 **1024MB DDR4** 内存。
-            - **寻址修正**: SPI-NOR FIP 偏移像素级对齐至 **3.5MB (0x380000)**。
-            - **救砖支持**: 生成 32MB 全量实心包，适用于热风枪直刷或编程器。
+            ### 🛠️ 构建说明
+            - **物理对齐**: FIP 偏移锁定为 **3.5MB (0x380000)**。
+            - **内存锁定**: 强制训练 **1024MB DDR4**。
+            - **源码同步**: 基于 `ykm99999/66` (sl3000-full-sync)。
 
-            ### 📦 产物说明：
-            - `SL3000_1G_RESCUE_32M.bin`: 32MB 全量编程器固件 (包含 BL2+FIP)。
-            - `firmware/`: 包含 ImmortalWrt 系统 sysupgrade 镜像。
-            - `atf/ & uboot/`: 独立的引导组件产物。
+            ### 📦 包含产物
+            1. `SL3000_1G_RESCUE_32M.bin`: **32MB 全量救砖实心包** (BL2+FIP)。
+            2. `mtk_uartboot.tar.gz`: 串口救砖工具包。
+            3. `sysupgrade.bin`: 系统在线升级包。
           files: |
             output/rescue/*.bin
-            output/atf/*.img
-            output/atf/*.bin
-            output/uboot/*.bin
-            output/firmware/*.bin
-            output/firmware/*.gz
+            output/*.bin
+            output/*.tar.gz
+            output/*.img
           draft: false
           prerelease: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Upload Artifact Backup
+      - name: Upload Artifacts (Backup)
         uses: actions/upload-artifact@v4
         with:
-          name: sl3000-build-artifacts
+          name: sl3000-artifacts-${{ steps.release_tag.outputs.tag_name }}
           path: output/
-          retention-days: 7
+          retention-days: 3
