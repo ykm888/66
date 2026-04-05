@@ -1,32 +1,31 @@
 #!/bin/bash
-# 2版：修复远程仓库拉取逻辑，确保物理路径闭环
-# 原则：延续1版逻辑，只修复克隆冲突错误，不画蛇添足。
+# 1. 路径变量准备
+WORKSPACE="$GITHUB_WORKSPACE"
+CONFIG_DIR="$WORKSPACE/main/888" # 你的三件套所在目录
+SOURCE_DIR="$WORKSPACE/immortalwrt"
 
-# 1. 设置远程底层源地址 (SL3000 专用同步分支)
-REMOTE_REPO="https://github.com/ykm99999/66"
-REMOTE_BRANCH="sl3000-full-sync"
+echo "=== 开始 SL3000 三件套物理注入 ==="
 
-echo "=== 开始物理执行：远程底层源拉取 ==="
+# 2. 注入 DTS 设备树
+# 路径对齐到 target/linux/mediatek/dts/
+cp -v "$CONFIG_DIR/mt7981b-sl3000-emmc.dts" "$SOURCE_DIR/target/linux/mediatek/dts/"
 
-# 2. 清理并创建临时空间 (避免 Git 非空目录克隆失败)
-rm -rf source-temp
-mkdir -p source-temp
+# 3. 注入设备定义 (Makefile)
+# 路径对齐到 target/linux/mediatek/image/
+# 注意：如果 mk 文件是完整的设备定义，直接覆盖或追加
+cp -v "$CONFIG_DIR/mt7981_sl3000.mk" "$SOURCE_DIR/target/linux/mediatek/image/"
 
-# 3. 像素级精准拉取
-# 注意：我们将整个分支拉取下来，然后提取其中的子组件，这样效率更高且不会产生路径冲突
-git clone --depth 1 --branch $REMOTE_BRANCH $REMOTE_REPO source-temp
+# 4. 注入编译配置 (.config)
+cp -v "$CONFIG_DIR/sl3000.config" "$SOURCE_DIR/.config"
 
-# 4. 搬运底层组件到 OpenWrt 编译目录
-# 确保与你之前修改的路径 (arm-trusted-firmware, u-boot) 严格一致
-echo "正在搬运底层组件..."
-[ -d "source-temp/u-boot" ] && cp -r source-temp/u-boot ./u-boot
-[ -d "source-temp/arm-trusted-firmware" ] && cp -r source-temp/arm-trusted-firmware ./arm-trusted-firmware
-[ -d "source-temp/mtk_uartboot" ] && cp -r source-temp/mtk_uartboot ./mtk_uartboot
+# 5. Feeds 强力清理 (防止 Rust/Go 编译报错)
+cd "$SOURCE_DIR"
+./scripts/feeds update -a
+PROBLEM_PKGS="aardvark-dns podman cargo-c python-cryptography ruby"
+for pkg in $PROBLEM_PKGS; do
+    find feeds/ -type d -name "$pkg" -exec rm -rf {} \; 2>/dev/null || true
+done
+./scripts/feeds install -a
 
-# 5. 基础 Feeds 优化
-sed -i 's/^src-git telephony/#src-git telephony/g' feeds.conf.default
-
-# 6. 清理临时目录
-rm -rf source-temp
-
-echo "✅ diy-part1.sh: 远程源拉取与物理路径闭环完成"
+# 6. 强制执行 defconfig 刷新配置
+make defconfig
