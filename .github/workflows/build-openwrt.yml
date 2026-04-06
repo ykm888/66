@@ -43,6 +43,7 @@ jobs:
 
       - name: Run diy-part2.sh
         run: |
+          # 修复权限防止提取失败
           sudo chown -R runner:runner source-repo
           chmod +x main-repo/diy-part2.sh
           ./main-repo/diy-part2.sh
@@ -57,7 +58,6 @@ jobs:
             output/rescue/*.bin
             output/*.bin
             output/*.itb
-            output/*.tar.gz
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -66,4 +66,4 @@ jobs:
         with:
           name: sl3000-firmware
           path: output/
-          if-no-files-found: error
+          if-no-files-found: error # 🔴 如果为空则报错，不许静默跳过
