@@ -25,15 +25,9 @@ jobs:
           ref: sl3000-full-sync
           path: source-repo
 
-      - name: Generate release tag
-        id: release_tag
-        run: |
-          echo "tag_name=v$(date -u +'%Y%m%d-%H%M%S')" >> $GITHUB_OUTPUT
-
       - name: Install Build Dependencies
         run: |
           sudo apt update
-          # 补充了 libtool-bin, gperf, antlr3 等关键交叉编译依赖
           sudo apt install -y build-essential clang flex bison gawk \
             gettext git libncurses-dev libncurses5-dev libssl-dev \
             python3-distutils python3-setuptools rsync unzip zlib1g-dev file wget \
@@ -42,50 +36,28 @@ jobs:
             antlr3 gperf swig libtinfo5
           sudo timedatectl set-timezone "Asia/Shanghai"
 
-      - name: Optimize Disk Space
-        run: |
-          sudo apt clean
-          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android /usr/local/share/powershell /usr/lib/jvm
-          sudo docker image prune -a -f
-
-      - name: Run diy-part1.sh (Architecture Locking)
+      - name: Run diy-part1.sh
         run: |
           chmod +x main-repo/diy-part1.sh
-          # 核心修复：执行脚本并强制注入 MT7981 架构
           ./main-repo/diy-part1.sh
 
-      - name: Run diy-part2.sh (ATF & Stitching)
+      - name: Run diy-part2.sh
         run: |
-          # 确保源码目录权限正确，防止 libtool 写入失败
           sudo chown -R runner:runner source-repo
           chmod +x main-repo/diy-part2.sh
           ./main-repo/diy-part2.sh
-
-      - name: Audit Output Directory
-        run: |
-          echo "=== 🔍 产物物理审计 ==="
-          ls -R output/ || echo "⚠️ 警告：output 目录为空"
-          echo "=== 📦 最终发布文件清单 ==="
-          find output/ -type f \( -name "*.bin" -o -name "*.tar.gz" -o -name "*.itb" \) | sort
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         if: success()
         with:
-          tag_name: ${{ steps.release_tag.outputs.tag_name }}
-          name: "SL3000 1GB-32MB Recovery ${{ steps.release_tag.outputs.tag_name }}"
-          body: |
-            ## 🚀 SL3000 1GB RAM / 32MB SPI-NOR 专用固件
-            - **架构锁定**: MediaTek Filogic (ARM64)
-            - **内存补丁**: 1024MB DDR4 物理对齐
-            - **产物包含**: 32MB 全量救砖包 (.bin) 与 系统升级包 (.itb)
+          tag_name: v${{ github.run_id }}
+          name: "SL3000 1GB-32MB Recovery Build"
           files: |
             output/rescue/*.bin
             output/*.bin
-            output/*.tar.gz
             output/*.itb
-          draft: false
-          prerelease: false
+            output/*.tar.gz
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -94,4 +66,4 @@ jobs:
         with:
           name: sl3000-firmware
           path: output/
-          retention-days: 3
+          if-no-files-found: error
