@@ -8,18 +8,17 @@ on:
 jobs:
   build:
     runs-on: ubuntu-22.04
-    # 允许写入权限以创建 Release
     permissions:
       contents: write
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     steps:
-      - name: Checkout main branch (Scripts & Configs)
+      - name: Checkout main branch
         uses: actions/checkout@v4
         with:
           path: main-repo
 
-      - name: Checkout source branch (MTK SDK Full Sync)
+      - name: Checkout source branch
         uses: actions/checkout@v4
         with:
           repository: ykm99999/66
@@ -29,35 +28,35 @@ jobs:
       - name: Generate release tag
         id: release_tag
         run: |
-          TAG_NAME="v$(date -u +'%Y%m%d-%H%M%S')"
-          echo "tag_name=$TAG_NAME" >> $GITHUB_OUTPUT
+          echo "tag_name=v$(date -u +'%Y%m%d-%H%M%S')" >> $GITHUB_OUTPUT
 
       - name: Install Build Dependencies
         run: |
           sudo apt update
-          # 补充了一些 OpenWrt 编译必备的库
+          # 补充了 libtool-bin, gperf, antlr3 等关键交叉编译依赖
           sudo apt install -y build-essential clang flex bison gawk \
             gettext git libncurses-dev libncurses5-dev libssl-dev \
             python3-distutils python3-setuptools rsync unzip zlib1g-dev file wget \
-            gcc-aarch64-linux-gnu device-tree-compiler qemu-utils
+            gcc-aarch64-linux-gnu device-tree-compiler qemu-utils \
+            libtool libtool-bin autoconf automake autopoint libelf-dev \
+            antlr3 gperf swig libtinfo5
           sudo timedatectl set-timezone "Asia/Shanghai"
 
-      - name: Optimize Disk Space (Extreme Mode)
+      - name: Optimize Disk Space
         run: |
           sudo apt clean
           sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android /usr/local/share/powershell /usr/lib/jvm
           sudo docker image prune -a -f
-          df -h
 
-      - name: Run diy-part1.sh (DTS & Feed Injection)
+      - name: Run diy-part1.sh (Architecture Locking)
         run: |
-          # 确保脚本有执行权限，并进入 main-repo 运行
           chmod +x main-repo/diy-part1.sh
+          # 核心修复：执行脚本并强制注入 MT7981 架构
           ./main-repo/diy-part1.sh
 
-      - name: Run diy-part2.sh (ATF Patch & 32MB Stitching)
+      - name: Run diy-part2.sh (ATF & Stitching)
         run: |
-          # 赋予源码目录全量权限防止编译报错
+          # 确保源码目录权限正确，防止 libtool 写入失败
           sudo chown -R runner:runner source-repo
           chmod +x main-repo/diy-part2.sh
           ./main-repo/diy-part2.sh
@@ -65,45 +64,34 @@ jobs:
       - name: Audit Output Directory
         run: |
           echo "=== 🔍 产物物理审计 ==="
-          # 打印产物结构，方便排查
           ls -R output/ || echo "⚠️ 警告：output 目录为空"
           echo "=== 📦 最终发布文件清单 ==="
-          # 搜索 .bin, .tar.gz, .itb 等所有关键产物
-          find output/ -type f \( -name "*.bin" -o -name "*.tar.gz" -o -name "*.itb" -o -name "*.img" \) | sort
+          find output/ -type f \( -name "*.bin" -o -name "*.tar.gz" -o -name "*.itb" \) | sort
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         if: success()
         with:
           tag_name: ${{ steps.release_tag.outputs.tag_name }}
-          name: "SL3000 1GB-32MB Rescue Firmware ${{ steps.release_tag.outputs.tag_name }}"
+          name: "SL3000 1GB-32MB Recovery ${{ steps.release_tag.outputs.tag_name }}"
           body: |
-            ## 🚀 SL3000 硬件定制版 (1GB DDR4 / 32MB SPI-NOR)
-            
-            ### 🛠️ 物理审计信息
-            - **内存对齐**: 1024MB DDR4 物理训练锁定。
-            - **分区对齐**: FIP (U-Boot) 偏移锁定在 **3.5MB**。
-            - **硬件适配**: 无 USB 接口优化版本。
-
-            ### 📦 包含产物说明
-            1. `SL3000_1GB_RESCUE_32M.bin`: **编程器直刷全量包**。
-            2. `...sysupgrade.itb`: **系统在线升级包** (FIT 格式)。
-            3. `bl2/fip-nor.bin`: 独立的底层引导组件。
-          # 🔴 关键修改：增加 .itb 匹配，确保升级包能被发布
+            ## 🚀 SL3000 1GB RAM / 32MB SPI-NOR 专用固件
+            - **架构锁定**: MediaTek Filogic (ARM64)
+            - **内存补丁**: 1024MB DDR4 物理对齐
+            - **产物包含**: 32MB 全量救砖包 (.bin) 与 系统升级包 (.itb)
           files: |
             output/rescue/*.bin
             output/*.bin
             output/*.tar.gz
             output/*.itb
-            output/*.img
           draft: false
           prerelease: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Upload Artifacts (Backup)
+      - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: sl3000-artifacts-${{ steps.release_tag.outputs.tag_name }}
+          name: sl3000-firmware
           path: output/
           retention-days: 3
