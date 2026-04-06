@@ -2,45 +2,47 @@
 set -e
 
 # 1. 路径自动定位
-# 假设脚本在 main-repo/ 下，WORKSPACE 是 main-repo 的父目录
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 WORKSPACE="$(dirname "$SCRIPT_DIR")"
+OPENWRT_DIR="$WORKSPACE/source-repo/immortalwrt"
+CONFIG_FILE="$SCRIPT_DIR/sl3000.config"
 
-# 核心：你的源码在 source-repo 下的并列子目录中
-SOURCE_REPO="$WORKSPACE/source-repo"
-OPENWRT_DIR="$SOURCE_REPO/immortalwrt"
-# 你的 8000 行配置和 DTS 所在的目录
-CONFIG_DIR="$SCRIPT_DIR"
+echo "=== [Part 1] 开始物理环境注入 ==="
 
-echo "=== 🔍 [Part 1] 路径物理审计 ==="
-echo "工作空间: $WORKSPACE"
-echo "源码根目录: $SOURCE_REPO"
-echo "OpenWrt 目录: $OPENWRT_DIR"
-
-# 2. 严谨性检查
+# 2. 检查并注入 SL3000 核心组件
 if [ ! -d "$OPENWRT_DIR" ]; then
-    echo "❌ 错误：找不到 $OPENWRT_DIR，请确认仓库结构是否为 source-repo/immortalwrt"
-    ls -F "$SOURCE_REPO"
+    echo "❌ 错误：找不到源码目录 $OPENWRT_DIR"
     exit 1
 fi
 
-# 3. 注入 SL3000 核心组件 (物理对齐)
-echo "=== 🚚 正在注入 SL3000 核心组件 ==="
-# 针对 Filogic 架构的 DTS 存放路径
+# 注入 DTS 和 Makefile 定义
 mkdir -p "$OPENWRT_DIR/target/linux/mediatek/dts"
 mkdir -p "$OPENWRT_DIR/target/linux/mediatek/image"
+[ -f "$SCRIPT_DIR/mt7981b-sl3000-emmc.dts" ] && cp -v "$SCRIPT_DIR/mt7981b-sl3000-emmc.dts" "$OPENWRT_DIR/target/linux/mediatek/dts/"
+[ -f "$SCRIPT_DIR/mt7981_sl3000.mk" ] && cp -v "$SCRIPT_DIR/mt7981_sl3000.mk" "$OPENWRT_DIR/target/linux/mediatek/image/"
 
-# 拷贝 DTS 和设备定义 (请确认你的文件名与下面一致)
-[ -f "$CONFIG_DIR/mt7981b-sl3000-emmc.dts" ] && cp -v "$CONFIG_DIR/mt7981b-sl3000-emmc.dts" "$OPENWRT_DIR/target/linux/mediatek/dts/"
-[ -f "$CONFIG_DIR/mt7981_sl3000.mk" ] && cp -v "$CONFIG_DIR/mt7981_sl3000.mk" "$OPENWRT_DIR/target/linux/mediatek/image/"
-
-# 4. 执行 Feeds 逻辑
+# 3. 注入 8000 行核心配置 (关键：先物理删除旧配置)
+echo "=== ⚙️ 正在强制锁定 MT7981 架构配置 ==="
 cd "$OPENWRT_DIR"
+rm -f .config
+if [ -f "$CONFIG_FILE" ]; then
+    cp -v "$CONFIG_FILE" .config
+    # 🔴 核心修复：强制关闭 x86 默认选项，开启 MediaTek 选项
+    sed -i 's/CONFIG_TARGET_x86_64=y/# CONFIG_TARGET_x86_64 is not set/' .config
+    sed -i 's/CONFIG_TARGET_x86=y/# CONFIG_TARGET_x86 is not set/' .config
+    echo "CONFIG_TARGET_mediatek=y" >> .config
+    echo "CONFIG_TARGET_mediatek_filogic=y" >> .config
+    echo "CONFIG_TARGET_mediatek_filogic_DEVICE_sl_3000-spi-nor=y" >> .config
+else
+    echo "❌ 错误：未发现 $CONFIG_FILE"
+    exit 1
+fi
 
+# 4. 更新 Feeds
 echo "=== ⚡ 更新与安装系统 Feeds ==="
 ./scripts/feeds update -a
 
-# 强力粉碎已知冲突包 (清理编译环境)
+# 粉碎已知冲突包
 PROBLEM_PKGS="aardvark-dns podman cargo-c python-cryptography ruby"
 for pkg in $PROBLEM_PKGS; do
     find feeds/ -type d -name "$pkg" -exec rm -rf {} \; 2>/dev/null || true
@@ -48,19 +50,8 @@ done
 
 ./scripts/feeds install -a
 
-# 5. 核心配置注入 (关键步骤：先删后拷，确保 8000 行配置生效)
-echo "=== ⚙️ 注入并刷新 1024M 核心配置 ==="
-if [ -f "$CONFIG_DIR/sl3000.config" ]; then
-    rm -f .config
-    cp -v "$CONFIG_DIR/sl3000.config" .config
-    # 扩展：如果需要追加特定配置，可以在此处使用 sed 或 echo
-    echo "CONFIG_TARGET_mediatek_filog=y" >> .config
-    echo "CONFIG_TARGET_mediatek_filogic_DEVICE_sl_3000-emmc=y" >> .config
-else
-    echo "⚠️ 警告：未在 $CONFIG_DIR 发现 sl3000.config，将使用默认配置！"
-fi
-
-# 执行刷新，补充依赖项
+# 5. 刷新配置
+echo "=== ⚙️ 执行 make defconfig 补充依赖 ==="
 make defconfig
 
-echo "✅ [Part 1] 物理注入与 Feeds 初始化成功"
+echo "✅ [Part 1] 架构锁定与配置注入完成"
