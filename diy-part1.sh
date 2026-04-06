@@ -4,54 +4,60 @@ set -e
 # 1. 路径自动定位
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 WORKSPACE="$(dirname "$SCRIPT_DIR")"
+# 定义 888 目录的绝对路径
+CONFIG_DIR="$WORKSPACE/main-repo/888"
 OPENWRT_DIR="$WORKSPACE/source-repo/immortalwrt"
-CONFIG_FILE="$SCRIPT_DIR/sl3000.config"
 
-echo "=== [Part 1] 开始物理环境注入 ==="
+echo "=== [Part 1] 正在处理 888 目录下的硬件三件套 ==="
 
-# 2. 检查并注入 SL3000 核心组件
-if [ ! -d "$OPENWRT_DIR" ]; then
-    echo "❌ 错误：找不到源码目录 $OPENWRT_DIR"
+# 2. 验证 888 目录是否存在
+if [ ! -d "$CONFIG_DIR" ]; then
+    echo "❌ 错误：找不到 888 目录，路径为: $CONFIG_DIR"
+    echo "📂 当前 main-repo 结构如下："
+    ls -R "$WORKSPACE/main-repo"
     exit 1
 fi
 
-# 注入 DTS 和 Makefile 定义
+# 3. 物理注入 DTS 和 Makefile
+echo "📦 正在注入 DTS 与 Makefile..."
 mkdir -p "$OPENWRT_DIR/target/linux/mediatek/dts"
 mkdir -p "$OPENWRT_DIR/target/linux/mediatek/image"
-[ -f "$SCRIPT_DIR/mt7981b-sl3000-emmc.dts" ] && cp -v "$SCRIPT_DIR/mt7981b-sl3000-emmc.dts" "$OPENWRT_DIR/target/linux/mediatek/dts/"
-[ -f "$SCRIPT_DIR/mt7981_sl3000.mk" ] && cp -v "$SCRIPT_DIR/mt7981_sl3000.mk" "$OPENWRT_DIR/target/linux/mediatek/image/"
 
-# 3. 注入 8000 行核心配置 (关键：先物理删除旧配置)
-echo "=== ⚙️ 正在强制锁定 MT7981 架构配置 ==="
+[ -f "$CONFIG_DIR/mt7981b-sl3000-emmc.dts" ] && \
+    cp -v "$CONFIG_DIR/mt7981b-sl3000-emmc.dts" "$OPENWRT_DIR/target/linux/mediatek/dts/"
+
+[ -f "$CONFIG_DIR/mt7981_sl3000.mk" ] && \
+    cp -v "$CONFIG_DIR/mt7981_sl3000.mk" "$OPENWRT_DIR/target/linux/mediatek/image/"
+
+# 4. 强制锁定架构并应用 8000 行配置
+echo "⚙️ 正在应用 sl3000.config 并物理锁定架构..."
 cd "$OPENWRT_DIR"
 rm -f .config
-if [ -f "$CONFIG_FILE" ]; then
-    cp -v "$CONFIG_FILE" .config
-    # 🔴 核心修复：强制关闭 x86 默认选项，开启 MediaTek 选项
+
+if [ -f "$CONFIG_DIR/sl3000.config" ]; then
+    cp -v "$CONFIG_DIR/sl3000.config" .config
+    
+    # 🔴 核心修复：粉碎 x86 默认标记，强制开启 MediaTek 路径
     sed -i 's/CONFIG_TARGET_x86_64=y/# CONFIG_TARGET_x86_64 is not set/' .config
     sed -i 's/CONFIG_TARGET_x86=y/# CONFIG_TARGET_x86 is not set/' .config
-    echo "CONFIG_TARGET_mediatek=y" >> .config
-    echo "CONFIG_TARGET_mediatek_filogic=y" >> .config
-    echo "CONFIG_TARGET_mediatek_filogic_DEVICE_sl_3000-spi-nor=y" >> .config
+    
+    {
+      echo "CONFIG_TARGET_mediatek=y"
+      echo "CONFIG_TARGET_mediatek_filogic=y"
+      echo "CONFIG_TARGET_mediatek_filogic_DEVICE_sl_3000-spi-nor=y"
+    } >> .config
 else
-    echo "❌ 错误：未发现 $CONFIG_FILE"
+    echo "❌ 错误：在 $CONFIG_DIR 中未发现 sl3000.config"
     exit 1
 fi
 
-# 4. 更新 Feeds
-echo "=== ⚡ 更新与安装系统 Feeds ==="
+# 5. 更新 Feeds
+echo "=== ⚡ 更新并安装系统 Feeds ==="
 ./scripts/feeds update -a
-
-# 粉碎已知冲突包
-PROBLEM_PKGS="aardvark-dns podman cargo-c python-cryptography ruby"
-for pkg in $PROBLEM_PKGS; do
-    find feeds/ -type d -name "$pkg" -exec rm -rf {} \; 2>/dev/null || true
-done
-
 ./scripts/feeds install -a
 
-# 5. 刷新配置
-echo "=== ⚙️ 执行 make defconfig 补充依赖 ==="
+# 6. 执行最终对齐
+echo "=== ⚙️ 执行 make defconfig (计算依赖树) ==="
 make defconfig
 
-echo "✅ [Part 1] 架构锁定与配置注入完成"
+echo "✅ [Part 1] 成功：硬件三件套已就绪，架构锁定为 ARM64 (MT7981)"
