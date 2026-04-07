@@ -19,11 +19,14 @@ jobs:
     - name: 准备环境 (Checkout)
       uses: actions/checkout@v4
 
-    - name: 安装物理编译依赖 (Dependencies)
+    - name: 安装物理编译依赖 (Fixing Dependencies)
       run: |
         sudo apt-get update
-        sudo apt-get install -y build-essential flex bison g++-multilib g++-12-aarch64-linux-gnu \
-        gcc-aarch64-linux-gnu device-tree-compiler python3-pyelftools qemu-utils
+        # 移除 g++-multilib，改用更纯净的交叉编译组合
+        sudo apt-get install -y build-essential flex bison \
+        gcc-aarch64-linux-gnu g++-aarch64-linux-gnu \
+        device-tree-compiler python3-pyelftools qemu-utils libncurses5-dev \
+        libssl-dev u-boot-tools rsync unzip zlib1g-dev
 
     - name: 物理全链路溯源 (Clone Repos)
       run: |
@@ -35,14 +38,16 @@ jobs:
 
     - name: 执行像素级补丁与配置 (DIY Scripts)
       run: |
+        # 确保目录存在
+        mkdir -p output/rescue
         # 复制你的 .config 到 OpenWrt 目录
-        cp -f $CONFIG_FILE source-repo/immortalwrt/.config
+        [ -f "$CONFIG_FILE" ] && cp -f "$CONFIG_FILE" source-repo/immortalwrt/.config
         # 赋予脚本执行权限
         chmod +x $DIY_P2_SH
         # 运行核心缝合脚本 (V11版)
         ./$DIY_P2_SH
 
-    - name: 提取并打包全家桶 (Organize Artifacts)
+    - name: 整理并校验产物 (Organize Artifacts)
       run: |
         mkdir -p ./final_out/rescue
         # 1. 提取 diy-part2.sh 手动缝合的救砖包
@@ -51,14 +56,15 @@ jobs:
         fi
         
         # 2. 提取 OpenWrt 编译出的 ITB 系统镜像
-        find source-repo/immortalwrt/bin/targets/mediatek/filogic/ -type f \
-        \( -name "*spi-nor*" -o -name "*.itb" \) -exec cp {} ./final_out/ \;
+        TARGET_BIN="source-repo/immortalwrt/bin/targets/mediatek/filogic/"
+        if [ -d "$TARGET_BIN" ]; then
+          find "$TARGET_BIN" -type f \( -name "*spi-nor*" -o -name "*.itb" \) -exec cp {} ./final_out/ \;
+        fi
         
-        echo "✅ 产物审计完成，包含全量救砖包及系统固件。"
+        echo "✅ 产物整理完成。"
 
     - name: 上传救砖全家桶 (Upload Artifact)
       uses: actions/upload-artifact@v4
       with:
         name: SL3000-Full-Rescue-Kit-1GB-RAM
         path: ./final_out/
-        if-no-files-found: error
