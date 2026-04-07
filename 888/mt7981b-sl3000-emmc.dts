@@ -5,8 +5,8 @@
 #include <dt-bindings/leds/common.h>
 
 / {
-	model = "SL-3000 (1GB DDR4 SPI-NOR/eMMC)";
-	compatible = "sl,sl3000", "mediatek,mt7981";
+	model = "SL-3000 (1GB DDR4 32MB SPI-NOR)";
+	compatible = "sl,3000-spi-nor", "mediatek,mt7981";
 
 	aliases {
 		serial0 = &uart0;
@@ -19,11 +19,11 @@
 
 	chosen {
 		stdout-path = "serial0:115200n8";
-		/* 移除硬编码，改用逻辑分区查找 */
-		bootargs = "console=ttyS0,115200n1 loglevel=8 earlycon=uart8250,mmio32,0x11002000 rootwait";
+		/* 溯源诊断：强制 rootfs 挂载点在 mtdblock5 (firmware) */
+		bootargs = "console=ttyS0,115200n1 loglevel=8 earlycon=uart8250,mmio32,0x11002000 root=/dev/mtdblock5 rootwait";
 	};
 
-	/* [物理修复]：1GB DDR4 完整内存映射 */
+	/* [物理修复]：1GB DDR4 完整内存映射，确保 ATF 训练后内核能全额识别 */
 	memory@40000000 {
 		device_type = "memory";
 		reg = <0x0 0x40000000 0x0 0x40000000>;
@@ -35,7 +35,6 @@
 		regulator-min-microvolt = <1800000>;
 		regulator-max-microvolt = <1800000>;
 		regulator-always-on;
-		regulator-boot-on;
 	};
 
 	leds {
@@ -66,7 +65,7 @@
 	};
 };
 
-/* [核心]：SPI-NOR 32MB 分区表同步 (3.5MB FIP / 5.5MB Firmware) */
+/* [核心溯源]：SPI-NOR 32MB 救砖分区表物理锁定 */
 &spi0 {
 	pinctrl-names = "default";
 	pinctrl-0 = <&spi0_flash_pins>;
@@ -82,64 +81,49 @@
 			#address-cells = <1>;
 			#size-cells = <1>;
 
+			/* 0x0 - 1MB: 存放 BL2 (Preloader) */
 			partition@0 {
 				label = "BL2";
-				reg = <0x0 0x100000>; /* 1MB */
+				reg = <0x0 0x100000>;
 				read-only;
 			};
 
+			/* 0x100000 - 512KB: U-Boot 环境变量区 */
 			partition@100000 {
-				label = "Config";
-				reg = <0x100000 0x80000>; /* 512KB */
+				label = "u-boot-env";
+				reg = <0x100000 0x80000>;
 			};
 
+			/* 0x180000 - 2MB: 厂家数据区 (无线参数) */
 			partition@180000 {
-				label = "Factory";
-				reg = <0x180000 0x200000>; /* 2MB */
+				label = "factory";
+				reg = <0x180000 0x200000>;
 				read-only;
 			};
 
-			/* 物理对齐：BL2 跳转至 3.5MB 处寻址 FIP */
+			/* ⚡[救砖关键]：3.5MB 偏移处必须存放 FIP (U-Boot) */
 			partition@380000 {
 				label = "FIP";
-				reg = <0x380000 0x200000>; /* 2MB */
+				reg = <0x380000 0x200000>;
 				read-only;
 			};
 
-			/* 物理对齐：5.5MB 处引导主系统 */
+			/* 5.5MB 之后为系统区 (Firmware) */
 			partition@580000 {
 				label = "firmware";
-				reg = <0x580000 0x1900000>; /* 25MB */
+				reg = <0x580000 0x1980000>; /* 约 25.5MB */
 			};
 
-			partition@1e80000 {
-				label = "Storage";
-				reg = <0x1e80000 0x180000>; /* 1.5MB */
+			/* 末尾预留小部分存储空间 */
+			partition@1f00000 {
+				label = "storage";
+				reg = <0x1f00000 0x100000>;
 			};
 		};
 	};
 };
 
-/* [核心]：eMMC 8-bit 高速存储 */
-&mmc0 {
-	status = "okay";
-	pinctrl-names = "default", "state_uhs";
-	pinctrl-0 = <&mmc0_pins_default>;
-	pinctrl-1 = <&mmc0_pins_uhs>;
-	bus-width = <8>;
-	max-frequency = <52000000>;
-	cap-mmc-highspeed;
-	cap-mmc-hw-reset;
-	mmc-hs200-1_8v; /* HS200 信号支持 */
-	vmmc-supply = <&reg_3p3v>;
-	vqmmc-supply = <&reg_1p8v>;
-	non-removable;
-	full-pwr-cycle;
-	no-sd;
-	no-sdio;
-};
-
-/* [核心]：2.5G 网口 + MT7531 交换机 */
+/* [2.5G 网口补丁]：连接至 MT7531 交换机 */
 &eth {
 	status = "okay";
 	gmac0: mac@0 {
@@ -186,6 +170,9 @@
 	};
 };
 
+/* 引脚复用审计：关闭 eMMC 以确保 SPI 总线信号纯净 */
+&mmc0 { status = "disabled"; };
+
 &pio {
 	spi0_flash_pins: spi0-pins {
 		mux {
@@ -202,32 +189,7 @@
 			drive-strength = <MTK_DRIVE_8mA>;
 		};
 	};
-
-	mmc0_pins_default: mmc0-pins-default {
-		mux {
-			function = "flash";
-			groups = "emmc_45";
-		};
-		conf-pu {
-			pins = "EMMC_RSTB", "EMMC_DAT0", "EMMC_DAT1", "EMMC_DAT2", "EMMC_DAT3", "EMMC_DAT4", "EMMC_DAT5", "EMMC_DAT6", "EMMC_DAT7", "EMMC_CMD";
-			bias-pull-up;
-			drive-strength = <MTK_DRIVE_8mA>;
-		};
-		conf-clk {
-			pins = "EMMC_CK";
-			drive-strength = <MTK_DRIVE_10mA>;
-		};
-	};
-
-	mmc0_pins_uhs: mmc0-pins-uhs {
-		mux {
-			function = "flash";
-			groups = "emmc_45";
-		};
-	};
 };
 
 &uart0 { status = "okay"; };
 &watchdog { status = "okay"; };
-&reg_3p3v { status = "okay"; };
-&reg_1p8v { status = "okay"; };
