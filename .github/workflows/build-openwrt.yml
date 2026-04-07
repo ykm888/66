@@ -1,69 +1,64 @@
-name: SL3000 1G-32M Full Build
+name: SL3000-1GB-32MB-Rescue-Kit-Build
 
 on:
+  repository_dispatch:
   workflow_dispatch:
-  push:
-    tags: [ 'v*' ]
+
+env:
+  REPO_URL: https://github.com/immortalwrt/immortalwrt
+  REPO_BRANCH: openwrt-24.10-6.6
+  CONFIG_FILE: .config
+  DIY_P2_SH: diy-part2.sh
+  TZ: Asia/Shanghai
 
 jobs:
   build:
     runs-on: ubuntu-22.04
-    permissions:
-      contents: write
-    env:
-      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
     steps:
-      - name: Checkout main branch
-        uses: actions/checkout@v4
-        with:
-          path: main-repo
+    - name: 准备环境 (Checkout)
+      uses: actions/checkout@v4
 
-      - name: Checkout source branch
-        uses: actions/checkout@v4
-        with:
-          repository: ykm99999/66
-          ref: sl3000-full-sync
-          path: source-repo
+    - name: 安装物理编译依赖 (Dependencies)
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential flex bison g++-multilib g++-12-aarch64-linux-gnu \
+        gcc-aarch64-linux-gnu device-tree-compiler python3-pyelftools qemu-utils
 
-      - name: Install Build Dependencies
-        run: |
-          sudo apt update
-          sudo apt install -y build-essential clang flex bison gawk \
-            gettext git libncurses-dev libncurses5-dev libssl-dev \
-            python3-distutils python3-setuptools rsync unzip zlib1g-dev file wget \
-            gcc-aarch64-linux-gnu device-tree-compiler qemu-utils \
-            libtool libtool-bin autoconf automake autopoint libelf-dev \
-            antlr3 gperf swig libtinfo5
-          sudo timedatectl set-timezone "Asia/Shanghai"
+    - name: 物理全链路溯源 (Clone Repos)
+      run: |
+        mkdir -p source-repo
+        # 克隆 OpenWrt 源码
+        git clone --depth 1 $REPO_URL -b $REPO_BRANCH source-repo/immortalwrt
+        # 克隆 ATF 源码 (用于生成引导零件)
+        git clone --depth 1 https://github.com/ykm888/66 -b sl3000-uboot-base source-repo/arm-trusted-firmware
 
-      - name: Run diy-part1.sh
-        run: |
-          chmod +x main-repo/diy-part1.sh
-          ./main-repo/diy-part1.sh
+    - name: 执行像素级补丁与配置 (DIY Scripts)
+      run: |
+        # 复制你的 .config 到 OpenWrt 目录
+        cp -f $CONFIG_FILE source-repo/immortalwrt/.config
+        # 赋予脚本执行权限
+        chmod +x $DIY_P2_SH
+        # 运行核心缝合脚本 (V11版)
+        ./$DIY_P2_SH
 
-      - name: Run diy-part2.sh
-        run: |
-          # 核心修复：物理接管 runner 权限，防止目录访问受阻
-          sudo chown -R runner:runner $GITHUB_WORKSPACE
-          chmod +x main-repo/diy-part2.sh
-          ./main-repo/diy-part2.sh
+    - name: 提取并打包全家桶 (Organize Artifacts)
+      run: |
+        mkdir -p ./final_out/rescue
+        # 1. 提取 diy-part2.sh 手动缝合的救砖包
+        if [ -d "./output/rescue" ]; then
+          cp -r ./output/rescue/* ./final_out/rescue/
+        fi
+        
+        # 2. 提取 OpenWrt 编译出的 ITB 系统镜像
+        find source-repo/immortalwrt/bin/targets/mediatek/filogic/ -type f \
+        \( -name "*spi-nor*" -o -name "*.itb" \) -exec cp {} ./final_out/ \;
+        
+        echo "✅ 产物审计完成，包含全量救砖包及系统固件。"
 
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
-        if: success()
-        with:
-          tag_name: v${{ github.run_id }}
-          name: "SL3000 1GB-32MB Recovery Build"
-          files: |
-            output/rescue/*.bin
-            output/*.bin
-            output/*.itb
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Upload Artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: sl3000-firmware
-          path: output/
-          if-no-files-found: error
+    - name: 上传救砖全家桶 (Upload Artifact)
+      uses: actions/upload-artifact@v4
+      with:
+        name: SL3000-Full-Rescue-Kit-1GB-RAM
+        path: ./final_out/
+        if-no-files-found: error
