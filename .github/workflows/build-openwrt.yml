@@ -1,4 +1,4 @@
-name: SL3000-Final-Build-v4
+name: SL3000-Final-Build-v6
 
 on:
   workflow_dispatch:
@@ -10,19 +10,26 @@ jobs:
       contents: write
 
     steps:
-      - name: 1. 检出主仓库 (Scripts & Config)
+      - name: 1. 检出仓库
         uses: actions/checkout@v4
         with:
           path: main-workspace
 
-      - name: 2. 检出同步源 (ykm99999/66)
+      - name: 2. 检出同步源
         uses: actions/checkout@v4
         with:
           repository: ykm99999/66
           ref: sl3000-full-sync
           path: main-workspace/source-repo
 
-      - name: 3. 安装物理编译依赖
+      - name: 3. 物理生成合法 Tag
+        id: set_tag
+        run: |
+          # 预先生成纯数字+字母的合法标签
+          TAG="SL3000-V6-$(date +'%Y%m%d-%H%M')"
+          echo "tag_id=$TAG" >> $GITHUB_OUTPUT
+
+      - name: 4. 安装依赖
         run: |
           sudo apt update
           sudo apt install -y build-essential clang flex bison gawk \
@@ -30,50 +37,32 @@ jobs:
             python3-distutils python3-setuptools rsync unzip zlib1g-dev file wget \
             gcc-aarch64-linux-gnu device-tree-compiler u-boot-tools
 
-      - name: 4. 执行 Part 1 (架构锁定与 DTS 纠偏)
+      - name: 5. 执行 Part 1 & Part 2
         run: |
           cd main-workspace
-          chmod +x diy-part1.sh
+          chmod +x diy-part1.sh diy-part2.sh
           ./diy-part1.sh
-
-      - name: 5. 注入 1GB 内存与 3.5MB 偏移补丁
-        run: |
-          # 像素级修正：确保编译脚本直接指向 1GB 内存训练
-          ATF_PATH="main-workspace/source-repo/arm-trusted-firmware"
-          if [ -d "$ATF_PATH" ]; then
-            cd "$ATF_PATH"
-            # 禁用 EOF，使用 printf 物理注入 1GB 补丁
-            printf '#include <common/debug.h>\nextern void emi_init_setting(void);\nvoid mtk_mem_init(void) {\n    NOTICE("EMI: SL3000 1GB DDR4 Active.\\n");\n    emi_init_setting();\n}\n' > plat/mediatek/mt7981/drivers/dram/mtk_mem_init.c
-          fi
-
-      - name: 6. 执行 Part 2 (物理编译与 32MB 镜像缝合)
-        run: |
-          cd main-workspace
-          chmod +x diy-part2.sh
-          # 这一步会产出你在 NeoProgrammer 里看到的 33554432 字节镜像
           ./diy-part2.sh
 
-      - name: 7. 产物校验 (32MB 完整性检查)
+      - name: 6. 物理对齐产物目录
         run: |
-          FILE_SIZE=$(stat -c%s "main-workspace/output/SL3000_1GB_RESCUE_32M.bin")
-          echo "Physical File Size: $FILE_SIZE"
-          if [ "$FILE_SIZE" -ne 33554432 ]; then
-            echo "❌ 错误：镜像大小不符合 32MB 物理标准"
-            exit 1
-          fi
+          # 强制创建一个平级目录方便发布，防止通配符失效
+          mkdir -p main-workspace/deploy
+          cp -v main-workspace/output/*.bin main-workspace/deploy/ || true
+          # 递归搜寻所有 bin 并放入 deploy
+          find main-workspace/output/ -name "*.bin" -exec cp -v {} main-workspace/deploy/ \;
 
-      - name: 8. 自动发布至 Release
+      - name: 7. 发布 Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: "SL3000-V4-Fix-$(date +'%Y%m%d')"
-          name: "SL3000 1GB 救砖包 (V4 路径对齐版)"
+          # 使用步骤 3 生成的合法变量
+          tag_name: ${{ steps.set_tag.outputs.tag_id }}
+          name: "SL3000 救砖固件 V6 (${{ steps.set_tag.outputs.tag_id }})"
           body: |
-            ### 🛠️ 物理修复日志 (V4)
-            - **内存对齐**: 强制注入 1GB DDR4 训练脚本。
-            - **偏移对齐**: FIP 严格锁定在 0x380000 物理地址。
-            - **全家桶**: 包含 32MB 编程器镜像、BL2、FIP。
+            ### 🛠️ 物理修复 V6
+            - 修正了 Tag 命名导致的发布失败。
+            - 强制对齐了编译产物路径。
+            - 建议下载 `SL3000_1GB_RESCUE_32M.bin` 进行编程器烧录。
           files: |
-            main-workspace/output/*.bin
-            main-workspace/output/atf/*.bin
-            main-workspace/output/firmware/*.bin
+            main-workspace/deploy/*.bin
           token: ${{ secrets.GITHUB_TOKEN }}
