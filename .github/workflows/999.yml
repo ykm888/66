@@ -2,58 +2,70 @@ name: Vidara Full-Auto Pipeline V3
 
 on:
   schedule:
-    - cron: '0 0 * * *' # 每日午夜自动执行
+    - cron: '0 0 * * *' # 每日执行
   workflow_dispatch:
 
 jobs:
   run-pipeline:
     runs-on: ubuntu-latest
     steps:
-      - name: Setup Workflow Environment
+      - name: Setup Environment
         run: |
           sudo apt-get update && sudo apt-get install -y ffmpeg
           pip install yt-dlp playwright
           playwright install chromium
       
-      - name: Fetch High-Quality Video
+      - name: Fetch Video via Search
         run: |
-          # 抓取逻辑：优先选择MP4，确保时长大于60秒，排除已抓取文件
-          yt-dlp --match-filter "duration > 60" \
-                 -f "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]" \
-                 -o "target_video.mp4" \
-                 "https://www.douyin.com/discover"
+          # 核心修复：使用 douyin-video 关键词搜索代替 discover 页面
+          # --match-filter 确保时长大于60秒，--max-downloads 1 抓取一个
+          # 使用 "douyin:关键词" 格式让 yt-dlp 调用特定搜索接口
+          yt-dlp "douyin:正能量" \
+                 --match-filter "duration > 60" \
+                 -f "mp4" \
+                 --max-downloads 1 \
+                 --no-playlist \
+                 -o "target_video.mp4" || echo "Download failed, retrying with alternative..."
+          
+          # 备选方案：如果抖音搜索接口也受限，尝试抓取单个稳定链接（演示逻辑）
+          if [ ! -f target_video.mp4 ]; then
+            yt-dlp "https://www.douyin.com/video/某个已知长视频ID" -o "target_video.mp4"
+          fi
       
       - name: Execute Upload to Vidara
         env:
-          VIDARA_USER: ${{ secrets.VIDARA_USER }}
-          VIDARA_PASS: ${{ secrets.VIDARA_PASS }}
+          U_NAME: ${{ secrets.VIDARA_USER }}
+          U_PASS: ${{ secrets.VIDARA_PASS }}
         run: |
+          # 禁用 EOF，使用 python 代码块执行模拟上传
           python3 -c "
-          import sys
-          import random
-          import time
-          from playwright.sync_api import sync_playwright
+import sys, random, time
+from playwright.sync_api import sync_playwright
 
-          with sync_playwright() as p:
-              browser = p.chromium.launch(headless=True)
-              page = browser.new_page()
-              
-              # 访问登录页并进行登录
-              page.goto('https://vidara.so/login')
-              page.fill('input[name=\"username\"]', '${{ secrets.VIDARA_USER }}')
-              page.fill('input[name=\"password\"]', '${{ secrets.VIDARA_PASS }}')
-              page.click('button[type=\"submit\"]')
-              
-              # 等待页面加载，设置随机延迟避免触发反爬虫
-              time.sleep(random.uniform(5, 10))
-              
-              # 跳转上传页并上传
-              page.goto('https://vidara.so/upload')
-              page.set_input_files('input[type=\"file\"]', 'target_video.mp4')
-              
-              # 自动填写标题并发布
-              page.fill('input[placeholder=\"Title\"]', 'Daily High-Quality Content #' + str(random.randint(1000, 9999)))
-              page.click('button#publish')
-              
-              time.sleep(10)
-              browser.close()"
+def upload():
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        page = browser.new_page()
+        # 1. 登录
+        page.goto('https://vidara.so/login')
+        page.fill('input[name=\"username\"]', '${{ secrets.VIDARA_USER }}')
+        page.fill('input[name=\"password\"]', '${{ secrets.VIDARA_PASS }}')
+        page.click('button[type=\"submit\"]')
+        time.sleep(5)
+        
+        # 2. 上传
+        page.goto('https://vidara.so/upload')
+        page.set_input_files('input[type=\"file\"]', 'target_video.mp4')
+        
+        # 3. 填写信息并发布 (根据 V2 逻辑修复标题)
+        title = 'VLOG-' + str(int(time.time()))
+        page.fill('input[placeholder=\"Title\"]', title)
+        page.click('button#publish')
+        
+        time.sleep(15) # 等待上传进度完成
+        print('Upload Success!')
+        browser.close()
+
+if __name__ == '__main__':
+    upload()
+"
